@@ -188,3 +188,22 @@ def nearest_neighbor_distances(s: np.ndarray, basis: np.ndarray) -> np.ndarray:
                 r = ds @ basis
                 out[i] = min(out[i], math.sqrt(modulus2(r)))
     return out
+
+
+def pair_distances(s: np.ndarray, basis: np.ndarray) -> np.ndarray:
+    """Return minimum-image distances of all pairs i < j (3^d image scan).
+
+    Exact for reasonably reduced cells, like ``nearest_neighbor_distances``.
+    """
+    assert s.ndim == 2 and s.shape[1] == basis.shape[0], "dimension mismatch"
+    n, dim = s.shape
+    shifts = list(itertools.product((-1, 0, 1), repeat=dim))
+    out: List[float] = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            best = math.inf
+            for sh in shifts:
+                ds = s[j] + np.array(sh, dtype=np.float64) - s[i]
+                best = min(best, math.sqrt(modulus2(ds @ basis)))
+            out.append(best)
+    return np.array(out, dtype=np.float64)
