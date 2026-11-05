@@ -1,0 +1,21 @@
+# Local hooks run in the project environment so mypy sees real dependencies.
+# Run through: uv run --no-sync pre-commit run --all-files
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run --no-sync ruff check
+        language: system
+        types_or: [python, pyi]
+      - id: ruff-format
+        name: ruff format --check
+        entry: uv run --no-sync ruff format --check
+        language: system
+        types_or: [python, pyi]
+      - id: mypy
+        name: mypy --strict src
+        entry: uv run --no-sync mypy --strict src
+        language: system
+        pass_filenames: false
+        files: ^(src/|pyproject\.toml)
