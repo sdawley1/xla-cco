@@ -47,8 +47,8 @@ window with `%a`. The potential is `ShiftedCCPotential` directly; with `val = 0`
 
 Seeded NumPy packs `poisson_d{d}_n{N}` for (1, 50), (2, 64), (3, 100): seed
 `20261100 + d`, 5 configs = 4 Poisson (indices 0-3) + 1 near-ordered (index 4:
-lattice `(i+0.5)/m` with 50 / 8x8 / 5x5x4 points, plus uniform +/-1e-3 fractional
-noise, wrapped). `*_pert` are the same with `+1e-15` added and wrapped (noise
+lattice `(i+0.5)/m` with 50 / 8x8 / 5x5x4 points, i.e. cell-centred sites, plus
+uniform +/-1e-3 noise in fractional units, wrapped). `*_pert` are the same with `+1e-15` added and wrapped (noise
 horizon). The C++ ChunkPack inputs are the first 5 configs of
 `cco_runs/p3d-N100-phi0.05-chi0.05-val0.0/ic/chunk_0000`.
 
@@ -74,7 +74,9 @@ All `params` record d, N, phi, M, chi, source pack, seed, the raw `k_inner` /
   first m in 1..256 where the accept sequences of the base and `+1e-15` runs differ,
   else 256. Runs to 256 are not stored beyond m = 200.
 * `sk_d3_chi0.05`: first 50 relaxed configs of `task_0000/ccopt-t0000_Success`;
-  `table` columns = mean |k|, mean S, std |k|, std error S.
+  `table` columns = mean |k|, mean S, column 2 = standard error of the mean |k|
+  (variance divided by `Sum1` in StructureFactor.cpp, not the plain std), column 3 =
+  standard error of S. (The label stored in the npz params is left unchanged.)
 * `lbfgs_d3_chi{0.05,0.25}`: unmodified `EXC/soft_core_stealthy2.out`
   (argv `1 1e-20 500000 0`, stdin per `params.stdin`) on the d = 3 Poisson pack.
   `s0`, `energy_final` (harness recompute on the output pack), `success = E <
