@@ -114,7 +114,10 @@ def run(
     The loop stops when ``done_fn(state)`` holds or the counter reaches
     ``max_iters``. Finished lanes are frozen bit-exactly: the whole state
     PyTree is passed through ``jnp.where(done, old, new)``, which matters
-    under ``vmap`` where all lanes step until every lane is done.
+    under ``vmap`` where all lanes step until every lane is done. JAX's batched
+    ``while_loop`` already masks finished lanes with the loop predicate, so this
+    freeze is redundant on the vmapped path; it is kept because it documents the
+    intent and protects any caller whose ``done_fn`` differs from the predicate.
 
     Parameters
     ----------

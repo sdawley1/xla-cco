@@ -121,6 +121,7 @@ class LBFGSState(eqx.Module):
     ``optax.value_and_grad_from_state``).
     """
 
+    s: Positions
     x: Positions
     f: Array
     gx: Positions
@@ -147,7 +148,7 @@ def _recorder(settings: LBFGSSettings) -> Optional[Any]:
         settings.record_every,
         lambda st: (
             st.it,
-            st.x / _rescale(settings, st.pass_idx),
+            st.s,
             st.f,
             st.last_step,
         ),
@@ -174,6 +175,7 @@ def init_one(
     status = jnp.where(f < settings.energy_tol, STATUS_ENERGY_TOL, STATUS_RUNNING)
     zero = jnp.asarray(0, jnp.int64)
     return LBFGSState(
+        s=s0,
         x=x,
         f=f,
         gx=gs / r0,
@@ -223,6 +225,13 @@ def _line_search(
     return x_new, f_new, gx_new, fail, evals, opt_new, step, info.decrease_error
 
 
+def update_stagnation(f_new: Array, f_old: Array, stag: Array) -> Array:
+    """Consecutive-iterations counter: reset on a strict decrease, else +1."""
+    assert f_new.shape == f_old.shape == stag.shape, "scalar counters expected"
+    assert jnp.issubdtype(stag.dtype, jnp.integer), "stag must be an integer"
+    return jnp.where(f_new < f_old, jnp.zeros_like(stag), stag + 1)
+
+
 def _pass_reason(
     settings: LBFGSSettings,
     st: LBFGSState,
@@ -262,9 +271,10 @@ def chunk_one(
         )
         # a failed search keeps the previous point (monotone in Phi)
         x = jnp.where(fail, st.x, x_n)
+        s = jnp.where(fail, st.s, x_n / r)  # s carried: no s*R/R round trip
         f = jnp.where(fail, st.f, f_n)
         gx = jnp.where(fail, st.gx, g_n)
-        stag = jnp.where(f < st.f, 0, st.stag + 1)
+        stag = update_stagnation(f, st.f, st.stag)
         pass_evals = st.pass_evals + evals
         glob, local = _pass_reason(settings, st, f, gx, r, fail, stag, pass_evals)
         last = st.pass_idx >= n_pass - 1
@@ -273,9 +283,10 @@ def chunk_one(
         status = jnp.where(glob != STATUS_RUNNING, glob, STATUS_RUNNING)
         status = jnp.where(pass_end & last, local, status)
         r_next = _rescale(settings, jnp.minimum(st.pass_idx + 1, n_pass - 1))
-        x_adv = x / r * r_next
+        x_adv = s * r_next
         gx_adv = gx * r / r_next
         new = LBFGSState(
+            s=s,
             x=jnp.where(advance, x_adv, x),
             f=f,
             gx=jnp.where(advance, gx_adv, gx),
@@ -308,7 +319,7 @@ def finalize_one(settings: LBFGSSettings, state: LBFGSState) -> RelaxResult:
     r = _rescale(settings, state.pass_idx)
     gnorm = jnp.sqrt(jnp.sum(state.gx * state.gx)) * r
     return RelaxResult(
-        s=wrap_fractional(state.x / r),
+        s=wrap_fractional(state.s),
         energy=state.f,
         grad_norm=gnorm,
         n_evals=state.n_evals,

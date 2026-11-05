@@ -20,6 +20,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from hypothesis import example, given, settings
+from hypothesis import strategies as st
 from jax import Array
 
 # ----- project -----
@@ -27,7 +29,7 @@ from systems import small_system
 from tolerances import ATOL_PASS_RESTART_S
 from xla_cco.energy import AbstractEnergy
 from xla_cco.kvectors import k_outer_from_ka, ka_from_chi
-from xla_cco.minimize.lbfgs import LBFGSSettings, lbfgs
+from xla_cco.minimize.lbfgs import LBFGSSettings, lbfgs, update_stagnation
 from xla_cco.minimize.result import (
     STATUS_BUDGET,
     STATUS_ENERGY_TOL,
@@ -208,3 +210,40 @@ def test_lbfgs_rejects_non_float64() -> None:
     energy, _ = _poisson(8, 2, 0.25)
     with pytest.raises(TypeError):
         lbfgs(energy, jnp.zeros((8, 2), jnp.float32), LBFGSSettings())
+
+
+def test_stagnation_counter_resets_on_progress() -> None:
+    """Steady strict progress for > patience iterations is not STAGNATED."""
+    n = 6
+    diag = np.logspace(0, 3, 2 * n)  # ill-conditioned: gradual progress
+    energy = _Quadratic(jnp.asarray(np.diag(diag)), jnp.full((n, 2), 0.5))
+    s0 = jnp.asarray(np.random.default_rng(5).uniform(0.3, 0.7, size=(n, 2)))
+    cfg = LBFGSSettings(
+        rescales=(1.0,),
+        memory=1,
+        max_linesearch_steps=3,
+        stagnation_patience=2,
+        record_every=1,
+        max_records=40,
+    )
+    res = lbfgs(energy, s0, cfg)
+    traj = res.trajectory
+    assert traj is not None
+    e = np.asarray(traj.energy)[: int(traj.count)]
+    run = int(np.argmax(np.diff(e) >= 0.0)) if np.any(np.diff(e) >= 0.0) else len(e)
+    assert run > 2 * cfg.stagnation_patience, "need steady progress beyond patience"
+    # the run did not stop while it was still strictly decreasing
+    assert int(res.n_iters) > run - 1
+    assert int(res.status) in (STATUS_STAGNATED, STATUS_LINESEARCH_FAIL, STATUS_BUDGET)
+
+
+@settings(deadline=None)
+@given(st.lists(st.sampled_from([0.0, 1.0, 2.0, 3.0]), min_size=2, max_size=30))
+@example([3.0, 2.0, 2.0, 1.0, 1.0, 1.0, 0.0])
+def test_update_stagnation_counts_consecutive_non_decreases(fs: List[float]) -> None:
+    """The counter equals the length of the current run of non-decreasing steps."""
+    stag, expected = jnp.asarray(0), 0
+    for old, new in zip(fs[:-1], fs[1:], strict=True):
+        stag = update_stagnation(jnp.asarray(new), jnp.asarray(old), stag)
+        expected = 0 if new < old else expected + 1
+        assert int(stag) == expected
