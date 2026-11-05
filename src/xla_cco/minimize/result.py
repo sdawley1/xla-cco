@@ -4,7 +4,8 @@
 Result containers and status codes for the minimizers.
 
 Status codes: 0 running, 1 energy below tolerance, 2 step below floor,
-3 evaluation budget exhausted, 4 stagnated, 5 line-search failure.
+3 evaluation budget exhausted, 4 stagnated, 5 line-search failure,
+6 gradient norm below tolerance (added in T7; L-BFGS only).
 Positions are fractional; energies are dimensionless (density 1).
 
 Samuel J. Dawley
@@ -36,6 +37,7 @@ STATUS_STEP_FLOOR: int = 2
 STATUS_BUDGET: int = 3
 STATUS_STAGNATED: int = 4
 STATUS_LINESEARCH_FAIL: int = 5
+STATUS_GRAD_TOL: int = 6
 
 # ============================================================
 # CONTAINERS
