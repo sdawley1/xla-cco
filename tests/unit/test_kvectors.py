@@ -108,3 +108,25 @@ def test_enumerate_rejects_invalid_input() -> None:
         enumerate_kvectors(eye, 0.0, float("inf"))  # non-finite
     with pytest.raises(ValueError):
         enumerate_kvectors(np.array([[1.0, np.nan], [0.0, 1.0]]), 0.0, 5.0)
+
+
+def _same_set(basis: np.ndarray, k_outer: float) -> None:
+    kset = enumerate_kvectors(basis, 0.0, k_outer)
+    n_ref, _ = oracle.halfspace_kvectors(basis, 0.0, k_outer)
+    assert {tuple(r) for r in kset.n.tolist()} == {tuple(r) for r in n_ref.tolist()}
+    assert kset.n.shape[0] == n_ref.shape[0] > 0
+
+
+def test_kset_strongly_sheared_3d_matches_oracle() -> None:
+    _same_set(np.array([[1.0, 0, 0], [8.0, 1, 0], [-6.0, 7, 1]]), 9.0)
+
+
+@pytest.mark.parametrize("k_outer", [3.0, 5.0, 8.0])
+def test_kset_scaled_sheared_3d_matches_oracle(k_outer: float) -> None:
+    base = np.array([[1.0, 0, 0], [0.9, 1, 0], [0.7, 0.8, 1]])
+    _same_set(4.0 * base, k_outer)
+
+
+@pytest.mark.parametrize(("n", "dim"), [(100, 2), (1000, 3), (100, 3)])
+def test_kset_real_cubic_boxes_match_oracle(n: int, dim: int) -> None:
+    _same_set(np.asarray(cubic_box(n, dim).basis), 2.6093)
