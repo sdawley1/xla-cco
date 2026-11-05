@@ -9,7 +9,7 @@ falls back to the CPU:
 
 - no GPU and ``CUDA_VISIBLE_DEVICES`` unset or empty: probably no ``--gres=gpu``;
 - jaxlib has no CUDA plugin: wrong environment, use ``.venv-cuda``;
-- plugin import or initialization error: missing CUDA libraries.
+- plugin import or initialization error: missing CUDA libraries or driver.
 
 Samuel J. Dawley
 11/2026
@@ -105,8 +105,8 @@ def classify_failure(
         )
     detail = f" ({type(error).__name__}: {error})" if error is not None else ""
     return (
-        "CUDA plugin installed but failed to import or initialize: "
-        f"missing CUDA libraries{detail}."
+        "CUDA plugin installed but failed to initialize (missing CUDA "
+        f"libraries, driver, or device); see the JAX error above{detail}."
     )
 
 
