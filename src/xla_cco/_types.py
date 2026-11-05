@@ -15,6 +15,7 @@ Samuel J. Dawley
 # ============================================================
 
 # ----- numerics -----
+import numpy as np
 from jax import Array
 from jaxtyping import ArrayLike, Float
 
@@ -45,4 +46,7 @@ def require_float64(x: ArrayLike, name: str) -> None:
     TypeError
         If the dtype of ``x`` is not float64.
     """
-    raise NotImplementedError
+    assert isinstance(name, str), "name must be a string"
+    dtype = getattr(x, "dtype", None)
+    if dtype is None or dtype != np.float64:
+        raise TypeError(f"{name} must be float64, got dtype {dtype}")
