@@ -1,0 +1,150 @@
+{
+ "commands": {
+  "kernel_boundary_above_shell": [
+   "tools/cpp_reference/build/dump_reference kernel --pack tests/data/cpp/inputs/poisson_d2_n64 --d 2 --n 64 --count 5 --k-inner 0x0.0p+0 --k-outer 0x1.1c5831add62e5p+1 --out /scratch/gpfs/TORQUATO/sd2402/cco_golden_work/kernel_boundary_above_shell.txt"
+  ],
+  "kernel_boundary_on_shell": [
+   "tools/cpp_reference/build/dump_reference kernel --pack tests/data/cpp/inputs/poisson_d2_n64 --d 2 --n 64 --count 5 --k-inner 0x0.0p+0 --k-outer 0x1.1c5831add62e4p+1 --out /scratch/gpfs/TORQUATO/sd2402/cco_golden_work/kernel_boundary_on_shell.txt"
+  ],
+  "kernel_d1_chi0.05": [
+   "tools/cpp_reference/build/dump_reference kernel --pack tests/data/cpp/inputs/poisson_d1_n50 --d 1 --n 50 --count 5 --ka 0x1.015bf9217271bp-7 --phi 0.05 --out /scratch/gpfs/TORQUATO/sd2402/cco_golden_work/kernel_d1_chi0.05.txt"
+  ],
+  "kernel_d1_chi0.25": [
+   "tools/cpp_reference/build/dump_reference kernel --pack tests/data/cpp/inputs/poisson_d1_n50 --d 1 --n 50 --count 5 --ka 0x1.41b2f769cf0e1p-5 --phi 0.05 --out /scratch/gpfs/TORQUATO/sd2402/cco_golden_work/kernel_d1_chi0.25.txt"
+  ],
+  "kernel_d1_chi0.45": [
+   "tools/cpp_reference/build/dump_reference kernel --pack tests/data/cpp/inputs/poisson_d1_n50 --d 1 --n 50 --count 5 --ka 0x1.21877845a0bfep-4 --phi 0.05 --out /scratch/gpfs/TORQUATO/sd2402/cco_golden_work/kernel_d1_chi0.45.txt"
+  ],
+  "kernel_d2_chi0.05": [
+   "tools/cpp_reference/build/dump_reference kernel --pack tests/data/cpp/inputs/poisson_d2_n64 --d 2 --n 64 --count 5 --ka 0x1.999999999999ap-3 --phi 0.05 --out /scratch/gpfs/TORQUATO/sd2402/cco_golden_work/kernel_d2_chi0.05.txt"
+  ],
+  "kernel_d2_chi0.25": [
+   "tools/cpp_reference/build/dump_reference kernel --pack tests/data/cpp/inputs/poisson_d2_n64 --d 2 --n 64 --count 5 --ka 0x1.c9f25c5bfedd9p-2 --phi 0.05 --out /scratch/gpfs/TORQUATO/sd2402/cco_golden_work/kernel_d2_chi0.25.txt"
+  ],
+  "kernel_d2_chi0.45": [
+   "tools/cpp_reference/build/dump_reference kernel --pack tests/data/cpp/inputs/poisson_d2_n64 --d 2 --n 64 --count 5 --ka 0x1.3333333333334p-1 --phi 0.05 --out /scratch/gpfs/TORQUATO/sd2402/cco_golden_work/kernel_d2_chi0.45.txt"
+  ],
+  "kernel_d3_chi0.05": [
+   "tools/cpp_reference/build/dump_reference kernel --pack tests/data/cpp/inputs/poisson_d3_n100 --d 3 --n 100 --count 5 --ka 0x1.3151c93b221cfp-1 --phi 0.05 --out /scratch/gpfs/TORQUATO/sd2402/cco_golden_work/kernel_d3_chi0.05.txt"
+  ],
+  "kernel_d3_chi0.25": [
+   "tools/cpp_reference/build/dump_reference kernel --pack tests/data/cpp/inputs/poisson_d3_n100 --d 3 --n 100 --count 5 --ka 0x1.050b6316046b9p+0 --phi 0.05 --out /scratch/gpfs/TORQUATO/sd2402/cco_golden_work/kernel_d3_chi0.25.txt"
+  ],
+  "kernel_d3_chi0.45": [
+   "tools/cpp_reference/build/dump_reference kernel --pack tests/data/cpp/inputs/poisson_d3_n100 --d 3 --n 100 --count 5 --ka 0x1.3d8b888ba1d9fp+0 --phi 0.05 --out /scratch/gpfs/TORQUATO/sd2402/cco_golden_work/kernel_d3_chi0.45.txt"
+  ],
+  "kernel_d3_cpp_ic": [
+   "tools/cpp_reference/build/dump_reference kernel --pack /scratch/gpfs/TORQUATO/sd2402/cco_runs/p3d-N100-phi0.05-chi0.05-val0.0/ic/chunk_0000 --d 3 --n 100 --count 5 --ka 0x1.3151c93b221cfp-1 --phi 0.05 --out /scratch/gpfs/TORQUATO/sd2402/cco_golden_work/kernel_d3_cpp_ic.txt"
+  ],
+  "lbfgs_d3_chi0.05": [
+   "cd <scratch>/lbfgs_chi0.05 && /home/sd2402/ccoptimization/cco/EXC/soft_core_stealthy2.out 1 1e-20 500000 0 < stdin",
+   "tools/cpp_reference/build/dump_reference kernel --pack /scratch/gpfs/TORQUATO/sd2402/cco_golden_work/lbfgs_chi0.05/ccopt --d 3 --n 100 --rescale 0 --count 5 --ka 0x1.3151c93b221cfp-1 --phi 0.05 --out /scratch/gpfs/TORQUATO/sd2402/cco_golden_work/lbfgs_chi0.05/energy_recompute.txt"
+  ],
+  "lbfgs_d3_chi0.25": [
+   "cd <scratch>/lbfgs_chi0.25 && /home/sd2402/ccoptimization/cco/EXC/soft_core_stealthy2.out 1 1e-20 500000 0 < stdin",
+   "tools/cpp_reference/build/dump_reference kernel --pack /scratch/gpfs/TORQUATO/sd2402/cco_golden_work/lbfgs_chi0.25/ccopt --d 3 --n 100 --rescale 0 --count 5 --ka 0x1.050b6316046b9p+0 --phi 0.05 --out /scratch/gpfs/TORQUATO/sd2402/cco_golden_work/lbfgs_chi0.25/energy_recompute.txt"
+  ],
+  "sk_d3_chi0.05": [
+   "tools/cpp_reference/build/dump_reference sk --pack /scratch/gpfs/TORQUATO/sd2402/cco_runs/p3d-N100-phi0.05-chi0.05-val0.0/task_0000/ccopt-t0000_Success --count 50 --out /scratch/gpfs/TORQUATO/sd2402/cco_golden_work/sk_d3_chi0.05.txt"
+  ],
+  "traj_d2_n64_chi0.25": [
+   "tools/cpp_reference/build/dump_reference traj --pack tests/data/cpp/inputs/poisson_d2_n64 --d 2 --n 64 --count 5 --pmax 256 --ka 0x1.c9f25c5bfedd9p-2 --phi 0.05 --out /scratch/gpfs/TORQUATO/sd2402/cco_golden_work/traj_d2_n64_chi0.25.txt",
+   "tools/cpp_reference/build/dump_reference traj --pack tests/data/cpp/inputs/poisson_d2_n64_pert --d 2 --n 64 --count 5 --pmax 256 --ka 0x1.c9f25c5bfedd9p-2 --phi 0.05 --out /scratch/gpfs/TORQUATO/sd2402/cco_golden_work/traj_d2_n64_chi0.25_pert.txt"
+  ],
+  "traj_d3_n100_chi0.05": [
+   "tools/cpp_reference/build/dump_reference traj --pack tests/data/cpp/inputs/poisson_d3_n100 --d 3 --n 100 --count 5 --pmax 256 --ka 0x1.3151c93b221cfp-1 --phi 0.05 --out /scratch/gpfs/TORQUATO/sd2402/cco_golden_work/traj_d3_n100_chi0.05.txt",
+   "tools/cpp_reference/build/dump_reference traj --pack tests/data/cpp/inputs/poisson_d3_n100_pert --d 3 --n 100 --count 5 --pmax 256 --ka 0x1.3151c93b221cfp-1 --phi 0.05 --out /scratch/gpfs/TORQUATO/sd2402/cco_golden_work/traj_d3_n100_chi0.05_pert.txt"
+  ]
+ },
+ "compile_command": "g++ -Wall -std=c++11 -O3 -fopenmp -DDELLA -I/home/sd2402/ccoptimization/cco -lgsl -lgslcblas -lnlopt -lm",
+ "compiler": "g++ (GCC) 11.5.0 20240719 (Red Hat 11.5.0-14)",
+ "cpp_dir_ls_l": "total 623\n-rw-r--r-- 1 sd2402 chem  1107 2022-11-07 12:28:33.000000000 -0500 AnalyzeData.h\ndrwxr-xr-x 4 sd2402 chem  4096 2026-09-15 16:52:49.605839000 -0400 CCOptimization\n-rw-r--r-- 1 sd2402 chem 37921 2025-11-20 18:27:05.628277166 -0500 CollectiveCoordinatePotential.h\n-rw-r--r-- 1 sd2402 chem  8623 2024-03-22 14:17:52.533127459 -0400 etc.cpp\n-rw-r--r-- 1 sd2402 chem  9998 2024-03-21 16:16:24.983710215 -0400 etc.h\ndrwxr-xr-x 2 sd2402 chem  4096 2026-09-02 23:06:59.397149000 -0400 EXC\ndrwxr-xr-x 2 sd2402 chem  4096 2024-04-19 16:48:01.008200273 -0400 EXC_formats\n-rw-r--r-- 1 sd2402 chem  6082 2024-02-09 10:26:28.674715366 -0500 GeometryVector.cpp\n-rw-r--r-- 1 sd2402 chem 10621 2024-03-21 20:26:28.510464413 -0400 GeometryVector.h\n-rw-r--r-- 1 sd2402 chem  5724 2022-11-07 12:27:17.000000000 -0500 LatticeSumSolver.cpp\n-rw-r--r-- 1 sd2402 chem  1354 2022-11-07 12:27:17.000000000 -0500 LatticeSumSolver.h\n-rw-r--r-- 1 sd2402 chem 25160 2026-04-14 18:39:10.868072179 -0400 MD_System.cpp\n-rw-r--r-- 1 sd2402 chem  3615 2026-01-19 16:11:34.604716028 -0500 MD_System.h\n-rw-r--r-- 1 sd2402 chem 16951 2022-11-07 12:24:33.000000000 -0500 MonteCarlo.h\n-rw-r--r-- 1 sd2402 chem 14140 2022-11-07 12:28:20.000000000 -0500 Move.h\ndrwxr-xr-x 2 sd2402 chem  4096 2026-09-02 23:06:59.039186000 -0400 obj\n-rw-r--r-- 1 sd2402 chem 37180 2024-07-24 17:59:23.827278946 -0400 PairCorrelation.cpp\n-rw-r--r-- 1 sd2402 chem 14467 2022-11-07 12:12:39.000000000 -0500 PairCorrelation.h\n-rw-r--r-- 1 sd2402 chem  5572 2022-11-07 12:26:59.000000000 -0500 ParameterSet.h\n-rw-r--r-- 1 sd2402 chem 44633 2024-04-08 12:30:16.786239339 -0400 PeriodicCellList.cpp\n-rw-r--r-- 1 sd2402 chem 59481 2024-04-19 11:09:30.104478421 -0400 PeriodicCellList.h\n-rw-r--r-- 1 sd2402 chem 47908 2022-11-07 12:24:29.000000000 -0500 Plots.cpp\n-rw-r--r-- 1 sd2402 chem  3068 2022-11-07 12:24:29.000000000 -0500 Plots.h\n-rw-r--r-- 1 sd2402 chem  9621 2026-04-21 12:54:58.700716851 -0400 Potential.cpp\n-rw-r--r-- 1 sd2402 chem 19063 2026-01-21 12:03:34.678220378 -0500 Potential.h\n-rw-r--r-- 1 sd2402 chem  1350 2022-11-07 12:05:20.000000000 -0500 RandomGenerator.cpp\n-rw-r--r-- 1 sd2402 chem  1134 2024-04-07 14:52:56.526353140 -0400 RandomGenerator.h\n-rw-r--r-- 1 sd2402 chem 39106 2026-05-07 18:11:23.345110255 -0400 StructureFactor.cpp\n-rw-r--r-- 1 sd2402 chem  8579 2024-03-21 13:56:24.023273521 -0400 StructureFactor.h\n-rw-r--r-- 1 sd2402 chem 11795 2026-04-14 18:36:13.780034468 -0400 StructureOptimizationAdvanced.cpp\n-rw-r--r-- 1 sd2402 chem  1270 2025-10-13 16:22:51.263782073 -0400 StructureOptimizationAdvanced.h\n-rw-r--r-- 1 sd2402 chem 89860 2026-07-17 11:26:53.764434000 -0400 StructureOptimization.cpp\n-rw-r--r-- 1 sd2402 chem  9195 2026-07-14 17:04:21.862805000 -0400 StructureOptimization.h\n-rw-r--r-- 1 sd2402 chem  3938 2026-05-07 11:30:29.158376077 -0400 Trajectories.cpp\n-rw-r--r-- 1 sd2402 chem   837 2026-04-14 18:07:04.213377714 -0400 Trajectories.h\ntotal 317\n-rw-r--r-- 1 sd2402 chem  2916 2024-08-07 11:52:37.546454619 -0400 2D-highT-ex.slurm\n-rw-r--r-- 1 sd2402 chem   883 2026-09-03 13:08:12.977571975 -0400 conventional-controller.slurm\n-rwxr-xr-x 1 sd2402 chem 11761 2026-09-04 16:20:33.668728000 -0400 conventional_swarm.py\n-rwxr-xr-x 1 sd2402 chem 11402 2026-09-04 16:20:33.590642000 -0400 conventional_swarm.py.bak-pre-stop\n-rw-r--r-- 1 sd2402 chem  9444 2024-04-04 16:54:45.734214362 -0400 DetailedLog.txt\n-rw-r--r-- 1 sd2402 chem 10875 2025-12-19 14:53:13.286895329 -0500 euromorph-1.slurm\n-rw-r--r-- 1 sd2402 chem  4170 2026-02-16 11:49:29.609497000 -0500 euromorph-2.slurm\n-rw-r--r-- 1 sd2402 chem 35207 2026-09-02 23:06:44.960529000 -0400 main.cpp\n-rw-r--r-- 1 sd2402 chem 34825 2026-07-20 14:44:47.442925000 -0400 main.cpp.bak-pre-gersim\n-rw-r--r-- 1 sd2402 chem 35383 2026-09-02 23:06:44.802164000 -0400 main.cpp.bak-pre-notraj\n-rw-r--r-- 1 sd2402 chem 35092 2026-07-20 15:01:38.888526000 -0400 main.cpp.bak-pre-task4\n-rw-r--r-- 1 sd2402 chem  2655 2025-07-30 12:50:25.342228207 -0400 make-copy\n-rw-r--r-- 1 sd2402 chem  3649 2026-04-14 18:41:56.874953109 -0400 makefile\n-rw-r--r-- 1 sd2402 chem   184 2024-04-04 16:25:53.411657740 -0400 param.log\n-rwxr-xr-x 1 sd2402 chem  2192 2026-09-02 23:12:43.652823758 -0400 polish-grid.sh\ndrwxr-xr-x 2 sd2402 chem  4096 2026-09-03 14:54:32.571272000 -0400 __pycache__\n-rw-r--r-- 1 sd2402 chem  4715 2025-11-20 16:36:44.187252796 -0500 RepulsiveCCPotential.h\n-rw-r--r-- 1 sd2402 chem 19912 2026-09-15 16:52:49.709673000 -0400 sam-cco-array.slurm\n-rw-r--r-- 1 sd2402 chem 19756 2026-09-15 16:52:49.607145000 -0400 sam-cco-array.slurm.bak-pre-npart\n-rw-r--r-- 1 sd2402 chem  4725 2026-07-06 15:29:55.988064553 -0400 sam-cco-copy.slurm\n-rw-r--r-- 1 sd2402 chem  3920 2024-10-14 12:37:51.284034293 -0400 sam-ccoMD.slurm\n-rw-r--r-- 1 sd2402 chem  7894 2026-09-01 11:00:48.613635000 -0400 sam-cco.slurm\n-rwxr-xr-x 1 sd2402 chem  3084 2026-09-03 10:01:12.882971017 -0400 swarm-grid.sh\n-rwxr-xr-x 1 sd2402 chem  4537 2026-09-02 23:05:43.216508000 -0400 sweep-cco-grid.sh\ntotal 60312\n-rw-r--r-- 1 sd2402 chem        0 2024-01-25 11:57:52.592002497 -0500 DetailedLog.txt\n-rwxr-xr-x 1 sd2402 chem  3822704 2024-05-17 13:30:54.076000648 -0400 manager.out\n-rwxr-xr-x 1 sd2402 chem  4954408 2025-05-09 10:47:01.375802206 -0400 models.out\n-rwxr-xr-x 1 sd2402 chem 10597112 2026-09-02 23:06:59.897755994 -0400 soft_core_stealthy2.out\n-rwxr-xr-x 1 sd2402 chem 10585056 2026-07-08 17:00:57.185160080 -0400 soft_core_stealthy2.out.bak-jul08\n-rwxr-xr-x 1 sd2402 chem 10587712 2026-07-14 17:09:03.438835835 -0400 soft_core_stealthy2.out.bak-jul17\n-rwxr-xr-x 1 sd2402 chem 10587720 2026-07-20 14:44:47.472364798 -0400 soft_core_stealthy2.out.bak-pre-gersim\n-rwxr-xr-x 1 sd2402 chem 10593056 2026-09-02 23:06:44.885998242 -0400 soft_core_stealthy2.out.bak-sep02\n",
+ "cpp_dir_ls_l_sha256": "050cdb9e8eaedbbe3f01c354b8e6ebc0274d4a0d5b45a997176a9935a123bb0a",
+ "cpp_sources_sha256": {
+  "AnalyzeData.h": "c00bbd809cb22a6c2f34013e900c0b436515f0aa40eb08863a06395993faa6d0",
+  "CollectiveCoordinatePotential.h": "f9d4674334e462278289880a2c4f5849660740fb1885338417bb72f98802f230",
+  "GeometryVector.cpp": "93b5af6975fc573db664dd02cdc643ef4a7ffbd54d796980a38295a823a24fa4",
+  "GeometryVector.h": "bf6044fe53f8d91c5757be668d46898974e9b40ef2fca1fa9e5ddf07381da5a4",
+  "LatticeSumSolver.cpp": "1aa9fa0b76e5a4ee725fcef70876df0daf2253693daeb8bb9d1a1476c0557e3f",
+  "LatticeSumSolver.h": "94bb684de72ca562f578dc8eac83204cb45a40a0125eec1f594a2f7ebe76e273",
+  "MD_System.cpp": "a48a6d0e7b84e44b886a68532934d329b73e68fe22dc64eb25c5c36cef79cd15",
+  "MD_System.h": "ddcb73f704b0058aeba95792c5a6164e246688dd3e52b0672e2780d0a063d513",
+  "MonteCarlo.h": "ab4b37977a081dbc4d44612dacbaf2497911d3bd0b111cd9301b65c3c5f9dc4b",
+  "Move.h": "1f747012012384680c8068fd74a36f82979af4f15dff31aa106c901daae12443",
+  "PairCorrelation.cpp": "78c4b3e1fc96f84fb1980c58051234601523683fa26cd65b82600f79e267451d",
+  "PairCorrelation.h": "2b6d60aeff8ba437432587bf304ad4c1431974938c22632b69ed3db691bf16cd",
+  "ParameterSet.h": "ef487ce5c4cd370f4f9c708dd268a4145aaaa75d2640c9963d8de13380dd6f29",
+  "PeriodicCellList.cpp": "a66d6f8068761b658bb3c949524bb08739dbfedebc5fb1d3c040ddd8c89e2ee0",
+  "PeriodicCellList.h": "908d4d8e013c2925fca9101ff59886e7169a9288dddd5fcfd12fa8cbcd0b0775",
+  "Plots.cpp": "514695ac3b107f665736779b8aa4615835f43952366e1704879406b4c4250deb",
+  "Plots.h": "640f37886bdf159c42377586d7dd0013d74f61536883614cb7db26ed4d46b8f6",
+  "Potential.cpp": "454be737badf40f5be3e3951e63e7dad8af406a7a15e7e2aac740677ac177f84",
+  "Potential.h": "96ce0fbabefb8fbb067d0246754fdca4d8e28d5ef4b19ae6fc40199a90531769",
+  "RandomGenerator.cpp": "f5fa50ad67d3d91c0d91375e6de001cbc09947594f483dd1a657e0c5f5ea9512",
+  "RandomGenerator.h": "111d7157f1913b790537444b62c321045a22ab936a7ea1776e53044810ba5212",
+  "StructureFactor.cpp": "2bfe626f0c2408e53c30dccdd02422edf097f55cf62d0011cd5d5a67f1a656e9",
+  "StructureFactor.h": "4368d4446018648ae90f5f77e6c1eea953933ad139286abc2f282e978f778c26",
+  "StructureOptimization.cpp": "6cb659540f4270947c423032eb5b5ec53350ecb82811603c6ea5b99a65462c9c",
+  "StructureOptimization.h": "89f57cd67c5ac1fb2221bf017d6b331d9fbcb4323fb8a5e46d4ddf313bd662b7",
+  "StructureOptimizationAdvanced.cpp": "1d21fc4bf2a33d414f78052d1e59b78abafa2450af341e75701db6939cd9ba1c",
+  "StructureOptimizationAdvanced.h": "9577551d2068a76859c0c1a8fe24c6e2c6f7b0b9a074e43e5285a6ec2a1ec0c4",
+  "Trajectories.cpp": "e5f8de9a486fce042d60b6358927a917e80558465572a436ebbe3ecc7da05de0",
+  "Trajectories.h": "cfba58f92ddf6b71c69c63519e3fd316b796125589878bbfbc4d47dbcaab153a",
+  "etc.cpp": "0daeb904fbf7fb5e5c3a3ba7311310acb035b850854abbf95e50dbdfd5aa77ad",
+  "etc.h": "2d54993e33c7dfbd0ee152dd6232cb4bf08f6cf6ff790e4376c1e5810b826f9e"
+ },
+ "files": {
+  ".gitkeep": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "inputs/poisson_d1_n50.ConfigPack": "87ad158758d3044e5d468250f6541bbde6eb43c636a533f1901de287f1805622",
+  "inputs/poisson_d1_n50.ConfigPackIndex": "d29338328b5c685b294f6e98674953a9d70bade137e7a5be940c8a85cf10ab12",
+  "inputs/poisson_d1_n50_pert.ConfigPack": "08566ddaaac4ace844bb9b3c37985cc7409dbff03f2191dcc9e453ed16df0492",
+  "inputs/poisson_d1_n50_pert.ConfigPackIndex": "d29338328b5c685b294f6e98674953a9d70bade137e7a5be940c8a85cf10ab12",
+  "inputs/poisson_d2_n64.ConfigPack": "ff86195541b69182bade36df82c54cdba9ea5b7426018e21518128da69f7834c",
+  "inputs/poisson_d2_n64.ConfigPackIndex": "3cae74417ff310142b7e3df013fd7104fec847c62bd967494a32a6bdb3a8f88f",
+  "inputs/poisson_d2_n64_pert.ConfigPack": "4a0daa46b77b7c4be8aedc9005cec63dcbdc6bc1c698779e6e9bb1cdf7605e32",
+  "inputs/poisson_d2_n64_pert.ConfigPackIndex": "3cae74417ff310142b7e3df013fd7104fec847c62bd967494a32a6bdb3a8f88f",
+  "inputs/poisson_d3_n100.ConfigPack": "6f424a5c36a1187080d66b8e6d790d44c4415bdf15f819da25b5ce33ceba254e",
+  "inputs/poisson_d3_n100.ConfigPackIndex": "c9d8cb8b1463ae2a8ae9bd3ffddeef8abb4ad6728a1740afca5a74fec80bd4ed",
+  "inputs/poisson_d3_n100_pert.ConfigPack": "437674f33ec8ff546f3d4b2a6357a2e4a189f7aa65b9917ba0c705fe409eb869",
+  "inputs/poisson_d3_n100_pert.ConfigPackIndex": "c9d8cb8b1463ae2a8ae9bd3ffddeef8abb4ad6728a1740afca5a74fec80bd4ed",
+  "kernel_boundary_above_shell.npz": "8aa6acd884da24cf9e877dc535c8f6d26a4e281b82b16addf89ac0484755a376",
+  "kernel_boundary_on_shell.npz": "84112ab8dfe00fed91508afb1a13ea5b027bac5ff3995c741ae495213f5d0d4c",
+  "kernel_d1_chi0.05.npz": "00aab586593f5afcf919d769719294368425b90ce88450f550b2b8cc25dae53a",
+  "kernel_d1_chi0.25.npz": "ae29af0905447cb713ab54a0965c79d26c50f719daa3c25be5f851546745cb68",
+  "kernel_d1_chi0.45.npz": "0b6e9b302b8cba6bb813ed9a637aead645ff31a1e74ab26d8edf8526900b8b1d",
+  "kernel_d2_chi0.05.npz": "52ea927e3d37f4cd135f107b69fbe74f3e20761561a46b873dcc40a367e08e34",
+  "kernel_d2_chi0.25.npz": "791f19992d1c16f0b4c9ca0cf101b3dbd47ed764fad2e25e12f7466a77626644",
+  "kernel_d2_chi0.45.npz": "e75c4a5ccb4a619313ada66ef2e3852f1698f3da8a214c0d4edd81bce6c5a3cb",
+  "kernel_d3_chi0.05.npz": "027bc1e29ac01fb9e50bbfaddcc7e62db3ee7a787ecadf201c92522cda3445ad",
+  "kernel_d3_chi0.25.npz": "9977eae354d168e0ef7bf0e1b6fd0bc6540a1e24bb1935a418e2aebdabf23ec8",
+  "kernel_d3_chi0.45.npz": "144c1bb7d52740575f754923731175b53208944fad16074914500dd097a8449a",
+  "kernel_d3_cpp_ic.npz": "eb6262199465cc7b4480f65ecc82c709fd1868e0e9a96748b36855b17361572d",
+  "lbfgs_d3_chi0.05.npz": "eace0a05d0deb5c93d5b940931e8e29ce0497ca094febcffdc67e8713928c33b",
+  "lbfgs_d3_chi0.25.npz": "495b38f2ba7e84ee44791de60bb5ece757dab139a77fa415df7c4d2e9164f18e",
+  "sk_d3_chi0.05.npz": "6789e1cbe22cdfb646d697f0c8dd886943f136f9d79afdc837e604b54ec415b2",
+  "traj_d2_n64_chi0.25.npz": "a862cd8a3672a403e44811d00f9c35bfbecf7ea6e22f7c3d170f8a220ed08c31",
+  "traj_d3_n100_chi0.05.npz": "809908dc26528025a2ca79eab2874ddcd6150fa88fa8664fe1ed1658a848e2b0"
+ },
+ "generated_utc": "2026-11-05T21:17:22.803589+00:00",
+ "harness_binary": {
+  "mtime": "Thu Nov  5 16:07:58 2026",
+  "path": "/scratch/gpfs/TORQUATO/sd2402/xla-cco/tools/cpp_reference/build/dump_reference",
+  "sha256": "bcf875800166d1a9d7a4f361c3840b853f722be70fbf3e5e5120d5b066585639"
+ },
+ "lbfgs_binary": {
+  "mtime": "Wed Sep  2 23:06:59 2026",
+  "mtime_epoch": 1788404819.897756,
+  "path": "/home/sd2402/ccoptimization/cco/EXC/soft_core_stealthy2.out",
+  "sha256": "749c0c082e9ef9c07e685c6bbdaf00c8ee7fbf3ed39e0e62c06182d32e68084d"
+ },
+ "main_cpp_sha256": "37498dbb26a55e2bdc3f2d4a4cdb4f5d3993e191d47e153768f95839511d01c0",
+ "omp_num_threads": 1,
+ "timings_seconds": {
+  "boundary": 0.03,
+  "inputs": 0.03,
+  "kernel": 0.18,
+  "lbfgs": 0.96,
+  "sk": 2.05,
+  "traj": 101.16
+ }
+}
