@@ -32,13 +32,19 @@ from xla_cco.analysis.pairs import (
     nearest_neighbor_distances,
     pair_distance_histogram,
 )
-from xla_cco.analysis.structure import isotropic_structure_factor, structure_factor
+from xla_cco.analysis.structure import (
+    _bin_moments,
+    isotropic_structure_factor,
+    structure_factor,
+)
 from xla_cco.box import Box, cubic_box
 
 # ============================================================
 # HELPERS
 # ============================================================
 
+# col2 of a bin holding one |k| is sqrt(rounding) ~ 1e-8, so it gets a looser atol
+ATOL_WIDE = (1e-10, 1e-10, 1e-7, 1e-10)
 SHEARED_2D = np.array([[1.3, 0.0], [0.4, 0.9]])
 
 
@@ -175,6 +181,54 @@ def test_isotropic_sk_kset_rule(basis: np.ndarray, k_dir: float, k_max: float) -
         np.testing.assert_allclose(
             got[col], want[col], rtol=1e-8, atol=1e-10, equal_nan=True
         )
+
+
+@pytest.mark.parametrize("width", [0.5, 1.0])
+@pytest.mark.parametrize(
+    "basis, k_dir, k_max",
+    [
+        (np.array([[20.0]]), 5.0, 8.0),
+        (SHEARED_2D * 3.0, 3.0, 10.0),
+        (np.eye(3) * 6.0, 2.5, 6.0),
+    ],
+)
+def test_isotropic_sk_wide_bins_all_columns(
+    basis: np.ndarray, k_dir: float, k_max: float, width: float
+) -> None:
+    """Wide bins mix many |k| per bin, so col2 (SEM of |k|) is exercised."""
+    dim = basis.shape[0]
+    s = np.random.default_rng(11 + dim).uniform(size=(3, 7, dim))
+    want = _brute_isotropic(s, basis, k_dir, k_max, width)
+    got = isotropic_structure_factor(s, _box(basis), k_dir, k_max, width)
+    assert got[0].shape == want[0].shape, "bin count"
+    assert np.count_nonzero(want[2] > 0.0) >= 2, "col2 must carry signal"
+    for col in range(4):
+        np.testing.assert_allclose(
+            got[col], want[col], rtol=0.0, atol=ATOL_WIDE[col], equal_nan=True
+        )
+
+
+@pytest.mark.parametrize("dim, k_dir", [(1, 3.0), (2, 3.0), (3, 3.0)])
+def test_isotropic_sk_cutoff_equality_included(dim: int, k_dir: float) -> None:
+    """Side 2 pi gives reciprocal spacing 1: |k| = k_max = 5 exactly is kept."""
+    basis = np.eye(dim) * (2.0 * math.pi)
+    s = np.random.default_rng(20 + dim).uniform(size=(2, 4, dim))
+    got = isotropic_structure_factor(s, _box(basis), k_dir, 5.0, 0.01)
+    want = _brute_isotropic(s, basis, k_dir, 5.0, 0.01)
+    assert got[0].shape == want[0].shape, "row count"
+    assert got[0].max() == 5.0 and want[0].max() == 5.0
+    np.testing.assert_allclose(got[1], want[1], rtol=1e-8, atol=1e-10)
+
+
+def test_bin_moments_col3_unclamped_col2_clamped() -> None:
+    """Negative variances: col3 is NaN (C++), col2 is clamped to 0."""
+    k = np.full(3, 0.1)  # equal |k|: float rounding makes the variance < 0
+    var_k = ((k * k).sum() / 3.0 - (k.sum() / 3.0) ** 2) / 3.0
+    assert var_k < 0.0, "premise: rounding drives the |k| variance negative"
+    out = _bin_moments(k, np.ones(3), np.full(3, 0.5), 1, 0.01)  # <S^2> < <S>^2
+    assert out[0].shape == (1,)
+    assert np.isnan(out[3][0])
+    assert out[2][0] == 0.0
 
 
 def test_isotropic_sk_error_contracts() -> None:

@@ -43,8 +43,14 @@ def nearest_neighbor_distances(s: Positions, box: Box) -> Float[Array, "n"]:
     """Return minimum-image nearest-neighbour distance of every particle.
 
     Uses ``ds - round(ds)`` on fractional differences, then scans all 3^d
-    neighbouring image shifts, so reduced (sheared) cells are exact. A lone
-    particle (N = 1) sees its own nearest periodic image.
+    neighbouring image shifts. A lone particle (N = 1) sees its own nearest
+    periodic image.
+
+    Preconditions (not checked): positions are wrapped to [0, 1), and the
+    cell is reduced (Minkowski/Gauss-reduced). In a strongly non-reduced
+    cell the nearest image can lie beyond the scanned shifts, so distances
+    are overestimated (errors up to ~1.9 were measured for skew of
+    2-30 x |a1|).
 
     Raises
     ------
@@ -65,7 +71,10 @@ def pair_distance_histogram(
     Every unordered pair i < j is counted once per configuration, using the
     minimum-image distance. Binning follows ``np.histogram``: bins are
     left-closed, [e_k, e_{k+1}), except the last, which is closed. Distances
-    outside [edges[0], edges[-1]] are not counted.
+    outside [edges[0], edges[-1]] are not counted. As for
+    ``nearest_neighbor_distances``, positions must be wrapped to [0, 1) and
+    the cell must be reduced (Minkowski/Gauss-reduced); otherwise distances
+    are overestimated.
 
     Parameters
     ----------
