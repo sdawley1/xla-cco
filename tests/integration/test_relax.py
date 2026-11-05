@@ -229,3 +229,156 @@ def test_relax_budget_status_all_lanes() -> None:
     assert np.all(np.asarray(out.n_iters) == 10) and np.all(
         np.asarray(out.n_evals) == 20
     )
+
+
+# ============================================================
+# FIX ROUND 1: bit-exact ground states, output wrap, lane freeze
+# ============================================================
+
+
+def _ground_state(n: int = 16) -> tuple[Any, jnp.ndarray]:
+    """Return (energy, s) for a generic non-dyadic Poisson ground state, Phi<1e-20."""
+    _, _, energy = small_system(n, 2, 4.0)
+    s0 = _batch(b=1, n=n, seed=11)
+    res = relax(energy, s0, LBFGSSettings(max_evals_per_pass=300))
+    assert float(res.energy[0]) < 1e-20
+    s = res.s[0]
+    assert not np.array_equal(np.asarray(s) * 2**20, np.round(np.asarray(s) * 2**20))
+    return energy, s
+
+
+@pytest.mark.parametrize("method", ["descent", "lbfgs"])
+def test_ground_state_lane_is_returned_bit_exactly(method: str) -> None:
+    """A converged lane's s is bit-identical to its input (no s*R/R round trip)."""
+    energy, s_in = _ground_state()
+    if method == "descent":
+        cfg: Settings = DescentSettings(energy_tol=1e-20)
+        single = adaptive_descent
+    else:
+        cfg = LBFGSSettings(energy_tol=1e-20)
+        single = lbfgs
+    out = single(energy, s_in, cfg)
+    assert int(out.status) == STATUS_ENERGY_TOL and int(out.n_iters) == 0
+    assert np.array_equal(np.asarray(out.s), np.asarray(s_in))
+    batch = relax(energy, jnp.stack([s_in, s_in, s_in]), cfg, chunk_iters=3)
+    assert np.array_equal(np.asarray(batch.s), np.asarray(jnp.stack([s_in] * 3)))
+
+
+def _unwrapped_descent(energy: Any, s0: jnp.ndarray, step0: float, k: int) -> Any:
+    """Replay k descent iterations without wrapping (grow = 1, C++ rule)."""
+    s, step = s0, step0
+    f, g = energy.value_and_grad(s)
+    for _ in range(k):
+        norm = jnp.sqrt(jnp.sum(g * g))
+        xn = s - g / norm * step
+        f2, g2 = energy.value_and_grad(xn)
+        if abs((f - f2) - step * norm) / (step * norm) > 0.01:
+            step *= 0.5
+        else:
+            s, f, g = xn, f2, g2
+    return s
+
+
+def _edge_config(n: int = 16) -> jnp.ndarray:
+    """Random positions with half of the coordinates within 1e-4 of the boundary."""
+    s = np.random.default_rng(5).uniform(size=(n, 2))
+    s[: n // 2, 0] = 1e-4
+    s[n // 2 :, 0] = 1.0 - 1e-4
+    return jnp.asarray(s)
+
+
+def _is_same_mod_1(a: np.ndarray, b: np.ndarray, tol: float = 1e-15) -> bool:
+    diff = a - b
+    return bool(np.max(np.abs(diff - np.round(diff))) <= tol)
+
+
+def test_descent_output_is_wrapped_into_unit_cube() -> None:
+    """Final s lies in [0, 1) and equals the unwrapped iterate mod 1."""
+    _, _, energy = small_system(16, 2, 4.0)
+    s0, step0, k = _edge_config(), 0.3, 12
+    cfg = DescentSettings(step_init=step0, max_evals=2 * k)
+    unwrapped = np.asarray(_unwrapped_descent(energy, s0, step0, k))
+    assert unwrapped.min() < 0.0 or unwrapped.max() >= 1.0, "must leave [0, 1)"
+    for res in (
+        adaptive_descent(energy, s0, cfg),
+        _lane(relax(energy, s0[None], cfg), 0),
+    ):
+        s = np.asarray(res.s)
+        assert s.min() >= 0.0 and s.max() < 1.0
+        assert _is_same_mod_1(s, unwrapped)
+
+
+def test_lbfgs_output_is_wrapped_into_unit_cube() -> None:
+    """Final s lies in [0, 1) and equals the carried unwrapped s mod 1."""
+    from xla_cco.minimize import _loop as loop
+    from xla_cco.minimize import lbfgs as lbfgs_mod
+
+    _, _, energy = small_system(16, 2, 4.0)
+    s0 = _edge_config()
+    cfg = LBFGSSettings(max_evals_per_pass=20)
+    state = lbfgs_mod._init_jit(energy, s0, cfg)
+    state = loop.drive_single(
+        lambda st: lbfgs_mod._chunk_jit(energy, cfg, st, 50), state, 100
+    )
+    raw = np.asarray(state.s)
+    assert raw.min() < 0.0 or raw.max() >= 1.0, "must leave [0, 1)"
+    s = np.asarray(lbfgs(energy, s0, cfg).s)
+    assert s.min() >= 0.0 and s.max() < 1.0
+    assert _is_same_mod_1(s, raw, 1e-12)
+    # batched path: compare with its own unwrapped state (vmapped paths may differ)
+    bstate = lbfgs_mod.init_batch(energy, s0[None], cfg)
+    for _ in range(100):
+        if int(bstate.status[0]) != STATUS_RUNNING:
+            break
+        bstate = lbfgs_mod.chunk_batch(energy, cfg, bstate, 50)
+    braw = np.asarray(bstate.s[0])
+    assert braw.min() < 0.0 or braw.max() >= 1.0
+    sb = np.asarray(relax(energy, s0[None], cfg).s[0])
+    assert sb.min() >= 0.0 and sb.max() < 1.0
+    assert _is_same_mod_1(sb, braw, 1e-12)
+
+
+def _freeze_settings(kind: str, s0: jnp.ndarray, energy: Any) -> Settings:
+    """Settings whose energy_tol sits just below every start, so lanes finish at
+    different iterations (the lowest-energy lane first, mid-chunk)."""
+    if kind == "descent":
+        base: Settings = DescentSettings(step_init=3e-2, grow=2.0, max_evals=300)
+    else:
+        base = LBFGSSettings(max_evals_per_pass=20)
+    f0 = np.asarray(jax.vmap(energy)(s0))
+    return type(base)(**{**_fields(base), "energy_tol": float(0.9 * f0.min())})
+
+
+@pytest.mark.parametrize("kind", ["descent", "lbfgs"])
+def test_finished_lane_with_nonzero_gradient_stays_frozen(kind: str) -> None:
+    """A lane that finishes mid-chunk (energy_tol, |g| != 0) is bit-frozen after.
+
+    Also checks it equals the same batch stopped exactly at that iteration, and
+    the single-config run (ints exact, floats to the vmap tolerance).
+    """
+    _, _, energy = small_system(16, 2, 4.0)
+    s0 = _batch(b=6, seed=21)
+    settings = _freeze_settings(kind, s0, energy)
+    long = relax(energy, s0, settings, chunk_iters=10_000)
+    iters = np.asarray(long.n_iters)
+    lane = int(np.argmin(iters))
+    assert 0 < iters[lane] < iters.max(), "lane must finish mid-chunk, others go on"
+    assert float(long.grad_norm[lane]) > 1e-8, "finished lane has nonzero gradient"
+    assert int(long.status[lane]) == STATUS_ENERGY_TOL
+    # same batch, chunk ends exactly where the lane finishes: no idle iterations
+    exact = relax(energy, s0, settings, chunk_iters=int(iters[lane]))
+    assert _same(_lane(long, lane), _lane(exact, lane))
+    single = adaptive_descent if kind == "descent" else lbfgs
+    _close(_lane(long, lane), single(energy, s0[lane], settings))
+    # later rounds change nothing, including counters
+    init, chunk = _batched_fns(settings)
+    state = init(energy, s0, settings)
+    state = chunk(energy, settings, state, 10_000)
+    snap = jax.tree_util.tree_map(lambda x: x[lane], state)
+    assert int(snap.status) == STATUS_ENERGY_TOL
+    for _ in range(3):
+        state = chunk(energy, settings, state, 5)
+    assert _same(snap, jax.tree_util.tree_map(lambda x: x[lane], state))
+    assert int(snap.it) == int(iters[lane]) and int(snap.n_evals) == int(
+        long.n_evals[lane]
+    )

@@ -15,6 +15,7 @@ Samuel J. Dawley
 from typing import Any, List, Tuple
 
 # ----- numerics -----
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -26,7 +27,7 @@ from golden import load_golden
 from systems import small_system
 from tolerances import ATOL_DESCENT_GOLDEN_S, ATOL_DESCENT_ITERATE
 from xla_cco.box import cubic_box
-from xla_cco.energy import make_stealthy_energy
+from xla_cco.energy import AbstractEnergy, make_stealthy_energy
 from xla_cco.kvectors import enumerate_kvectors
 from xla_cco.minimize import relax
 from xla_cco.minimize.descent import DescentSettings, adaptive_descent
@@ -236,3 +237,44 @@ def test_result_dtypes_descent() -> None:
     )
     for leaf in jax.tree_util.tree_leaves(res):
         assert leaf.dtype == np.float64 or np.issubdtype(leaf.dtype, np.integer)
+
+
+# ============================================================
+# EVALUATION PATH
+# ============================================================
+
+
+class _Calls:
+    """Identity-hashed call counter (usable as a static field)."""
+
+    def __init__(self) -> None:
+        self.n = 0
+
+    def bump(self) -> None:
+        self.n += 1
+
+
+class _SpyEnergy(AbstractEnergy):
+    """Wraps an energy; ``__call__`` is forbidden, value_and_grad is counted."""
+
+    inner: AbstractEnergy
+    calls: _Calls = eqx.field(static=True)
+
+    def __call__(self, s: jax.Array) -> jax.Array:
+        raise AssertionError("descent must evaluate f only via value_and_grad")
+
+    def value_and_grad(self, s: jax.Array) -> Tuple[jax.Array, jax.Array]:
+        jax.debug.callback(self.calls.bump)
+        return self.inner.value_and_grad(s)
+
+
+def test_descent_uses_value_and_grad_once_per_iteration() -> None:
+    """f1 and f2 share one code path: exactly 1 value_and_grad per iteration."""
+    _, _, energy = small_system(12, 2, 4.0)
+    spy = _SpyEnergy(energy, _Calls())
+    s0 = jnp.asarray(np.random.default_rng(1).uniform(size=(12, 2)))
+    res = adaptive_descent(spy, s0, DescentSettings(max_evals=40, step_init=3e-2))
+    jax.block_until_ready(res.s)
+    jax.effects_barrier()
+    assert int(res.n_iters) == 20
+    assert spy.calls.n == 1 + int(res.n_iters)  # initial + one per iteration
