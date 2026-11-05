@@ -34,3 +34,9 @@ ATOL_SK_S: float = 1e-26
 # SEM of |k| is sqrt of a difference of equal sums (all k in a bin share |k|), i.e.
 # sqrt(eps) * |k| / sqrt(count) noise up to ~1e-5 at |k| = 400; true value is 0.
 ATOL_SK_KERR: float = 1e-5
+# FD roundoff: energy and phase rounding (eps*theta) give C*eps*(E+theta*dE/dtheta),
+# divided by h in the stencil; the factor 8 covers summation and the two evaluations.
+FD_ROUNDOFF_C: float = 8.0
+# Central-difference truncation is (h^2/6)|E_sss|; |E_sss| <= (2 pi n_max)^3 sum(w)
+# N^2 / V (loose: only the 2(N-1) pair terms containing particle i depend on s_i).
+FD_TRUNC_C: float = 1.0 / 6.0

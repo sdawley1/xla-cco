@@ -23,7 +23,13 @@ from hypothesis import strategies as st
 # ----- project -----
 import oracle
 from strategies import boxes, chunk_sizes, fractional_configs, integer_kvectors
-from tolerances import ATOL_FD, RTOL_KERNEL_E, RTOL_KERNEL_F
+from tolerances import (
+    ATOL_FD,
+    FD_ROUNDOFF_C,
+    FD_TRUNC_C,
+    RTOL_KERNEL_E,
+    RTOL_KERNEL_F,
+)
 from xla_cco.box import Box, cubic_box
 from xla_cco.energy import StealthyEnergy, collective_density, make_stealthy_energy
 from xla_cco.kvectors import enumerate_kvectors
@@ -94,24 +100,76 @@ def test_value_and_grad_matches_autodiff(case: tuple, chunk: int | None) -> None
     )
 
 
-@FAST
-@given(systems())
-def test_gradient_matches_central_difference(case: tuple) -> None:
-    s, n, w, vol = case
-    en = _energy(n, w, vol)
-    _, grad = en.value_and_grad(jnp.asarray(s))
-    h = 1e-6
+def _fd_gradient(
+    s: np.ndarray, n: np.ndarray, w: np.ndarray, vol: float, h: float
+) -> tuple[np.ndarray, float]:
+    """Return (central-difference gradient of the oracle, max |E(s +- h)|)."""
     fd = np.zeros_like(s)
+    e_max = 0.0
     for i in range(s.shape[0]):
         for c in range(s.shape[1]):
             sp, sm = s.copy(), s.copy()
             sp[i, c] += h
             sm[i, c] -= h
-            fd[i, c] = (oracle.energy(sp, n, w, vol) - oracle.energy(sm, n, w, vol)) / (
-                2 * h
-            )
-    scale = max(1.0, float(np.abs(fd).max()))
-    np.testing.assert_allclose(np.asarray(grad), fd, atol=ATOL_FD * scale)
+            ep, em = oracle.energy(sp, n, w, vol), oracle.energy(sm, n, w, vol)
+            # divide by the realised step: s +- h is rounded (eps |s| / h ~ 1e-10)
+            fd[i, c] = (ep - em) / (sp[i, c] - sm[i, c])
+            e_max = max(e_max, abs(ep), abs(em))
+    return fd, e_max
+
+
+def _fd_atol(
+    s: np.ndarray, n: np.ndarray, w: np.ndarray, vol: float, h: float, e_max: float
+) -> float:
+    """Error model for the FD gradient of the oracle.
+
+    Roundoff: C eps (|E| + theta_max |dE/dtheta|_sum) / h, where the second
+    term is the phase-rounding error (theta = 2 pi n.s carries eps theta) and
+    |dE/dtheta|_sum <= 2 N sum(w) / V per particle. Truncation: (h^2/6)|E_sss|.
+    """
+    n_part = s.shape[0]
+    n_max = float(np.abs(n).max())
+    theta_max = 2 * np.pi * n_max * s.shape[1] * (float(np.abs(s).max()) + h)
+    slope = 2.0 * n_part * float(w.sum()) / vol
+    third = (2 * np.pi * n_max) ** 3 * float(w.sum()) * n_part**2 / vol
+    eps = float(np.finfo(np.float64).eps)
+    return float(
+        FD_ROUNDOFF_C * eps * (e_max + theta_max * slope) / h
+        + FD_TRUNC_C * h**2 * third
+    )
+
+
+def _check_gradient_fd(s: np.ndarray, n: np.ndarray, w: np.ndarray, vol: float) -> None:
+    h = 1e-6
+    _, grad = _energy(n, w, vol).value_and_grad(jnp.asarray(s))
+    fd, e_max = _fd_gradient(s, n, w, vol, h)
+    atol = _fd_atol(s, n, w, vol, h, e_max)
+    np.testing.assert_allclose(np.asarray(grad), fd, rtol=0.0, atol=atol)
+
+
+@FAST
+@given(systems())
+def test_gradient_matches_central_difference(case: tuple) -> None:
+    _check_gradient_fd(*case)
+
+
+def _coincident_case() -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+    """16 near-coincident particles (1e-12 jitter): |E| ~ 1e4, true grad ~ 1e-7."""
+    rng = np.random.default_rng(2)
+    s = 0.3 + 1e-12 * rng.uniform(size=(16, 1))
+    return s, rng.integers(1, 4, size=(16, 1)), np.full(16, 2.0), 0.5
+
+
+def test_regression_D008_fd_tolerance_scales_with_energy() -> None:
+    s, n, w, vol = _coincident_case()
+    h = 1e-6
+    _, grad = _energy(n, w, vol).value_and_grad(jnp.asarray(s))
+    fd, e_max = _fd_gradient(s, n, w, vol, h)
+    old_atol = ATOL_FD * max(1.0, float(np.abs(fd).max()))
+    err = float(np.abs(np.asarray(grad) - fd).max())
+    assert err > old_atol, "old tolerance no longer reproduces D-008"
+    assert err <= _fd_atol(s, n, w, vol, h, e_max)
+    _check_gradient_fd(s, n, w, vol)
 
 
 @FAST
