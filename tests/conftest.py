@@ -27,8 +27,11 @@ from hypothesis import HealthCheck, settings
 # HYPOTHESIS PROFILES
 # ============================================================
 
-settings.register_profile("dev", max_examples=100)
-settings.register_profile("ci", max_examples=300, derandomize=True, print_blob=True)
+# deadline=None everywhere: wall-clock deadlines flake on loaded nodes (D-007)
+settings.register_profile("dev", max_examples=100, deadline=None)
+settings.register_profile(
+    "ci", max_examples=300, deadline=None, derandomize=True, print_blob=True
+)
 settings.register_profile(
     "thorough",
     max_examples=5000,
