@@ -59,7 +59,7 @@ def test_plugin_error_is_missing_libraries() -> None:
     err = RuntimeError("libcudnn.so not found")
     cause = ga.classify_failure([], {"CUDA_VISIBLE_DEVICES": "0"}, True, err)
     assert cause is not None
-    assert "missing CUDA libraries" in cause and "libcudnn" in cause
+    assert "failed to initialize" in cause and "libcudnn" in cause
 
 
 def test_plugin_installed_detects_missing_module() -> None:
