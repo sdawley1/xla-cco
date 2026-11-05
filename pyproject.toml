@@ -46,6 +46,14 @@ markers = [
     "della: needs /scratch data or the C++ binary",
 ]
 
+[tool.coverage.run]
+source = ["xla_cco"]
+omit = [
+    "src/xla_cco/minimize/*",  # owning task: T7 (stubs until it lands)
+    "src/xla_cco/cli/*",  # owning task: T9 (stub until it lands)
+    "src/xla_cco/analysis/*",  # owning task: T5 (lands separately; remove then)
+]
+
 [tool.ruff]
 line-length = 88
 src = ["src", "tests"]

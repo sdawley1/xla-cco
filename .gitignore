@@ -8,3 +8,8 @@ __pycache__/
 .mutmut-cache
 tools/cpp_reference/build/
 slurm/*.out
+.venv-cuda/
+.venv-ci/
+.t6-report.md
+.coverage.*
+slurm-*.out
