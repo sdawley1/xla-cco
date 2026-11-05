@@ -212,6 +212,8 @@ def write_configpack(prefix: Path, configs: Sequence[PackedConfig]) -> None:
     prefix = Path(prefix)
     if not prefix.parent.is_dir():
         raise FileNotFoundError(f"missing parent directory: {prefix.parent}")
+    if len(configs) == 0:
+        raise ValueError("refusing to write an empty configuration sequence")
     blobs = [_config_bytes(c) for c in configs]
     sizes = np.array([len(b) for b in blobs], dtype="<i8")
     offsets = np.concatenate(([0], np.cumsum(sizes)[:-1])).astype("<i8")

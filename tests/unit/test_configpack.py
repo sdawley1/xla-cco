@@ -312,3 +312,18 @@ def test_cpp_initconfig_round_trip_bytes(tmp_path: Path) -> None:
     assert idx[0] >= n_cfg
     end: Optional[int] = int(idx[1 + n_cfg]) if idx[0] > n_cfg else len(orig)
     assert Path(str(out) + ".ConfigPack").read_bytes() == orig[:end]
+
+
+def test_write_rejects_wrong_length_names_total_multiple_of_four(
+    tmp_path: Path,
+) -> None:
+    """Names (2 B, 6 B) total 8 bytes: must raise, not write a corrupt pack."""
+    rel = np.zeros((2, 2))
+    cfg = PackedConfig(np.eye(2), rel, 1.0, (b"ab", b"abcdef"))
+    with pytest.raises(ValueError, match="exactly 4 bytes"):
+        write_configpack(tmp_path / "w", [cfg])
+
+
+def test_write_rejects_empty_sequence(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="empty"):
+        write_configpack(tmp_path / "e", [])

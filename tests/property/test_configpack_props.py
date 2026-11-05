@@ -18,6 +18,7 @@ from typing import Any, List
 
 # ----- numerics -----
 import numpy as np
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from hypothesis.extra import numpy as hnp
@@ -132,3 +133,21 @@ def test_stack_fractional_normalizes(
     np.testing.assert_array_equal(s, np.stack([c.relative for c in cfgs]))
     np.testing.assert_allclose(abs(np.linalg.det(ub)), 1.0, rtol=1e-12)
     np.testing.assert_allclose(ub, np.eye(d), rtol=1e-12)
+
+
+@given(st.data())
+def test_wrong_length_names_raise(data: Any) -> None:
+    """Names not all 4 bytes long raise, even if the total is a multiple of 4."""
+    n = data.draw(st.integers(1, 6))
+    lens = data.draw(
+        st.lists(st.integers(0, 9), min_size=n, max_size=n).filter(
+            lambda ls: sum(ls) % 4 == 0 and any(x != 4 for x in ls)
+        )
+    )
+    names = tuple(b"x" * k for k in lens)
+    cfg = PackedConfig(np.eye(1), np.zeros((n, 1)), 1.0, names)
+    with (
+        tempfile.TemporaryDirectory() as tmp,
+        pytest.raises(ValueError, match="exactly 4 bytes"),
+    ):
+        write_configpack(Path(tmp) / "p", [cfg])
