@@ -118,3 +118,65 @@ def test_nn_distance_single_particle_sees_own_image() -> None:
 def test_structure_factor_single_particle_is_one() -> None:
     sk = oracle.structure_factor(np.array([[0.2, 0.9]]), np.array([[1, 2], [3, 1]]))
     np.testing.assert_allclose(sk, [1.0, 1.0], rtol=1e-12)
+
+
+# ----- boundary strictness (exactly representable: reciprocal = identity) -----
+
+
+def _shell_counts(k_inner: float, k_outer: float) -> int:
+    basis = np.eye(2) * 2.0 * math.pi
+    n, _ = oracle.halfspace_kvectors(basis, k_inner, k_outer)
+    return int(n.shape[0])
+
+
+def test_k_outer_boundary_is_strict() -> None:
+    up = float(np.nextafter(1.0, np.inf))
+    assert _shell_counts(0.0, 1.0) == 0  # |n|^2 = 1 excluded at k_outer = 1
+    assert _shell_counts(0.0, up) == 2  # (1,0), (0,1) enter just above
+    up2 = float(np.nextafter(2.0, np.inf))
+    assert _shell_counts(0.0, 2.0) == 4  # |n|^2 = 4 shell (2,0),(0,2) excluded
+    assert _shell_counts(0.0, up2) == 6
+
+
+def test_k_inner_boundary_is_strict() -> None:
+    basis = np.eye(2) * 2.0 * math.pi
+    n, ksq = oracle.halfspace_kvectors(basis, 1.0, 1.5)
+    assert not np.any(ksq == 1.0)  # shell on k_inner excluded
+    assert n.shape[0] == 2  # (1,1), (1,-1)
+    below = float(np.nextafter(1.0, 0.0))
+    assert _shell_counts(below, 1.5) == 4  # shell 1 enters just below k_inner
+
+
+# ----- 1/N normalisation of S(n) -----
+
+
+def test_structure_factor_two_particles() -> None:
+    s = np.array([[0.0, 0.0], [0.5, 0.0]])
+    sk = oracle.structure_factor(s, np.array([[1, 0], [2, 0]]))
+    np.testing.assert_allclose(sk, [0.0, 2.0], atol=1e-12)
+
+
+def test_structure_factor_three_particles_hand_value() -> None:
+    # s = 0, 1/3, 2/3 in 1-D: n=1 -> rho = 0 -> S = 0; n=3 -> rho = 3 -> S = 3
+    s = np.array([[0.0], [1.0 / 3.0], [2.0 / 3.0]])
+    sk = oracle.structure_factor(s, np.array([[1], [3]]))
+    np.testing.assert_allclose(sk, [0.0, 3.0], atol=1e-12)
+    # s = 0, 0, 1/2, n=1 -> rho = 1 => S = 1/3
+    s2 = np.array([[0.0], [0.0], [0.5]])
+    np.testing.assert_allclose(
+        oracle.structure_factor(s2, np.array([[1]])), [1.0 / 3.0], rtol=1e-12
+    )
+
+
+@settings(deadline=None, max_examples=50)
+@given(st.sampled_from((1, 2, 7, 16)), st.integers(1, 3), st.integers(0, 2**31))
+def test_structure_factor_matches_complex_exponential(
+    n: int, d: int, seed: int
+) -> None:
+    rng = np.random.default_rng(seed)
+    s = rng.uniform(size=(n, d))
+    n_vec = rng.integers(-3, 4, size=(5, d))
+    rho = np.exp(2j * np.pi * (n_vec @ s.T)).sum(axis=1)
+    np.testing.assert_allclose(
+        oracle.structure_factor(s, n_vec), np.abs(rho) ** 2 / n, rtol=1e-10, atol=1e-12
+    )
