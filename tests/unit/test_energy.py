@@ -235,3 +235,23 @@ def test_abstract_energy_default_value_and_grad() -> None:
     np.testing.assert_allclose(np.asarray(grad), [[2.0, 4.0]])
     with pytest.raises(TypeError):
         AbstractEnergy()  # type: ignore[abstract]
+
+
+@pytest.mark.parametrize("pad_to", [1, 64])
+def test_factory_matches_oracle_large_m(pad_to: int) -> None:
+    """Factory Phi and forces equal the oracle for M > pad_to (non-divisor chunk)."""
+    n_part = 12
+    box = cubic_box(n_part, 2)
+    kset = enumerate_kvectors(np.asarray(box.basis), 0.0, 12.0)
+    assert kset.n.shape[0] > 64
+    s = np.random.default_rng(4).uniform(size=(n_part, 2))
+    en = make_stealthy_energy(box, kset, chunk_size=13, pad_to=pad_to)
+    val, grad = en.value_and_grad(jnp.asarray(s))
+    vol = float(box.volume)
+    ref = oracle.energy(s, kset.n, kset.weights, vol)
+    np.testing.assert_allclose(float(val), ref, rtol=RTOL_KERNEL_E)
+    ref_f = oracle.cartesian_forces(s, kset.n, kset.weights, np.asarray(box.basis), vol)
+    got_f = np.asarray(box.cartesian_forces(grad))
+    np.testing.assert_allclose(
+        got_f, ref_f, rtol=RTOL_KERNEL_F, atol=RTOL_KERNEL_F * np.abs(ref_f).max()
+    )

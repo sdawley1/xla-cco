@@ -88,7 +88,7 @@ def test_sorted_by_k_sq(case: tuple[np.ndarray, float, float]) -> None:
     assert keys == sorted(keys)
 
 
-@settings(deadline=None, max_examples=30)
+@settings(deadline=None)
 @given(boxes(), st.integers(1, 20), st.floats(1.0, 3.0, allow_nan=False))
 def test_kset_vs_oracle_scaled_boxes(
     basis: np.ndarray, scale: int, mult: float

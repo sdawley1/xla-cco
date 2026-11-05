@@ -34,7 +34,7 @@ def test_energy_single_particle_is_sum_weights_over_volume() -> None:
     assert math.isclose(oracle.energy(s, n_vec, w, 1.0), w.sum(), rel_tol=1e-14)
 
 
-@settings(deadline=None, max_examples=30)
+@settings(deadline=None)
 @given(
     st.integers(1, 6),
     st.integers(0, 2**31),
@@ -57,7 +57,7 @@ def test_energy_translation_invariant() -> None:
     np.testing.assert_allclose(e0, e1, rtol=1e-12)
 
 
-@settings(deadline=None, max_examples=20)
+@settings(deadline=None)
 @given(st.integers(0, 2**31))
 def test_forces_match_finite_difference(seed: int) -> None:
     rng = np.random.default_rng(seed)
@@ -168,7 +168,7 @@ def test_structure_factor_three_particles_hand_value() -> None:
     )
 
 
-@settings(deadline=None, max_examples=50)
+@settings(deadline=None)
 @given(st.sampled_from((1, 2, 7, 16)), st.integers(1, 3), st.integers(0, 2**31))
 def test_structure_factor_matches_complex_exponential(
     n: int, d: int, seed: int

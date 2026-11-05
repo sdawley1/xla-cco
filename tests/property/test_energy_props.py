@@ -12,6 +12,8 @@ Samuel J. Dawley
 # ============================================================
 
 # ----- numerics -----
+import dataclasses
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -22,14 +24,15 @@ from hypothesis import strategies as st
 import oracle
 from strategies import boxes, chunk_sizes, fractional_configs, integer_kvectors
 from tolerances import ATOL_FD, RTOL_KERNEL_E, RTOL_KERNEL_F
-from xla_cco.box import Box
-from xla_cco.energy import StealthyEnergy, collective_density
+from xla_cco.box import Box, cubic_box
+from xla_cco.energy import StealthyEnergy, collective_density, make_stealthy_energy
+from xla_cco.kvectors import enumerate_kvectors
 
 # ============================================================
 # HELPERS
 # ============================================================
 
-FAST = settings(deadline=None, max_examples=30)
+FAST = settings(deadline=None)
 
 
 def _weights(seed: int, m: int) -> np.ndarray:
@@ -40,6 +43,11 @@ def _weights(seed: int, m: int) -> np.ndarray:
 def _energy(
     n: np.ndarray, w: np.ndarray, vol: float, chunk: int | None = None
 ) -> StealthyEnergy:
+    # pad M to a multiple of 8 (zero rows, zero weights) so jit shapes come
+    # from a small fixed grid; padding is exactly inert (tested separately)
+    total = -(-n.shape[0] // 8) * 8
+    n = np.vstack([n, np.zeros((total - n.shape[0], n.shape[1]), dtype=n.dtype)])
+    w = np.concatenate([w, np.zeros(total - w.shape[0])])
     return StealthyEnergy(
         n_vectors=jnp.asarray(n, dtype=jnp.float64),
         weights=jnp.asarray(w),
@@ -52,7 +60,7 @@ def _energy(
 def systems(draw: st.DrawFn) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
     """Draw (s, n, w, V) with matching dimension."""
     s = draw(fractional_configs(n_grid=(1, 2, 7, 16)))
-    n = draw(integer_kvectors(dim=s.shape[1], max_m=20))
+    n = draw(integer_kvectors(dim=s.shape[1], max_m=16))
     w = _weights(draw(st.integers(0, 2**31)), n.shape[0])
     vol = draw(st.floats(0.5, 50.0, allow_nan=False))
     return s, n, w, vol
@@ -222,7 +230,7 @@ def test_padding_rows_inert(case: tuple, pad_to: int) -> None:
 
 
 @FAST
-@given(systems(), st.integers(1, 25))
+@given(systems(), st.sampled_from((1, 3, 5, 8, 13)))
 def test_chunked_equals_unchunked(case: tuple, chunk: int) -> None:
     s, n, w, vol = case
     sj = jnp.asarray(s)
@@ -247,4 +255,31 @@ def test_collective_density_matches_oracle(case: tuple) -> None:
     sk = oracle.structure_factor(s, n) * s.shape[0]
     np.testing.assert_allclose(
         np.asarray(re) ** 2 + np.asarray(im) ** 2, sk, rtol=1e-11, atol=1e-11
+    )
+
+
+@settings(deadline=None)
+@given(
+    st.integers(0, 2**31),
+    st.sampled_from((1, 64)),
+    st.sampled_from((7, 13)),
+)
+def test_factory_matches_oracle_large_m(seed: int, pad_to: int, chunk: int) -> None:
+    """Factory output equals the oracle for M > 64 (kills weight truncation)."""
+    n_part = 12
+    box = cubic_box(n_part, 2)
+    kset = enumerate_kvectors(np.asarray(box.basis), 0.0, 12.0)
+    assert kset.n.shape[0] > 64
+    kset = dataclasses.replace(kset, weights=_weights(seed, kset.n.shape[0]))
+    s = np.random.default_rng(seed).uniform(size=(n_part, 2))
+    en = make_stealthy_energy(box, kset, chunk_size=chunk, pad_to=pad_to)
+    assert en.n_vectors.shape[0] % chunk != 0 or pad_to == 1
+    vol = float(box.volume)
+    val, grad = en.value_and_grad(jnp.asarray(s))
+    ref = oracle.energy(s, kset.n, kset.weights, vol)
+    np.testing.assert_allclose(float(val), ref, rtol=RTOL_KERNEL_E)
+    ref_f = oracle.cartesian_forces(s, kset.n, kset.weights, np.asarray(box.basis), vol)
+    got_f = np.asarray(box.cartesian_forces(grad))
+    np.testing.assert_allclose(
+        got_f, ref_f, rtol=RTOL_KERNEL_F, atol=RTOL_KERNEL_F * np.abs(ref_f).max()
     )
