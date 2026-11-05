@@ -49,7 +49,6 @@ markers = [
 [tool.coverage.run]
 source = ["xla_cco"]
 omit = [
-    "src/xla_cco/minimize/*",  # owning task: T7 (stubs until it lands)
     "src/xla_cco/cli/*",  # owning task: T9 (stub until it lands)
 ]
 
