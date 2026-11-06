@@ -119,6 +119,7 @@ if __name__ == "__main__":
 
     # ----- grids -----
     parser.add_argument("--n-grid", type=int, default=1001)
+    parser.add_argument("--grid-tmin", type=float, default=1e-6)
     parser.add_argument("--sk-bin", type=float, default=0.1)
     parser.add_argument("--sk-kmax", type=float, default=10.0)
 
@@ -127,7 +128,15 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     out_path = args.out or args.traj / "summary.npz"
-    grid = np.linspace(0.0, 1.0, args.n_grid)
+    # Linear + log-spaced t/T points so both linear and log axes are resolved.
+    grid = np.unique(
+        np.concatenate(
+            [
+                np.linspace(0.0, 1.0, args.n_grid),
+                np.logspace(np.log10(args.grid_tmin), 0.0, args.n_grid),
+            ]
+        )
+    )
     result: Dict[str, np.ndarray] = {}
 
     # =========================================================
