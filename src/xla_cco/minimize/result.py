@@ -45,7 +45,14 @@ STATUS_GRAD_TOL: int = 6
 
 
 class Trajectory(eqx.Module):
-    """Recorded trajectory (fixed capacity t, ``count`` valid rows)."""
+    """Recorded trajectory (fixed capacity t, ``count`` valid rows).
+
+    Notes
+    -----
+    ``s`` rows are always wrapped into [0, 1) (``_loop._record``), for both
+    descent and L-BFGS, although the iterates themselves are not wrapped
+    during the run (the C++ parameters are not wrapped either).
+    """
 
     s: Float[Array, "t n d"]
     energy: Float[Array, "t"]

@@ -15,7 +15,7 @@
 set -euo pipefail
 export UV_CACHE_DIR=/scratch/gpfs/TORQUATO/sd2402/.uv-cache
 export UV_PROJECT_ENVIRONMENT=.venv-cuda
-export JAX_PLATFORMS=cuda
+export JAX_PLATFORMS=cuda,cpu  # cuda first (default device); cpu for the CPU-vs-GPU test
 cd "${SLURM_SUBMIT_DIR:?submit with sbatch from the repository root}"
 
 if [ ! -x .venv-cuda/bin/python ]; then

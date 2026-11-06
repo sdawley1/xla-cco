@@ -205,6 +205,16 @@ def test_lbfgs_trajectory_records_step_and_iteration() -> None:
     assert bool(jnp.all(jnp.diff(traj.energy) <= 0.0))
 
 
+def test_lbfgs_trajectory_records_wrapped_positions() -> None:
+    """Records are wrapped into [0, 1) even when the iterate drifts outside."""
+    energy, s0 = _poisson(16, 2, 0.25)
+    cfg = LBFGSSettings(max_evals_per_pass=60, record_every=5, max_records=6)
+    traj = lbfgs(energy, s0 + 3.0, cfg).trajectory
+    assert traj is not None
+    rec = np.asarray(traj.s)[: int(traj.count)]
+    assert rec.min() >= 0.0 and rec.max() < 1.0
+
+
 def test_lbfgs_rejects_non_float64() -> None:
     """float32 input raises TypeError before any compute."""
     energy, _ = _poisson(8, 2, 0.25)

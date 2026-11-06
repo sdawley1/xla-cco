@@ -12,6 +12,12 @@ needed for parity, reproduce the behaviour.
 | D-003 | wontfix-upstream | `StructureOptimization.cpp:724` | `MaxStep -= 2` on a `size_t` underflows for odd budgets. The port is immune: the budget is `max_evals // 2` iterations. Regression: `test_regression_D003_odd_budget_no_underflow`. |
 | D-004 | wontfix-upstream | `main.cpp:171` | Random-mode box is built from the stale default `num = 1000`. |
 | D-005 | wontfix-upstream | `StructureOptimization.cpp:841` | NLopt L-BFGS stopval is `-MaxEnergy` with no ftol/xtol, so it runs to maxeval or roundoff. |
+| D-006 | fixed | `kvectors.py` (`unit_ball_volume`) | `unit_ball_volume` not bit-equal to the C++ hard-coded constants (d <= 4); k window 1 ulp off. |
+| D-007 | fixed | `tests/conftest.py` | Hypothesis wall-clock deadline flakes on loaded nodes. |
+| D-008 | fixed | `tests/property/test_energy_props.py` | Central-difference gradient test tolerance blind to energy magnitude and phase rounding. |
+| D-009 | fixed | `io/tables.py` (`write_function_table`) | Rejected NaN, which C++ `WriteFunction` writes. |
+| D-010 | fixed | `energy.py` (`StealthyEnergy`) | Undersized `n_max` and non-integer `n_vectors` failed silently on the table path. |
+| D-011 | fixed | `tests/property/test_energy_props.py` | Gradient-sum test tolerance blind to pre-cancellation magnitude. |
 
 ## D-006 — `unit_ball_volume` is not bit-equal to the C++ hard-coded constants
 - **Found:** 2026-11-05, by the T4 auditor's preview parity
@@ -41,7 +47,7 @@ needed for parity, reproduce the behaviour.
 - **Repro:** 16 near-coincident particles (s = 0.3 + 1e-12 u, u uniform, `default_rng(2)`), n integers in 1..3, w = 2, V = 0.5: |E| ~ 1e4, true |grad| ~ 2e-7, FD error 1.69e-6 > 1e-6 (pinned in `_coincident_case`)
 - **Impact:** test-only; spurious red runs. No src defect: the FD reference carries roundoff ~ eps |E| / h that grows with |E|
 - **Regression test:** tests/property/test_energy_props.py::test_regression_D008_fd_tolerance_scales_with_energy
-- **Fix:** tolerance is now an error model, `FD_ROUNDOFF_C eps max|E(s +- h)| / h + FD_TRUNC_C h^2 (2 pi n_max)^3 sum(w) N^2 / V` (constants in tests/tolerances.py); `ATOL_FD` unchanged
+- **Fix:** tolerance is now an error model, `FD_ROUNDOFF_C eps max|E(s +- h)| / h + FD_TRUNC_C h^2 (2 pi n_max)^3 sum(w) N^2 / V` (constants in tests/tolerances.py); plus the phase-rounding term (theta = 2 pi n.s carries eps theta; `theta_max * slope`, as in `_fd_atol`) in the roundoff part; `ATOL_FD` unchanged
 
 ## D-009 — `write_function_table` rejected NaN, which C++ `WriteFunction` writes
 - **Found:** 2026-11-06, during T9 (CLI S(k) table with a negative-variance error bin)

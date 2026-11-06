@@ -15,6 +15,7 @@ Samuel J. Dawley
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 # ----- project -----
 from xla_cco.box import Box, cubic_box, wrap_fractional
@@ -69,3 +70,23 @@ def test_wrap_fractional_pinned_values() -> None:
     np.testing.assert_array_equal(out[0, [0, 1, 3, 5]], [below_one, 0.0, 0.0, 0.0])
     np.testing.assert_allclose(out[0, 4], 0.75)
     assert out[0, 2] == below_one  # s - floor(s) rounds to 1.0; clamped below 1
+
+
+@pytest.mark.parametrize(
+    "method", ["to_cartesian", "to_fractional", "cartesian_forces"]
+)
+def test_box_methods_reject_float32(method: str) -> None:
+    box = cubic_box(8, 3)
+    x32 = jnp.zeros((4, 3), dtype=jnp.float32)
+    with pytest.raises(TypeError, match="float64"):
+        getattr(box, method)(x32)
+
+
+def test_wrap_fractional_rejects_float32() -> None:
+    with pytest.raises(TypeError, match="float64"):
+        wrap_fractional(jnp.zeros((4, 3), dtype=jnp.float32))
+
+
+def test_box_rejects_float32_basis() -> None:
+    with pytest.raises(TypeError, match="basis"):
+        Box(basis=jnp.eye(3, dtype=jnp.float32))
