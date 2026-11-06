@@ -7,7 +7,8 @@ Panels, for comparison with Dawley & Torquato, PRE 112, 045310 (2025):
 (a) initial-condition S(k) with the chi = 0.1 exclusion region shaded
 (cf. Fig. 2(a)); (b) configurational distance p_0(inf) - p_0(t) vs t/T
 (cf. Fig. 3(a)); (c) Phi(t) vs t/T (cf. Fig. 3(b)); (d) Phi vs
-[p_0(inf) - p_0(t)]^2 (cf. Fig. 3(c)). Lines are ensemble means; shading
+[p_0(inf) - p_0(t)]^2 (cf. Fig. 3(c)). Panels (b)-(d) use log-log axes.
+Lines are ensemble means; shading
 spans the 10-90 % range. Reads summary.npz from analyze_trajectories.py.
 
 Run with the plottime interpreter:
@@ -82,32 +83,46 @@ def panel_sk(ax: plt.Axes, data: Dict[str, np.ndarray], ens: List[str]) -> None:
 def _band(
     ax: plt.Axes, data: Dict[str, np.ndarray], e: str, key: str, log: bool
 ) -> None:
-    """Plot the ensemble mean of ``key`` with its 10-90 % band."""
+    """Plot the ensemble mean of ``key`` with its 10-90 % band.
+
+    Points with t/T = 0 or a non-positive value are dropped (log axes).
+    """
     x = data[f"{e}/grid"]
     m, lo, hi = (data[f"{e}/{key}_{s}"] for s in ("mean", "q10", "q90"))
     if log:
         m, lo, hi = 10.0**m, 10.0**lo, 10.0**hi
-    ax.fill_between(x, lo, hi, color=COLORS[e], alpha=0.2, lw=0)
-    ax.plot(x, m, color=COLORS[e], lw=2.0, label=LABELS[e])
+    keep = (x > 0.0) & (m > 0.0)
+    ax.fill_between(
+        x[keep],
+        np.clip(lo[keep], m[keep] * 1e-3, None),
+        hi[keep],
+        color=COLORS[e],
+        alpha=0.2,
+        lw=0,
+    )
+    ax.plot(x[keep], m[keep], color=COLORS[e], lw=2.0, label=LABELS[e])
 
 
 def panel_distance(ax: plt.Axes, data: Dict[str, np.ndarray], ens: List[str]) -> None:
     """(b) Configurational distance from the ground-state manifold vs t/T."""
     for e in ens:
         _band(ax, data, e, "dist", log=False)
+    ax.set_xscale("log")
+    ax.set_yscale("log")
     ax.set_xlabel(r"Dimensionless Time, $t/T$")
     ax.set_ylabel(r"Distance, $p_0(\infty)-p_0(t)$")
-    ax.set_xlim(0.0, 1.0)
+    ax.set_xlim(right=1.0)
 
 
 def panel_energy(ax: plt.Axes, data: Dict[str, np.ndarray], ens: List[str]) -> None:
     """(c) Energy vs t/T on a log axis."""
     for e in ens:
         _band(ax, data, e, "log10_energy", log=True)
+    ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_xlabel(r"Dimensionless Time, $t/T$")
     ax.set_ylabel(r"Energy, $\Phi(t)$")
-    ax.set_xlim(0.0, 1.0)
+    ax.set_xlim(right=1.0)
 
 
 def panel_energy_vs_dist(
