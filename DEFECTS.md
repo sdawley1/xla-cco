@@ -63,3 +63,13 @@ needed for parity, reproduce the behaviour.
 - **Impact:** hand-built energies could produce NaN or wrong values far from the cause
 - **Regression test:** tests/unit/test_energy_tables.py::test_regression_D010_undersized_n_max_raises_at_construction (and test_non_integer_n_vectors_raise_at_construction)
 - **Fix:** `StealthyEnergy.__check_init__` raises `ValueError` for negative or undersized `n_max` and for non-integer-valued `n_vectors`; it is skipped when `n_vectors` is a tracer, where the NaN fill of out-of-range table gathers still guards (test_traced_n_vectors_skip_checks_and_nan_guards_the_table)
+
+## D-011 — Gradient-sum test tolerance is blind to pre-cancellation magnitude
+- **Found:** 2026-11-06, intermittently under the dev Hypothesis profile
+- **Status:** fixed
+- **Where:** tests/property/test_energy_props.py::test_gradient_sums_to_zero (atol `1e-11 * max(1, |g|max N)`)
+- **Symptom:** sum_i dPhi/ds_i = -1.095e-11 (exact value 0) exceeds atol 1e-11
+- **Repro:** d=1, 16 coincident particles at s=0.40625, 13 k-rows, V=1; reproduced with `default_rng(34)` rows n in [-4,4]\{0}, w in [0.5,2): sum 1.82e-11 vs old atol 1e-11 (pinned in the regression test)
+- **Impact:** test-only; spurious red runs. For coincident particles |rho| = N, so each gradient is a large sum that cancels to ~0; the rounding error follows the pre-cancellation size, not |g|
+- **Regression test:** tests/property/test_energy_props.py::test_regression_D011_grad_sum_tolerance_scales_with_gradient_magnitude
+- **Fix:** atol = GRAD_SUM_C eps N (4 pi n_max sum(w) N / V) + GRAD_SUM_FLOOR (constants in tests/tolerances.py)
