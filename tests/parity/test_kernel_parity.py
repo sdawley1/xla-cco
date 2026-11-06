@@ -24,7 +24,7 @@ import pytest
 
 # ----- project -----
 import golden
-from tolerances import ATOL_KERNEL_E, RTOL_KERNEL_E, RTOL_KERNEL_F
+from tolerances import C_E, RTOL_KERNEL_E, RTOL_KERNEL_F
 from xla_cco.box import Box, cubic_box
 from xla_cco.energy import StealthyEnergy, make_stealthy_energy
 from xla_cco.kvectors import KSet, chi_from_count, enumerate_kvectors
@@ -101,9 +101,11 @@ def test_kset_parity(name: str) -> None:
 def test_energy_parity(name: str, chunk_size: Optional[int]) -> None:
     g, box, kset = _setup(name)
     energy = make_stealthy_energy(box, kset, chunk_size=chunk_size)
-    floor = ATOL_KERNEL_E * EPS * float(np.sum(kset.weights)) * g["params"]["N"]
+    # floor from golden quantities only (all kernel weights are 1)
+    floor = C_E * EPS * np.sqrt(g["params"]["N"] * int(g["m"]) * g["energy"])
     for got in _energies(energy, g):
-        np.testing.assert_allclose(got, g["energy"], rtol=RTOL_KERNEL_E, atol=floor)
+        err = np.abs(got - g["energy"])
+        assert np.all(err <= RTOL_KERNEL_E * np.abs(g["energy"]) + floor), err
 
 
 @pytest.mark.parametrize("name", NAMES)
