@@ -6,7 +6,9 @@ Stealthy energy as an Equinox PyTree in fractional coordinates.
 Phi = (1/V) sum_k w_k |rho_k|^2, rho_k = sum_j exp(2 pi i n_k . s_j); v = 1,
 no factor 1/2, Shift = 0. ``__call__`` is plain jnp (autodiff to any order);
 ``value_and_grad`` is the analytic chunked fast path with dPhi/ds equal to
-the C++ gradient -(F_i . a_j).
+the C++ gradient -(F_i . a_j). When the integer bound ``n_max`` on |n_a| is
+known (``make_stealthy_energy`` sets it), the fast path replaces the per-(k, j)
+trig by per-axis tables of exp(2 pi i s_a)^p built with cumulative products.
 
 Samuel J. Dawley
 11/2026
@@ -48,6 +50,57 @@ def _density_block(
     return jnp.sum(jnp.cos(theta), axis=1), jnp.sum(jnp.sin(theta), axis=1)
 
 
+def _power_table(s: Positions, n_max: int) -> Array:
+    """Return z^p, p = 0..n_max, with z = exp(2 pi i s): shape (n_max + 1, n, d).
+
+    Built by cumulative products, so the (k, j) phases cost no trig.
+    """
+    assert n_max >= 0, "n_max must be non-negative"
+    z = jnp.cos(_TWO_PI * s) + 1j * jnp.sin(_TWO_PI * s)
+    ones = jnp.ones((1,) + s.shape, dtype=z.dtype)
+    rest = jnp.broadcast_to(z, (n_max,) + s.shape)
+    out: Array = jnp.cumprod(jnp.concatenate([ones, rest], axis=0), axis=0)
+    return out
+
+
+def _phase_block(table: Array, n_block: Float[Array, "c d"]) -> Array:
+    """Return exp(2 pi i n_k . s_j) for the rows of ``n_block``: shape (c, n).
+
+    Per axis a the factor is table[|n_ka|, :, a], conjugated for n_ka < 0;
+    an index beyond the table yields NaN rather than a wrong finite value.
+    """
+    assert table.ndim == 3, "table must have shape (p, n, d)"
+    assert n_block.shape[1] == table.shape[2], "dimension mismatch"
+    idx = jnp.abs(n_block).astype(jnp.int32)
+    phase = None
+    for a in range(n_block.shape[1]):
+        fac = jnp.take(
+            table[:, :, a], idx[:, a], axis=0, mode="fill", fill_value=jnp.nan
+        )
+        fac = jnp.where((n_block[:, a] < 0)[:, None], jnp.conj(fac), fac)
+        phase = fac if phase is None else phase * fac
+    assert phase is not None, "need at least one axis"
+    return phase
+
+
+def auto_chunk_size(
+    n_particles: int,
+    n_vectors: int,
+    budget_bytes: int = 1 << 30,
+    bytes_per_pair: int = 96,
+) -> Optional[int]:
+    """Return a ``chunk_size`` whose (c, N) work arrays fit ``budget_bytes``.
+
+    Internal helper (the factory default stays unchunked): ``bytes_per_pair``
+    is the live bytes per (k, j) pair of one block (a few complex128 arrays).
+    Returns None when the whole (M, N) matrix already fits.
+    """
+    assert n_particles >= 1 and n_vectors >= 1, "sizes must be positive"
+    assert budget_bytes >= 1 and bytes_per_pair >= 1, "budget must be positive"
+    size = max(1, budget_bytes // (n_particles * bytes_per_pair))
+    return None if size >= n_vectors else size
+
+
 def _pad_rows(x: Array, total: int) -> Array:
     """Append zero rows along axis 0 up to ``total`` rows."""
     pad = [(0, total - x.shape[0])] + [(0, 0)] * (x.ndim - 1)
@@ -86,12 +139,16 @@ class StealthyEnergy(AbstractEnergy):
         Box volume V.
     chunk_size : Optional[int]
         Static chunk length over k for ``value_and_grad`` (None = unchunked).
+    n_max : Optional[int]
+        Static upper bound on max |n_ka|; enables the phase-table fast path
+        (None = per-(k, j) trig). Set by ``make_stealthy_energy``.
     """
 
     n_vectors: Float[Array, "m d"]
     weights: Float[Array, "m"]
     volume: Float[Array, ""]
     chunk_size: Optional[int] = eqx.field(static=True, default=None)
+    n_max: Optional[int] = eqx.field(static=True, default=None)
 
     def __call__(self, s: Positions) -> Float[Array, ""]:
         """Return Phi(s) (dimensionless, density 1)."""
@@ -111,9 +168,51 @@ class StealthyEnergy(AbstractEnergy):
         require_float64(s, "s")
         assert s.ndim == 2, "s must have shape (n, d)"
         assert s.shape[1] == self.n_vectors.shape[1], "dimension mismatch"
+        if self.n_max is not None:
+            return self._value_and_grad_tables(s, self.n_max)
         re, im = collective_density(s, self.n_vectors, self.chunk_size)
         value = jnp.sum(self.weights * (re * re + im * im)) / self.volume
         return value, self._gradient(s, re, im)
+
+    def _value_and_grad_tables(
+        self, s: Positions, n_max: int
+    ) -> Tuple[Float[Array, ""], Positions]:
+        """Phase-table fast path: one block (unchunked) or two scans (chunked)."""
+        m = self.n_vectors.shape[0]
+        size = m if self.chunk_size is None else min(self.chunk_size, m)
+        n_chunks = -(-m // size)
+        total = n_chunks * size
+        table = _power_table(s, n_max)
+        n_blk = _pad_rows(self.n_vectors, total).reshape(n_chunks, size, -1)
+        w_blk = _pad_rows(self.weights, total).reshape(n_chunks, size)
+        pref = 2.0 * _TWO_PI / self.volume
+
+        def coef_of(ph: Array, w_c: Array, rho: Array) -> Array:
+            return w_c[:, None] * (
+                rho.imag[:, None] * ph.real - rho.real[:, None] * ph.imag
+            )
+
+        if n_chunks == 1:  # the (m, n) phase matrix is already resident: reuse it
+            ph = _phase_block(table, n_blk[0])
+            rho = jnp.sum(ph, axis=1)  # complex sum: fuses far better than re/im
+            value = jnp.sum(w_blk[0] * (rho.real**2 + rho.imag**2)) / self.volume
+            return value, pref * (coef_of(ph, w_blk[0], rho).T @ n_blk[0])
+
+        def rho_body(_: None, n_c: Array) -> Tuple[None, Array]:
+            return None, jnp.sum(_phase_block(table, n_c), axis=1)
+
+        _, rho_blk = jax.lax.scan(rho_body, None, n_blk)
+        re_blk, im_blk = rho_blk.real, rho_blk.imag
+        value = jnp.sum(w_blk * (re_blk * re_blk + im_blk * im_blk)) / self.volume
+
+        def grad_body(acc: Positions, blk: Tuple[Array, ...]) -> Tuple[Positions, None]:
+            n_c, w_c, rho_c = blk
+            ph = _phase_block(table, n_c)
+            return acc + coef_of(ph, w_c, rho_c).T @ n_c, None
+
+        init = jnp.zeros_like(s)
+        acc, _ = jax.lax.scan(grad_body, init, (n_blk, w_blk, rho_blk))
+        return value, pref * acc
 
     def _gradient(
         self, s: Positions, re: Float[Array, "m"], im: Float[Array, "m"]
@@ -215,4 +314,5 @@ def make_stealthy_energy(
         weights=jnp.asarray(wts),
         volume=jnp.asarray(box.volume),
         chunk_size=chunk_size,
+        n_max=int(np.max(np.abs(kset.n))),
     )
