@@ -41,7 +41,9 @@ from xla_cco.io.trajstore import open_trajectory
 from xla_cco.analysis.trajectory import unwrap_fractional, proximity_metric
 import numpy as np
 
-frames, arrays, meta = open_trajectory(Path("experiments/trajectories/chi0.1/POS/traj_0000"))
+frames, arrays, meta = open_trajectory(
+    Path("experiments/trajectories/chi0.1/POS/traj_0000")
+)
 # frames: memmap (F, N, 2), wrapped fractional positions; frame 0 is the initial condition,
 #         followed by the state after every ACCEPTED iteration
 # arrays: per-iteration 'iteration', 'energy', 'step_used', 'step_used_cartesian',
@@ -49,7 +51,7 @@ frames, arrays, meta = open_trajectory(Path("experiments/trajectories/chi0.1/POS
 # meta:   N, d, L, basis, chi_actual, M, K, settings, status, final_energy, git_commit, ...
 paths = unwrap_fractional(np.asarray(frames))
 p0 = proximity_metric(paths, paths[0], np.asarray(meta["basis"]), meta["density"])
-positions_at_iteration_m = frames[arrays["frame_index"][m - 1]]   # m >= 1
+positions_at_iteration_m = frames[arrays["frame_index"][m - 1]]  # m >= 1
 ```
 
 Rejected iterations leave positions unchanged, so storing frames only at accepted iterations is lossless. Every iteration is still recoverable through `frame_index`.
