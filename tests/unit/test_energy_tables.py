@@ -15,6 +15,7 @@ Samuel J. Dawley
 import dataclasses
 
 # ----- numerics -----
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -25,6 +26,7 @@ from systems import small_system, square_lattice
 from tolerances import C_E, RTOL_KERNEL_E, RTOL_KERNEL_F
 from xla_cco.box import cubic_box
 from xla_cco.energy import (
+    TABLE_MIN_M,
     StealthyEnergy,
     _phase_block,
     _power_table,
@@ -38,10 +40,20 @@ from xla_cco.kvectors import enumerate_kvectors
 # ============================================================
 
 
-def test_factory_sets_n_max_and_baseline_has_none() -> None:
-    _, kset, en = small_system(12, 2, 4.0)
-    assert en.n_max == int(np.abs(kset.n).max())
-    assert StealthyEnergy(en.n_vectors, en.weights, en.volume).n_max is None
+def _tables(en: StealthyEnergy) -> StealthyEnergy:
+    """Force the table path: n_max = max|n| of the energy's own k rows."""
+    return dataclasses.replace(en, n_max=int(np.abs(np.asarray(en.n_vectors)).max()))
+
+
+def test_factory_rule_tables_iff_m_at_least_threshold() -> None:
+    _, small_k, small = small_system(12, 2, 4.0)
+    assert small_k.n.shape[0] < TABLE_MIN_M and small.n_max is None
+    box = cubic_box(50, 2)
+    kset = enumerate_kvectors(np.asarray(box.basis), 0.0, 12.0)
+    assert kset.n.shape[0] >= TABLE_MIN_M
+    big = make_stealthy_energy(box, kset)
+    assert big.n_max == int(np.abs(kset.n).max())
+    assert StealthyEnergy(big.n_vectors, big.weights, big.volume).n_max is None
 
 
 @pytest.mark.parametrize("dim,n,k_out", [(1, 9, 5.0), (2, 12, 4.0), (3, 10, 3.5)])
@@ -51,7 +63,7 @@ def test_tables_match_oracle_and_trig_baseline(
 ) -> None:
     box = cubic_box(n, dim)
     kset = enumerate_kvectors(np.asarray(box.basis), 0.0, k_out)
-    en = make_stealthy_energy(box, kset, chunk_size=chunk)
+    en = _tables(make_stealthy_energy(box, kset, chunk_size=chunk))
     base = dataclasses.replace(en, n_max=None)
     s = np.random.default_rng(3).uniform(size=(n, dim))
     val, grad = en.value_and_grad(jnp.asarray(s))
@@ -70,7 +82,7 @@ def test_tables_near_ordered_configuration() -> None:
     s = square_lattice(8) + 1e-9 * np.random.default_rng(0).normal(size=(64, 2))
     box = cubic_box(64, 2)
     kset = enumerate_kvectors(np.asarray(box.basis), 0.0, 2.0 * np.pi * 7.5 / 8.0)
-    en = make_stealthy_energy(box, kset)
+    en = _tables(make_stealthy_energy(box, kset))
     base = dataclasses.replace(en, n_max=None)
     v, g = en.value_and_grad(jnp.asarray(s))
     bv, bg = base.value_and_grad(jnp.asarray(s))
@@ -98,13 +110,39 @@ def test_phase_block_handles_negative_indices() -> None:
     np.testing.assert_allclose(ph, want, atol=1e-14)
 
 
-def test_underbounded_n_max_is_nan_not_wrong() -> None:
-    _, _, en = small_system(12, 2, 4.0)
+def test_regression_D010_undersized_n_max_raises_at_construction() -> None:
+    en = _tables(small_system(12, 2, 4.0)[2])
     assert en.n_max is not None and en.n_max >= 2
-    bad = dataclasses.replace(en, n_max=en.n_max - 1)
+    with pytest.raises(ValueError, match="n_max"):
+        dataclasses.replace(en, n_max=en.n_max - 1)
+    with pytest.raises(ValueError, match="non-negative"):
+        dataclasses.replace(en, n_max=-1)
+    ok = dataclasses.replace(en, n_max=en.n_max + 3)  # a larger bound is fine
+    assert ok.n_max == en.n_max + 3
+
+
+def test_non_integer_n_vectors_raise_at_construction() -> None:
+    n = jnp.asarray([[1.0, 0.0], [0.5, 1.0]])
+    w, v = jnp.ones(2), jnp.asarray(4.0)
+    with pytest.raises(ValueError, match="integer"):
+        StealthyEnergy(n, w, v, None, 1)
+    with pytest.raises(ValueError, match="integer"):
+        StealthyEnergy(n, w, v)  # the trig path is checked too
+
+
+def test_traced_n_vectors_skip_checks_and_nan_guards_the_table() -> None:
+    """Under jit ``n_vectors`` is a tracer: no check runs, NaN fill guards."""
+    en = _tables(small_system(12, 2, 4.0)[2])
+    assert en.n_max is not None and en.n_max >= 2
     s = jnp.asarray(np.random.default_rng(5).uniform(size=(12, 2)))
-    val, grad = bad.value_and_grad(s)
-    assert np.isnan(float(val)) and np.all(np.isnan(np.asarray(grad)))
+    n_max = en.n_max - 1
+
+    @jax.jit
+    def run(n: jax.Array) -> jax.Array:
+        bad = StealthyEnergy(n, en.weights, en.volume, None, n_max)
+        return bad.value_and_grad(s)[0]
+
+    assert np.isnan(float(run(en.n_vectors)))
 
 
 def test_auto_chunk_size_examples() -> None:

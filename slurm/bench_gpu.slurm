@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --time=00:30:00
-#SBATCH --output=slurm-%x-%j.out
+#SBATCH --output=/scratch/gpfs/TORQUATO/sd2402/xla-cco-T11/slurm-%x-%j.out
 # GPU benchmark (T11) on Della. Submit from the repository root:
 #   sbatch slurm/bench_gpu.slurm
 # Compute nodes are offline: sync the GPU env once on a login node first:

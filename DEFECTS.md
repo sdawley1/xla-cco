@@ -53,3 +53,13 @@ needed for parity, reproduce the behaviour.
 - **Regression test:** tests/unit/test_tables.py::test_regression_D009_function_table_writes_nan_like_cpp
 - **Fix:** NaN is written as glibc printf `%1.10e` does (`nan` or `-nan` by sign bit; verified with ctypes snprintf); only +/-inf still raises
 
+
+## D-010 — Undersized `n_max` and non-integer `n_vectors` failed silently on the table path
+- **Found:** 2026-11-06, by the independent audit of T11
+- **Status:** fixed
+- **Where:** src/xla_cco/energy.py (`StealthyEnergy`, phase-table fast path of `value_and_grad`)
+- **Symptom:** an `n_max` below max|n| gave NaN energy and gradient with no error at construction; a non-integer `n_vectors` was silently truncated by `astype(int32)` and gave a finite wrong energy
+- **Repro:** `dataclasses.replace(en, n_max=en.n_max - 1).value_and_grad(s)` returned NaN; `StealthyEnergy(jnp.asarray([[0.5, 1.0]]), w, v, None, 1).value_and_grad(s)` returned a wrong finite value
+- **Impact:** hand-built energies could produce NaN or wrong values far from the cause
+- **Regression test:** tests/unit/test_energy_tables.py::test_regression_D010_undersized_n_max_raises_at_construction (and test_non_integer_n_vectors_raise_at_construction)
+- **Fix:** `StealthyEnergy.__check_init__` raises `ValueError` for negative or undersized `n_max` and for non-integer-valued `n_vectors`; it is skipped when `n_vectors` is a tracer, where the NaN fill of out-of-range table gathers still guards (test_traced_n_vectors_skip_checks_and_nan_guards_the_table)

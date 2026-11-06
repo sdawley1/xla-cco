@@ -41,6 +41,13 @@ from xla_cco.kvectors import KSet
 
 _TWO_PI = 2.0 * np.pi
 
+# Phase tables pay off only for k-sets with at least this many vectors (R26).
+# Measured on an A100 (L-BFGS relax, d=3, N=100, batch 1000; RESULTS.md):
+# tables are 0.44-0.46x of trig at M = 13, 28, 61 and 1.27-1.36x per
+# evaluation at M = 89, 128; max|n| cannot separate these (3 at both M = 61
+# and 89). The threshold is the midpoint of the measured interval (61, 89).
+TABLE_MIN_M: int = 75
+
 
 def _density_block(
     s: Positions, n_block: Float[Array, "c d"]
@@ -149,6 +156,28 @@ class StealthyEnergy(AbstractEnergy):
     volume: Float[Array, ""]
     chunk_size: Optional[int] = eqx.field(static=True, default=None)
     n_max: Optional[int] = eqx.field(static=True, default=None)
+
+    def __check_init__(self) -> None:
+        """Validate ``n_vectors`` and ``n_max`` (skipped for traced arrays).
+
+        Raises
+        ------
+        ValueError
+            If ``n_max`` is negative or smaller than max |n|, or if
+            ``n_vectors`` is not integer-valued (the table path would
+            truncate it silently).
+        """
+        if isinstance(self.n_vectors, jax.core.Tracer):
+            return
+        a = np.asarray(self.n_vectors)
+        if self.n_max is not None and self.n_max < 0:
+            raise ValueError(f"n_max must be non-negative, got {self.n_max}")
+        if self.n_max is not None and a.size and np.abs(a).max() > self.n_max:
+            raise ValueError(
+                f"n_max={self.n_max} is smaller than max|n|={np.abs(a).max():g}"
+            )
+        if np.any(a != np.round(a)):
+            raise ValueError("n_vectors must be integer-valued")
 
     def __call__(self, s: Positions) -> Float[Array, ""]:
         """Return Phi(s) (dimensionless, density 1)."""
@@ -293,6 +322,15 @@ def make_stealthy_energy(
     pad_to : int
         Pad M up to a multiple of this value with zero-weight rows.
 
+    Notes
+    -----
+    The factory picks the ``value_and_grad`` kernel with a backend-independent
+    rule on the k-set: per-axis phase tables (``n_max = max|n|``) iff
+    ``M >= TABLE_MIN_M`` (75), otherwise per-(k, j) trig (``n_max=None``). The
+    threshold comes from a GPU grid over chi (benchmarks/RESULTS.md): tables
+    lost 2.2x at M <= 61 and won 1.3x at M >= 89, while ``max|n|`` alone could
+    not separate the two regimes.
+
     Raises
     ------
     ValueError
@@ -314,5 +352,5 @@ def make_stealthy_energy(
         weights=jnp.asarray(wts),
         volume=jnp.asarray(box.volume),
         chunk_size=chunk_size,
-        n_max=int(np.max(np.abs(kset.n))),
+        n_max=int(np.max(np.abs(kset.n))) if m >= TABLE_MIN_M else None,
     )
