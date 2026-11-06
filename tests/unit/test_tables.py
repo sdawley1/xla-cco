@@ -62,7 +62,7 @@ def test_write_function_table_four_columns(tmp_path: Path) -> None:
 
 
 def test_write_function_table_rejects_bad_input(tmp_path: Path) -> None:
-    """Ragged, too many, empty-column-list and non-finite inputs raise."""
+    """Ragged, too many, empty-column-list and infinite inputs raise."""
     out = tmp_path / "f.txt"
     with pytest.raises(ValueError):
         write_function_table(out, [np.zeros(2), np.zeros(3)])
@@ -71,9 +71,9 @@ def test_write_function_table_rejects_bad_input(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         write_function_table(out, [])
     with pytest.raises(ValueError):
-        write_function_table(out, [np.array([1.0, np.nan])])
-    with pytest.raises(ValueError):
         write_function_table(out, [np.array([np.inf])])
+    with pytest.raises(ValueError):
+        write_function_table(out, [np.array([-np.inf])])
     with pytest.raises(ValueError):
         write_function_table(out, [np.zeros((2, 2))])
 
@@ -122,3 +122,16 @@ def test_cpp_sk_reformat_bytes_identical(tmp_path: Path) -> None:
     out = tmp_path / "sk.txt"
     write_function_table(out, [rows[:, j] for j in range(4)])
     assert out.read_bytes() == b"\n".join(original) + b"\n"
+
+
+def test_regression_D009_function_table_writes_nan_like_cpp(tmp_path: Path) -> None:
+    """NaN is written as glibc printf %1.10e does ("nan"/"-nan"); inf raises."""
+    out = tmp_path / "f.txt"
+    neg_nan = np.copysign(np.nan, -1.0)
+    write_function_table(out, [np.array([np.nan, neg_nan]), np.array([1.0, 2.0])])
+    assert out.read_text() == (
+        "nan\t1.0000000000e+00\t0.0000000000e+00\t0.0000000000e+00\t\n"
+        "-nan\t2.0000000000e+00\t0.0000000000e+00\t0.0000000000e+00\t\n"
+    )
+    with pytest.raises(ValueError):
+        write_function_table(out, [np.array([np.inf])])

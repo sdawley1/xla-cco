@@ -25,10 +25,14 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from tolerances import ATOL_VMAP_S, RTOL_VMAP_E
+from xla_cco.analysis.structure import isotropic_structure_factor
+from xla_cco.box import cubic_box
+
 # ----- project -----
 from xla_cco.cli import relax as cli
 from xla_cco.io.configpack import PackedConfig, read_configpack, write_configpack
-from xla_cco.kvectors import ka_from_chi
+from xla_cco.kvectors import enumerate_kvectors, k_outer_from_ka, ka_from_chi
 
 # ============================================================
 # CONSTANTS
@@ -156,6 +160,108 @@ def test_cli_no_success_skips_analysis(tmp_path: Path) -> None:
         assert not Path(str(tmp_path / "out") + suffix).exists()
     assert (tmp_path / "out.ConfigPack").is_file()
     assert (tmp_path / "out_InitConfig.ConfigPack").is_file()
+
+
+def _table(path: Path) -> np.ndarray:
+    rows = [r.split("\t")[:4] for r in path.read_text().splitlines()]
+    return np.array([[float(x) for x in r] for r in rows])
+
+
+def _mixed_run(tmp_path: Path, k1a: str = "0") -> Any:
+    """Run twice so that tol splits the 4 configs 2/2; return (summary, input)."""
+    cfgs = _poisson_pack(tmp_path / "in", 64, 2, 4)
+    probe = cli.build_parser().parse_args(
+        [*_base(tmp_path, k1a), "--save", str(tmp_path / "probe")]
+    )
+    cli.run(probe)
+    e = np.sort(np.load(tmp_path / "probe_energies.npy"))
+    tol = float(np.sqrt(e[1] * e[2]))
+    assert e[1] < tol < e[2]
+    args = cli.build_parser().parse_args([*_base(tmp_path, k1a), "--tol", repr(tol)])
+    return cli.run(args), cfgs
+
+
+def _base(tmp_path: Path, k1a: str) -> List[str]:
+    return [
+        "--dim", "2", "--ka", repr(_ka_d2()), "--phi", str(PHI), "--k1a", k1a,
+        "--load", str(tmp_path / "in"), "--save", str(tmp_path / "out"),
+        "--device", "cpu",
+    ]  # fmt: skip
+
+
+def test_success_mask_is_strict() -> None:
+    tol = 1e-20
+    m = cli.success_mask(np.array([tol, np.nextafter(tol, 0.0), 2 * tol]), tol)
+    assert m.tolist() == [False, True, False]
+
+
+def test_cli_mixed_success_selects_exact_configs(tmp_path: Path) -> None:
+    summary, cfgs = _mixed_run(tmp_path)
+    energies = np.load(tmp_path / "out_energies.npy")
+    ok = energies < summary["tol"]
+    assert ok.sum() == 2 == summary["n_success"]
+    relaxed = read_configpack(tmp_path / "out")
+    succ = read_configpack(tmp_path / "out_Success")
+    assert len(succ) == 2
+    for got, want in zip(
+        succ, [c for c, f in zip(relaxed, ok, strict=True) if f], strict=True
+    ):
+        assert np.array_equal(got.relative, want.relative)
+    # InitConfig holds the (wrapped) INPUT positions, not the relaxed ones
+    for got, inp in zip(
+        read_configpack(tmp_path / "out_InitConfig"), cfgs, strict=True
+    ):
+        assert np.array_equal(got.relative, inp.relative - np.floor(inp.relative))
+    # S(k) and g2 are computed on exactly the Success configs
+    s_succ = np.stack([c.relative for c in succ])
+    box = cubic_box(64, 2)
+    want_sk = isotropic_structure_factor(s_succ, box, 5.0, 400.0)
+    sk = _table(tmp_path / "out_Sk.txt")
+    for j in range(4):
+        assert np.allclose(sk[:, j], want_sk[j], rtol=1e-9, atol=0.0, equal_nan=True)
+    g2 = _table(tmp_path / "out_g2.txt")
+    assert g2.shape[0] == 200
+    assert np.isclose(g2[-1, 0] + g2[-1, 2], 0.2 * 8.0, rtol=1e-12)  # r_max = 0.2 L
+    assert np.isclose(g2[0, 0] - g2[0, 2], 0.0, atol=1e-12)
+
+
+def test_cli_init_config_is_wrapped_input(tmp_path: Path) -> None:
+    rng = np.random.default_rng(3)
+    rel = rng.uniform(-2.0, 3.0, size=(64, 2))
+    cfg = PackedConfig(np.eye(2), rel, 1.0, (b"a\x00\x00\x00",) * 64)
+    write_configpack(tmp_path / "in", [cfg])
+    cli.run(_args(tmp_path, "--max-steps", "2", ka=_ka_d2()))
+    got = read_configpack(tmp_path / "out_InitConfig")[0].relative
+    assert np.array_equal(got, rel - np.floor(rel))
+    assert got.min() >= 0.0 and got.max() < 1.0
+
+
+def test_cli_k1_uses_shared_a(tmp_path: Path) -> None:
+    _poisson_pack(tmp_path / "in", 64, 2, 1)
+    ka = _ka_d2()
+    summary = cli.run(_args(tmp_path, "--k1a", "0.2", "--max-steps", "2", ka=ka))
+    k1 = k_outer_from_ka(0.2, PHI, 2)
+    k2 = k_outer_from_ka(ka, PHI, 2)
+    log = json.loads((tmp_path / "out_log.json").read_text())
+    assert log["K1"] == k1 and log["K2"] == k2 == summary["K2"]
+    m = enumerate_kvectors(np.eye(2) * 8.0, k1, k2).n.shape[0]
+    assert log["M"] == m
+    assert m < enumerate_kvectors(np.eye(2) * 8.0, 0.0, k2).n.shape[0]
+
+
+def test_cli_trajectory_multi_batch_matches_single(tmp_path: Path) -> None:
+    _poisson_pack(tmp_path / "in", 64, 2, 3)
+    rec = ["--record-every", "5", "--max-records", "4", "--max-steps", "60"]
+    cli.run(_args(tmp_path, *rec, "--batch-size", "2", ka=_ka_d2()))
+    multi = dict(np.load(tmp_path / "out_traj.npz"))
+    cli.run(_args(tmp_path, *rec, "--batch-size", "8", ka=_ka_d2()))
+    single = dict(np.load(tmp_path / "out_traj.npz"))
+    assert multi["s"].shape == (3, 4, 64, 2) and multi["count"].shape == (3,)
+    assert multi["energy"].shape == multi["step"].shape == (3, 4)
+    assert multi["iteration"].shape == (3, 4)
+    assert np.array_equal(multi["count"], single["count"])
+    assert np.allclose(multi["s"], single["s"], rtol=0.0, atol=ATOL_VMAP_S)
+    assert np.allclose(multi["energy"], single["energy"], rtol=RTOL_VMAP_E, atol=0.0)
 
 
 # ============================================================
