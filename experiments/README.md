@@ -10,7 +10,7 @@ Only scripts are tracked. All generated data lives in git-ignored directories:
 |---|---|
 | `initial_conditions/` | `POS-2D-N1024` (100 Poisson configs, seed 20251106); `GAU-2D-N1000` (50 configs copied from `CONFIGURATIONS/N1000_configs_GaussianPairStat`, basis rescaled to unit volume); `provenance.json` |
 | `trajectories/chi0.1/<ENS>/` | `traj_XXXX.{positions.f64,npz,json}` for each trajectory, plus `manifest.json`; `trajectories/chi0.1/summary.npz` (ensemble statistics); SLURM logs |
-| `figures/` | `chi0.1_pos_gau.{png,pdf}` |
+| `figures/` | `chi0.1_pos_gau.{png,pdf}` (S(k) of initial conditions; distance and energy vs t/T, log-log) and `chi0.1_ground_state_sk.{png,pdf}` (S(k) of the converged ground states) |
 
 ### Pipeline (run from the repository root)
 
@@ -20,6 +20,7 @@ uv run --no-sync python -I experiments/scripts/make_initial_conditions.py
 sbatch experiments/slurm/run_trajectories_gpu.slurm      # or run_trajectories.slurm (CPU)
 JAX_PLATFORMS=cpu uv run --no-sync python -I experiments/scripts/analyze_trajectories.py
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/plot_figure.py
+/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/plot_ground_state_sk.py
 ```
 
 ### Conventions

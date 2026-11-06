@@ -8,8 +8,9 @@ p_0(t) = rho^{1/2} [sum_j |r_j(t) - r_j(0)|^2]^{1/2} on unwrapped paths, the
 configurational distance from the ground-state manifold p_0(inf) - p_0(t),
 and the energy Phi(t), all versus the dimensionless time t/T. Ensemble
 statistics (mean and 10-90 % band) are formed on a common t/T grid. The
-initial-condition structure factors S(k) are computed for Fig. 2(a)-style
-plots. Writes one ``summary.npz`` (git-ignored) consumed by plot_figure.py.
+structure factors S(k) of the initial conditions (Fig. 2(a)-style) and of
+the converged ground states are computed per ensemble. Writes one
+``summary.npz`` (git-ignored) consumed by the plotting scripts.
 
 Samuel J. Dawley
 11/2026
@@ -61,6 +62,8 @@ def trajectory_curves(prefix: Path) -> Dict[str, np.ndarray]:
         "T": np.asarray(total),
         "n_iters": np.asarray(meta["n_iters"]),
         "final_energy": np.asarray(meta["final_energy"]),
+        "final_s": np.array(frames[-1]),  # ground state (wrapped fractional)
+        "basis": basis,
     }
 
 
@@ -86,16 +89,24 @@ def ensemble_stats(
     return out
 
 
-def initial_sk(prefix: Path, bin_width: float, k_max: float) -> Tuple[np.ndarray, ...]:
-    """Return (k, S, S_sem) of an initial-condition ensemble."""
+def ensemble_sk(
+    s: np.ndarray, basis: np.ndarray, bin_width: float, k_max: float
+) -> Tuple[np.ndarray, ...]:
+    """Return (k, S, S_sem) of a (B, N, d) fractional ensemble in ``basis``."""
     assert bin_width > 0.0 and k_max > 0.0, "positive binning required"
-    s, unit = stack_fractional(read_configpack(prefix))
-    n, d = s.shape[1], s.shape[2]
-    box = Box(basis=jnp.asarray(unit * n ** (1.0 / d)))
+    assert s.ndim == 3 and basis.shape == (s.shape[2], s.shape[2]), "bad shapes"
+    box = Box(basis=jnp.asarray(basis, dtype=jnp.float64))
     k, sk, _, sem = isotropic_structure_factor(
         jnp.asarray(s), box, k_dir_max=5.0, k_max=k_max, bin_width=bin_width
     )
     return k, sk, sem
+
+
+def initial_sk(prefix: Path, bin_width: float, k_max: float) -> Tuple[np.ndarray, ...]:
+    """Return (k, S, S_sem) of an initial-condition ensemble (ConfigPack)."""
+    s, unit = stack_fractional(read_configpack(prefix))
+    n, d = s.shape[1], s.shape[2]
+    return ensemble_sk(s, unit * n ** (1.0 / d), bin_width, k_max)
 
 
 # ============================================================
@@ -155,6 +166,9 @@ if __name__ == "__main__":
             result[f"{ens}/{key}"] = val
         k, sk, sem = initial_sk(args.ic / ic_name, args.sk_bin, args.sk_kmax)
         result.update({f"{ens}/sk_k": k, f"{ens}/sk_S": sk, f"{ens}/sk_sem": sem})
+        s_gs = np.stack([c["final_s"] for c in curves])
+        k, sk, sem = ensemble_sk(s_gs, curves[0]["basis"], args.sk_bin, args.sk_kmax)
+        result.update({f"{ens}/gs_k": k, f"{ens}/gs_S": sk, f"{ens}/gs_sem": sem})
         for key in ("K", "chi_actual", "M", "N"):
             result[f"{ens}/{key}"] = np.asarray(manifest[key])
         print(
