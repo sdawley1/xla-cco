@@ -1,6 +1,6 @@
 # Experiments
 
-## Dawley & Torquato (2025) trajectories, χ = 0.1
+## Dawley & Torquato (2025) trajectories, χ = 0.1 and χ = 0.4
 
 This experiment reproduces part of *Evolution of various initial many-particle configurations to disordered stealthy hyperuniform ground states*, PRE **112**, 045310 (2025). It runs collective-coordinate optimization from Poisson (POS) and Gaussian-pair-statistics (GAU, hyperuniform) initial conditions to χ = 0.1 stealthy ground states with `xla_cco`'s adaptive gradient descent. Each run is stored at full resolution.
 
@@ -9,15 +9,18 @@ Only scripts are tracked. All generated data lives in git-ignored directories:
 | Directory | Contents |
 |---|---|
 | `initial_conditions/` | `POS-2D-N1024` (100 Poisson configs, seed 20251106); `GAU-2D-N1000` (50 configs copied from `CONFIGURATIONS/N1000_configs_GaussianPairStat`, basis rescaled to unit volume); `provenance.json` |
-| `trajectories/chi0.1/<ENS>/` | `traj_XXXX.{positions.f64,npz,json}` for each trajectory, plus `manifest.json`; `trajectories/chi0.1/summary.npz` (ensemble statistics); SLURM logs |
-| `figures/` | `chi0.1_pos_gau.{png,pdf}` (S(k) of initial conditions; distance and energy vs t/T, log-log) and `chi0.1_ground_state_sk.{png,pdf}` (S(k) of the converged ground states) |
+| `trajectories/chi<χ>/<ENS>/` | `traj_XXXX.{positions.f64,npz,json}` for each trajectory, plus `manifest.json`; `trajectories/chi<χ>/summary.npz` (ensemble statistics); SLURM logs |
+| `figures/` | `chi<χ>_pos_gau.{png,pdf}` (S(k) of initial conditions; distance and energy vs t/T, log-log) and `chi<χ>_ground_state_sk.{png,pdf}` (S(k) of the converged ground states) |
 
 ### Pipeline (run from the repository root)
 
 ```bash
 export UV_CACHE_DIR=/scratch/gpfs/TORQUATO/sd2402/.uv-cache
 uv run --no-sync python -I experiments/scripts/make_initial_conditions.py
-sbatch experiments/slurm/run_trajectories_gpu.slurm      # or run_trajectories.slurm (CPU)
+sbatch experiments/slurm/run_trajectories_gpu.slurm      # chi = 0.1 (default); CPU: run_trajectories.slurm
+sbatch --export=ALL,CHI=0.4 experiments/slurm/run_trajectories_gpu.slurm
+# for chi = 0.4 pass --traj experiments/trajectories/chi0.4 to the analysis and
+# --summary .../chi0.4/summary.npz --out experiments/figures/chi0.4_<name> to the plot scripts
 JAX_PLATFORMS=cpu uv run --no-sync python -I experiments/scripts/analyze_trajectories.py
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/plot_figure.py
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/plot_ground_state_sk.py
@@ -26,11 +29,15 @@ JAX_PLATFORMS=cpu uv run --no-sync python -I experiments/scripts/analyze_traject
 ### Conventions
 
 - **Descent rule** (paper, Sec. IV). The descent uses the normalized gradient. The step doubles after an accepted downhill move and halves otherwise; acceptance is as in the C++ `LocalGradientDescent`, with rel_tol = 0.01. The initial step is γρ^{1/2} = 1e-3 in Cartesian units, which is a fractional step of 1e-3/L.
+- **χ = 0.4** uses K = 4.483993. That gives M = 820 and χ = 0.40078 for POS, and M = 802 and χ = 0.40140 for GAU. The GPU job was 17000661.
 - **χ = 0.1** uses K = 2.241996. That gives M = 210 and χ = 0.10264 for POS (N = 1024), and M = 200 and χ = 0.10010 for GAU (N = 1000).
 - **Ground state.** Each run continues until Φ < 1e-22 (the paper's tolerance) or until the step floor. The step floor is where float64 can no longer resolve energy changes, at Φ ≈ 1e-22. Any terminal Φ < 1e-20 counts as a ground state.
   - All 150 trajectories reach a ground state.
   - 49/100 POS and 29/50 GAU runs reach Φ < 1e-22.
   - Each run's `status` and `final_energy` are in its JSON file.
+  - At χ = 0.4 the float64 floor is higher: all 150 runs stop at the step floor with Φ between 4.9e-20 and 1.4e-18 (median about 2.5e-19). The floor rises with M, which is about 4x larger here, so the manifests' `n_ground_states` (Φ < 1e-20) reads 0.
+    - These endpoints are still ground states to within about 1e-9. Polishing POS and GAU `traj_0000` with the library's L-BFGS takes Φ from about 1e-19 to 6e-26 and moves the whole configuration by only 3-4e-9 in total, against p_0(∞) values of 26 and 11.
+    - In ground-state S(k), S ≤ 1.5e-19 for k < K − 0.1. The 0.1-wide bin straddling K (mean |k| = 4.45) mixes vectors inside and outside the window, so do not read it as part of the window.
 - **Time.** An iteration contributes t_m = γρ^{1/2} (its Cartesian step) if accepted and 0 otherwise. T is the total, and the figures use t/T.
 - **Proximity metric** (Eq. 10). p_0(t) = ρ^{1/2} [Σ_j |r_j(t) − r_j(0)|²]^{1/2}, computed on unwrapped paths. The plotted distance to the manifold is p_0(∞) − p_0(t).
 
