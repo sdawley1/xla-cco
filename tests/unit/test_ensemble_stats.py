@@ -97,6 +97,33 @@ def test_success_fraction_difference_fails() -> None:
     assert not res.prop_pass and not res.passed
 
 
+def test_one_sided_success_jax_higher_passes() -> None:
+    """JAX success higher than C++ passes one-sided, fails two-sided."""
+    hi, lo = sample(12, frac=0.6), sample(13, frac=0.4)
+    one = es.run_battery(hi, lo, P_PROP, P_KS, SK_ZMAX, "less")
+    two = es.run_battery(hi, lo, P_PROP, P_KS, SK_ZMAX)
+    assert one.prop_pass and not two.prop_pass
+    assert one.prop_p_two_sided == two.prop_p
+
+
+def test_one_sided_success_jax_lower_fails() -> None:
+    """JAX success significantly lower than C++ fails the one-sided test."""
+    res = es.run_battery(
+        sample(14, frac=0.4), sample(15, frac=0.6), P_PROP, P_KS, SK_ZMAX, "less"
+    )
+    assert not res.prop_pass and res.prop_z < 0.0
+
+
+def test_one_sided_p_value() -> None:
+    """One-sided p is half the two-sided p when z < 0, and ~1 - that when z > 0."""
+    z, p = es.two_proportion_test(30, 100, 50, 100, "less")
+    _, p2 = es.two_proportion_test(30, 100, 50, 100)
+    assert p == pytest.approx(p2 / 2.0) and z < 0.0
+    assert es.two_proportion_test(50, 100, 30, 100, "less")[1] == pytest.approx(
+        1.0 - p2 / 2.0
+    )
+
+
 def test_logphi_is_report_only() -> None:
     """A different Phi distribution among successes does not affect ``passed``."""
     a, b = sample(10), sample(11)
