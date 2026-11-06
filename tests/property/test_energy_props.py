@@ -27,6 +27,8 @@ from tolerances import (
     ATOL_FD,
     FD_ROUNDOFF_C,
     FD_TRUNC_C,
+    GRAD_SUM_C,
+    GRAD_SUM_FLOOR,
     RTOL_KERNEL_E,
     RTOL_KERNEL_F,
 )
@@ -232,13 +234,41 @@ def test_periodic_image_invariant(case: tuple, seed: int) -> None:
     )
 
 
+def _grad_sum_atol(n: np.ndarray, w: np.ndarray, vol: float, n_part: int) -> float:
+    """Roundoff bound of sum_i grad_i, which is exactly 0 (translation invariance).
+
+    Per-particle terms reach (4 pi n_max / V) sum(w) N before cancellation, so the
+    summed error is C eps N times that, independent of the (small) gradient.
+    """
+    term = 4 * np.pi * float(np.abs(n).max()) * float(w.sum()) * n_part / vol
+    eps = float(np.finfo(np.float64).eps)
+    return GRAD_SUM_C * eps * n_part * term + GRAD_SUM_FLOOR
+
+
+def _check_grad_sum(s: np.ndarray, n: np.ndarray, w: np.ndarray, vol: float) -> None:
+    _, grad = _energy(n, w, vol).value_and_grad(jnp.asarray(s))
+    atol = _grad_sum_atol(n, w, vol, s.shape[0])
+    np.testing.assert_allclose(np.asarray(grad).sum(axis=0), 0.0, atol=atol)
+
+
 @FAST
 @given(systems())
 def test_gradient_sums_to_zero(case: tuple) -> None:
-    s, n, w, vol = case
-    _, grad = _energy(n, w, vol).value_and_grad(jnp.asarray(s))
-    scale = max(1.0, float(np.abs(grad).max()) * s.shape[0])
-    np.testing.assert_allclose(np.asarray(grad).sum(axis=0), 0.0, atol=1e-11 * scale)
+    _check_grad_sum(*case)
+
+
+def test_regression_D011_grad_sum_tolerance_scales_with_gradient_magnitude() -> None:
+    rng = np.random.default_rng(34)
+    s = np.full((16, 1), 0.40625)
+    n = rng.integers(-4, 5, size=(13, 1))
+    n[n == 0] = 1
+    w = rng.uniform(0.5, 2.0, 13)
+    _, grad = _energy(n, w, 1.0).value_and_grad(jnp.asarray(s))
+    total = float(np.abs(np.asarray(grad).sum()))
+    old_atol = 1e-11 * max(1.0, float(np.abs(grad).max()) * 16)
+    assert total > old_atol, "old tolerance no longer reproduces D-011"
+    assert total <= _grad_sum_atol(n, w, 1.0, 16)
+    _check_grad_sum(s, n, w, 1.0)
 
 
 @FAST

@@ -60,3 +60,9 @@ RTOL_VMAP_E: float = 1e-9
 # cancellation scale of M unit-weight terms; measured max ratio 1.0 across all 60
 # golden configs; 4x headroom.
 C_E: float = 4.0
+# Grad-sum roundoff: each particle gradient is a sum whose terms reach
+# (4 pi n_max / V) sum(w) N before cancellation (|rho| <= N); N such terms add
+# with error ~ C eps each, and the factor 8 covers summation order and trig error.
+GRAD_SUM_C: float = 8.0
+# Absolute floor for the grad-sum check when every term is tiny.
+GRAD_SUM_FLOOR: float = 1e-14
