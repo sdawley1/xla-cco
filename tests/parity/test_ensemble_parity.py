@@ -214,6 +214,10 @@ def results() -> Dict[str, Any]:
     res["meta"] = {
         "date": datetime.date.today().isoformat(),
         "git": _git("rev-parse", "--short", "HEAD"),
+        "git_full": _git("rev-parse", "HEAD"),
+        "src_tree": _git("rev-parse", "HEAD:src"),
+        "src_dirty": bool(_git("status", "--porcelain", "--", "src") != "unknown"),
+        "src_sha256": run.src_hash(),
         "job_id": __import__("os").environ.get("SLURM_JOB_ID", "none (interactive)"),
         "device": run.device_from_env(),
         "jax_version": jax.__version__,
@@ -261,7 +265,14 @@ def test_power_control_fails(results: Dict[str, Any], chi: float) -> None:
     _full_run_only(results)
     p = results["power"][f"{chi:g}"]
     assert p["n_a"] >= run.PER_TASK
-    assert not p["passed"], f"battery has no power at chi {chi}: {p}"
+    detail = (
+        f"per-statistic results at chi {chi}: success p={p['prop']['p']:.3g}, "
+        f"KS {p['ks']}, S(k) {p['sk']}"
+    )
+    assert not p["passed"], f"battery has no power at chi {chi}: {detail}"
+    # success fraction alone (0 successes) would fail trivially: demand more
+    assert p["sk"]["worst_abs_z"] >= SK_ZMAX, f"S(k) did not detect: {detail}"
+    assert any(not v["pass"] for v in p["ks"].values()), f"KS blind: {detail}"
 
 
 @pytest.mark.parametrize("chi", run.CHIS)

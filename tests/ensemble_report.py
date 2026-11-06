@@ -119,7 +119,9 @@ def render(results: Dict[str, Any], summary: bool = False) -> str:
     out = [
         f"# Ensemble parity vs C++ L-BFGS ({meta['date']})",
         "",
-        f"- git hash: `{meta['git']}`; SLURM job: {meta['job_id']}; "
+        f"- evaluated commit: `{meta['git_full']}`; src tree `{meta['src_tree']}` "
+        f"(dirty: {meta['src_dirty']}); src SHA-256 (cache key) "
+        f"`{meta['src_sha256'][:16]}`; SLURM job: {meta['job_id']}; "
         f"device: {meta['device']}; JAX {meta['jax_version']}",
         f"- configs per task: {meta['limit']} (tasks 0000-0002 = "
         f"{3 * meta['limit']} per chi); success: Phi < {meta['tol']:.8e}",
@@ -194,4 +196,6 @@ def _power_blocks(results: Dict[str, Any], summary: bool) -> List[str]:
             f"(p {_fmt(p['prop']['p'])}); failing KS: {failed}; S(k) worst |z| = "
             f"{p['sk']['worst_abs_z']:.1f}"
         )
+        ks = ", ".join(f"{k} p={_fmt(v['p'])}" for k, v in p["ks"].items())
+        out.append(f"  - KS p-values: {ks}; success two-sided p {_fmt(p['prop']['p'])}")
     return out + [""]

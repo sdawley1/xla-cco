@@ -3,11 +3,12 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
+#SBATCH --mem=16G
 #SBATCH --time=04:00:00
 #SBATCH --output=slurm-%x-%j.out
-# Ensemble-level parity vs the C++ code (L-BFGS statistics) on CPU (variant of parity_ensemble.slurm, used when the GPU queue wait is long).
-# Submit from the repository root: sbatch slurm/parity_ensemble.slurm
+# CPU variant of slurm/parity_ensemble.slurm (use when the GPU queue wait is long):
+# ensemble-level parity vs the C++ code (L-BFGS statistics), no GPU guard.
+# Submit from the repository root: sbatch slurm/parity_ensemble_cpu.slurm
 # Needs .venv-cuda synced on a login node (see slurm/test_gpu.slurm header).
 # Report: parity_reports/ensemble_<date>.md (pytest log) plus the tables the test
 # writes to parity_reports/ensemble_<date>_tables.md (appended below).
