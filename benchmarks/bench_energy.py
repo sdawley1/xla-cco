@@ -39,6 +39,7 @@ import jax.numpy as jnp
 import numpy as np
 
 # ----- project -----
+from xla_cco._device import require_gpu
 from xla_cco.box import cubic_box
 from xla_cco.energy import StealthyEnergy, auto_chunk_size, make_stealthy_energy
 from xla_cco.kvectors import enumerate_kvectors, k_outer_from_ka, ka_from_chi
@@ -250,16 +251,14 @@ def run_isolated(spec: Dict[str, Any], args: argparse.Namespace) -> Dict[str, An
 
 
 def check_device(device: str) -> None:
-    """Fail fast: a requested GPU run never silently falls back to the CPU."""
-    platform = jax.devices()[0].platform
-    if device == "gpu" and platform == "cpu":
-        print(
-            "ERROR: --device gpu but JAX sees only the CPU.",
-            file=sys.stderr,
-            flush=True,
-        )
-        raise SystemExit(1)
-    if device == "cpu" and platform != "cpu":
+    """Fail fast: a requested device never silently falls back to another."""
+    if device == "gpu":
+        try:
+            require_gpu()
+        except RuntimeError as exc:
+            print(f"ERROR: --device gpu: {exc}", file=sys.stderr, flush=True)
+            raise SystemExit(1) from exc
+    elif jax.devices()[0].platform != "cpu":
         print(
             "ERROR: --device cpu but JAX default is a GPU.", file=sys.stderr, flush=True
         )

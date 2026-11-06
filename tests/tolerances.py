@@ -3,6 +3,9 @@
 """
 Single home of every numerical tolerance used by the test suite.
 
+Parity and oracle tolerances must come from this file. Test-local literals are
+permitted only for analytic or round-trip checks.
+
 Samuel J. Dawley
 11/2026
 """

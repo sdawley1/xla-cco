@@ -298,7 +298,9 @@ def test_cli_rejects_bad_arguments(tmp_path: Path, extra: List[str]) -> None:
 
 
 def test_cli_gpu_guard(tmp_path: Path) -> None:
+    # force the guard on any host (including GPU nodes): CPU-only JAX, no GPU
     env = {k: v for k, v in os.environ.items() if k != "CUDA_VISIBLE_DEVICES"}
+    env["JAX_PLATFORMS"] = "cpu"
     cmd = [
         sys.executable,
         "-m",

@@ -369,7 +369,9 @@ def lbfgs(
     RelaxResult
         ``n_evals``/``n_iters`` are totals over passes (plus the initial
         evaluation in ``n_evals``); ``status`` is the reason the last pass
-        ended, or the global stop (energy / gradient tolerance).
+        ended, or the global stop (energy / gradient tolerance). Trajectory
+        ``s`` records are wrapped into [0, 1), as for descent, although the
+        L-BFGS iterates are unwrapped during the run.
 
     Raises
     ------

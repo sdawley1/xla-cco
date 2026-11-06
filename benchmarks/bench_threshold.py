@@ -31,6 +31,7 @@ import jax.numpy as jnp
 import numpy as np
 
 # ----- project -----
+from xla_cco._device import require_gpu
 from xla_cco.box import cubic_box
 from xla_cco.energy import make_stealthy_energy
 from xla_cco.kvectors import enumerate_kvectors, k_outer_from_ka, ka_from_chi
@@ -81,6 +82,11 @@ if __name__ == "__main__":
     cli = ap.parse_args()
     if cli.device == "cpu":
         jax.config.update("jax_platforms", "cpu")
+    else:
+        try:
+            require_gpu()
+        except RuntimeError as exc:
+            raise SystemExit(f"ERROR: --device gpu: {exc}") from exc
     if (jax.devices()[0].platform == "cpu") != (cli.device == "cpu"):
         raise SystemExit(
             f"ERROR: --device {cli.device}, JAX default is {jax.devices()[0].platform}"
