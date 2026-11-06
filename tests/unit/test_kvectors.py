@@ -22,6 +22,7 @@ import numpy as np
 import pytest
 
 # ----- project -----
+import golden
 import oracle
 from xla_cco.box import cubic_box
 from xla_cco.kvectors import (
@@ -130,3 +131,25 @@ def test_kset_scaled_sheared_3d_matches_oracle(k_outer: float) -> None:
 @pytest.mark.parametrize(("n", "dim"), [(100, 2), (1000, 3), (100, 3)])
 def test_kset_real_cubic_boxes_match_oracle(n: int, dim: int) -> None:
     _same_set(np.asarray(cubic_box(n, dim).basis), 2.6093)
+
+
+_KERNEL_GOLDENS = (
+    "kernel_d1_chi0.05",
+    "kernel_d1_chi0.25",
+    "kernel_d1_chi0.45",
+    "kernel_d2_chi0.05",
+    "kernel_d2_chi0.25",
+    "kernel_d2_chi0.45",
+    "kernel_d3_chi0.05",
+    "kernel_d3_chi0.25",
+    "kernel_d3_chi0.45",
+    "kernel_d3_cpp_ic",
+)
+
+
+@pytest.mark.parametrize("name", _KERNEL_GOLDENS)
+def test_regression_D006_k_outer_matches_cpp_bitwise(name: str) -> None:
+    """D-006: K2 = Ka / a is bit-identical to the C++ window (hard-coded V_d)."""
+    params = golden.load_golden(name)["params"]
+    k_outer = k_outer_from_ka(params["Ka"], params["phi"], params["d"])
+    assert k_outer.hex() == params["k_outer_hex"]

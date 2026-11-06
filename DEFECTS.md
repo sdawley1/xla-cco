@@ -13,6 +13,16 @@ needed for parity, reproduce the behaviour.
 | D-004 | wontfix-upstream | `main.cpp:171` | Random-mode box is built from the stale default `num = 1000`. |
 | D-005 | wontfix-upstream | `StructureOptimization.cpp:841` | NLopt L-BFGS stopval is `-MaxEnergy` with no ftol/xtol, so it runs to maxeval or roundoff. |
 
+## D-006 — `unit_ball_volume` is not bit-equal to the C++ hard-coded constants
+- **Found:** 2026-11-05, by the T4 auditor's preview parity
+- **Status:** fixed
+- **Where:** src/xla_cco/kvectors.py (`unit_ball_volume`, hence `k_outer_from_ka`)
+- **Symptom:** for d=1 at chi 0.25 and 0.45, `k_outer_from_ka` differs from the C++ `k_outer_hex` by 1 ulp (...d18 vs ...d19)
+- **Repro:** `k_outer_from_ka(0.03926990816987242, 0.05, 1).hex()` gives `0x1.921fb54442d18p+0`, C++ gives `0x1.921fb54442d19p+0`
+- **Impact:** the recomputed k window can sit 1 ulp off the C++ one; parity tests replay the stored hex window, so no stored result is affected
+- **Regression test:** tests/unit/test_kvectors.py::test_regression_D006_k_outer_matches_cpp_bitwise (and tests/property/test_kvectors_props.py::test_unit_ball_volume_closed_form_and_cpp_constants)
+- **Fix:** `HyperSphere_C` (etc.cpp:23-37) returns constants for d<=4 (2, pi, 4.1887902047863909846, 4.9348022005446793094); `unit_ball_volume` now uses the same constants; d>=5 uses `pi^(d/2)/Gamma(d/2+1)` (`math.gamma` vs `gsl_sf_gamma` may differ by an ulp; untested, no goldens)
+
 ## D-007 — Hypothesis wall-clock deadline flakes on loaded nodes
 - **Found:** 2026-11-05, while integrating T6 (CI)
 - **Status:** fixed

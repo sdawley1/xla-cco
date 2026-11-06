@@ -143,3 +143,14 @@ def test_chi_from_count_linear(m: int, n: int, dim: int, factor: int) -> None:
     np.testing.assert_allclose(
         chi_from_count(factor * m, n, dim), factor * chi, rtol=1e-14
     )
+
+
+_CPP_BALL = {1: 2.0, 2: math.pi, 3: 4.1887902047863909846, 4: 4.9348022005446793094}
+
+
+@given(st.integers(1, 8))
+def test_unit_ball_volume_closed_form_and_cpp_constants(dim: int) -> None:
+    closed = math.pi ** (dim / 2.0) / math.gamma(dim / 2.0 + 1.0)
+    np.testing.assert_allclose(unit_ball_volume(dim), closed, rtol=1e-15)
+    if dim in _CPP_BALL:
+        assert unit_ball_volume(dim) == _CPP_BALL[dim]
