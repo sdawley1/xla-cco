@@ -22,8 +22,13 @@ Table columns (PairCorrelation.cpp):
 DIFFERENCE FROM C++: C++ builds adaptive (data-driven) bins for g2 and Hp; they
 are not reproducible, so this driver uses a FIXED uniform grid instead (g2 on
 [0, 0.2 L] with ``--g2-bins`` bins; Hp on [0, max nearest-neighbour distance]
-with ``--hp-bins`` bins). S(k) uses the C++ binning (``IsotropicStructureFactor``
+with ``--hp-bins`` bins; Hp keeps ALL bins, whereas C++ drops its last bin).
+S(k) uses the C++ binning (``IsotropicStructureFactor``
 with 5, 400). The input basis must be unit-volume (C++ multiplies by N^(1/d)).
+
+Success is judged only by energy < ``--tol`` (``n_success`` in the log). The L-BFGS
+status ``STATUS_LINESEARCH_FAIL`` with an energy far below tol is the normal way
+L-BFGS ends at roundoff; it is not a failure.
 
 Samuel J. Dawley
 11/2026
@@ -98,7 +103,11 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Relax ConfigPack configurations to stealthy ground states "
             "(C++ ground/input mode). NOTE: C++ uses adaptive bins for g2 and "
-            "Hp; here both are on fixed uniform grids (--g2-bins, --hp-bins)."
+            "Hp; here both are on fixed uniform grids (--g2-bins, --hp-bins), and "
+            "Hp keeps all bins while C++ drops its last bin. Success is judged "
+            "only by energy < --tol (see n_success in SAVE_log.json); status "
+            "STATUS_LINESEARCH_FAIL with energy far below tol is the normal "
+            "end of L-BFGS at roundoff, not a failure."
         ),
     )
     # ----- physics -----
@@ -222,6 +231,7 @@ def load_input(
     if d_pack != dim:
         raise ValueError(f"--dim {dim} does not match pack dimension {d_pack}")
     s0, _ = stack_fractional(configs)
+    s0 = np.asarray(wrap_fractional_batch(jax.numpy.asarray(s0)))
     for i, c in enumerate(configs):
         det = abs(float(np.linalg.det(np.asarray(c.basis))))
         if abs(det - 1.0) > UNIT_VOLUME_ATOL:
@@ -377,8 +387,7 @@ def write_analyses(
     k_mod, s_k, k_err, s_err = isotropic_structure_factor(
         jax.numpy.asarray(s_succ), box, SK_K_DIR_MAX, SK_K_MAX
     )
-    n_bad = int((~np.isfinite(s_err)).sum())
-    s_err = np.where(np.isfinite(s_err), s_err, 0.0)
+    n_nan = int(np.isnan(s_err).sum())  # written as NaN, like C++ (D-009)
     write_function_table(Path(prefix + "_Sk.txt"), [k_mod, s_k, k_err, s_err])
 
     g2_edges = np.linspace(0.0, G2_CUTOFF_FRACTION * side, args.g2_bins + 1)
@@ -395,12 +404,18 @@ def write_analyses(
     hp_edges = np.linspace(0.0, float(max(nn_all.max(), 1e-12)), args.hp_bins + 1)
     hp_counts, _ = np.histogram(nn_all, bins=hp_edges)
     _write_table(Path(prefix + "_Hp.txt"), hp_table(hp_counts, hp_edges))
-    return {"analysis": "written", "sk_nonfinite_error_bins": n_bad}
+    return {"analysis": "written", "sk_nan_error_bins": n_nan}
 
 
 # ============================================================
 # DRIVER
 # ============================================================
+
+
+def success_mask(energy: np.ndarray, tol: float) -> np.ndarray:
+    """Return the Success mask: strictly energy < tol (C++ ``E < E_max``)."""
+    assert tol > 0.0, "tol must be positive"
+    return np.asarray(energy) < tol
 
 
 def summarize(out: Dict[str, np.ndarray], tol: float) -> Dict[str, Any]:
@@ -413,7 +428,7 @@ def summarize(out: Dict[str, np.ndarray], tol: float) -> Dict[str, Any]:
     ev = out["n_evals"]
     return {
         "status_counts": counts,
-        "n_success": int((out["energy"] < tol).sum()),
+        "n_success": int(success_mask(out["energy"], tol).sum()),
         "n_evals": {
             "min": int(ev.min()),
             "mean": float(ev.mean()),
@@ -448,7 +463,7 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
     prefix = str(args.save)
     Path(prefix).parent.mkdir(parents=True, exist_ok=True)
     side = float(n) ** (1.0 / args.dim)
-    ok = out["energy"] < args.tol
+    ok = success_mask(out["energy"], args.tol)
     write_configpack(Path(prefix), pack_configs(configs, out["s"], side))
     write_configpack(Path(prefix + "_InitConfig"), pack_configs(configs, s0, side))
     np.save(prefix + "_energies.npy", out["energy"])

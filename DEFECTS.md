@@ -42,3 +42,14 @@ needed for parity, reproduce the behaviour.
 - **Impact:** test-only; spurious red runs. No src defect: the FD reference carries roundoff ~ eps |E| / h that grows with |E|
 - **Regression test:** tests/property/test_energy_props.py::test_regression_D008_fd_tolerance_scales_with_energy
 - **Fix:** tolerance is now an error model, `FD_ROUNDOFF_C eps max|E(s +- h)| / h + FD_TRUNC_C h^2 (2 pi n_max)^3 sum(w) N^2 / V` (constants in tests/tolerances.py); `ATOL_FD` unchanged
+
+## D-009 — `write_function_table` rejected NaN, which C++ `WriteFunction` writes
+- **Found:** 2026-11-06, during T9 (CLI S(k) table with a negative-variance error bin)
+- **Status:** fixed
+- **Where:** src/xla_cco/io/tables.py (`write_function_table`)
+- **Symptom:** `ValueError: non-finite value in table` when a S(k) standard-error column holds NaN (C++ writes it unclamped)
+- **Repro:** `write_function_table(path, [np.array([np.nan])])`
+- **Impact:** the CLI had to substitute 0.0 for NaN, which differs from C++ output
+- **Regression test:** tests/unit/test_tables.py::test_regression_D009_function_table_writes_nan_like_cpp
+- **Fix:** NaN is written as glibc printf `%1.10e` does (`nan` or `-nan` by sign bit; verified with ctypes snprintf); only +/-inf still raises
+
