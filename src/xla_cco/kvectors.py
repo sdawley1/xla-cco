@@ -126,14 +126,26 @@ def _first_nonzero_positive(n: np.ndarray) -> np.ndarray:
     return keep
 
 
+# C++ HyperSphere_C (etc.cpp:23-37) hard-codes V_d(1) for d <= 4; the literals are
+# rounded to double exactly as the C++ compiler does (pi == math.pi, etc.h:8).
+_CPP_UNIT_BALL = {1: 2.0, 2: math.pi, 3: 4.1887902047863909846, 4: 4.9348022005446793094}
+
+
 def unit_ball_volume(dim: int) -> float:
-    """Return the volume V_d(1) of the unit d-ball."""
+    """Return the volume V_d(1) of the unit d-ball, bit-equal to C++ ``HyperSphere_C``.
+
+    d <= 4 uses the C++ hard-coded constants; d >= 5 uses
+    ``pi^(d/2) / Gamma(d/2 + 1)`` (``math.gamma`` may differ from ``gsl_sf_gamma``
+    by an ulp; d >= 5 parity is untested, no goldens exist).
+    """
     assert dim >= 1, "dim must be >= 1"
-    return float(math.pi ** (dim / 2.0)) / math.gamma(dim / 2.0 + 1.0)
+    if dim in _CPP_UNIT_BALL:
+        return _CPP_UNIT_BALL[dim]
+    return float(math.pi ** (dim / 2.0) / math.gamma(dim / 2.0 + 1.0))
 
 
 def k_outer_from_ka(ka: float, phi: float, dim: int) -> float:
-    """Return K2 = Ka / a with a = (phi / V_d(1))^(1/d)."""
+    """Return K2 = Ka / a with a = pow(phi / V_d(1), 1/d) (main.cpp:172, :242)."""
     assert phi > 0.0 and dim >= 1, "need phi > 0 and dim >= 1"
     a = (phi / unit_ball_volume(dim)) ** (1.0 / dim)
     return float(ka / a)
