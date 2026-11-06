@@ -128,7 +128,12 @@ def _first_nonzero_positive(n: np.ndarray) -> np.ndarray:
 
 # C++ HyperSphere_C (etc.cpp:23-37) hard-codes V_d(1) for d <= 4; the literals are
 # rounded to double exactly as the C++ compiler does (pi == math.pi, etc.h:8).
-_CPP_UNIT_BALL = {1: 2.0, 2: math.pi, 3: 4.1887902047863909846, 4: 4.9348022005446793094}
+_CPP_UNIT_BALL = {
+    1: 2.0,
+    2: math.pi,
+    3: 4.1887902047863909846,
+    4: 4.9348022005446793094,
+}
 
 
 def unit_ball_volume(dim: int) -> float:

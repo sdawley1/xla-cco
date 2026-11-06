@@ -55,3 +55,8 @@ ATOL_PASS_RESTART_S: float = 1e-8
 ATOL_VMAP_S: float = 1e-12
 # Same effect on energies and gradient norms (cancellation in |g| costs ~2 digits).
 RTOL_VMAP_E: float = 1e-9
+
+# Absolute floor for kernel energy parity, as a coefficient c of eps * sum(w) N^2 / V
+# (= eps M N for unit weights, V = N): the size of the summed O(1) terms, whose
+# cancellation leaves a near-ordered Phi (2.5e-6) with only ~1e-18 absolute accuracy.
+ATOL_KERNEL_E: float = 1.0
