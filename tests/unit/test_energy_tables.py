@@ -26,7 +26,6 @@ from systems import small_system, square_lattice
 from tolerances import C_E, RTOL_KERNEL_E, RTOL_KERNEL_F
 from xla_cco.box import cubic_box
 from xla_cco.energy import (
-    TABLE_MIN_M,
     StealthyEnergy,
     _phase_block,
     _power_table,
@@ -45,15 +44,17 @@ def _tables(en: StealthyEnergy) -> StealthyEnergy:
     return dataclasses.replace(en, n_max=int(np.abs(np.asarray(en.n_vectors)).max()))
 
 
-def test_factory_rule_tables_iff_m_at_least_threshold() -> None:
+def test_factory_always_selects_trig_and_tables_stay_reachable() -> None:
+    """R32: the factory never picks tables, at any M; direct construction can."""
     _, small_k, small = small_system(12, 2, 4.0)
-    assert small_k.n.shape[0] < TABLE_MIN_M and small.n_max is None
+    assert small.n_max is None
     box = cubic_box(50, 2)
     kset = enumerate_kvectors(np.asarray(box.basis), 0.0, 12.0)
-    assert kset.n.shape[0] >= TABLE_MIN_M
+    assert kset.n.shape[0] >= 75  # a large k-set (the former table regime)
     big = make_stealthy_energy(box, kset)
-    assert big.n_max == int(np.abs(kset.n).max())
-    assert StealthyEnergy(big.n_vectors, big.weights, big.volume).n_max is None
+    assert big.n_max is None
+    forced = _tables(big)
+    assert forced.n_max == int(np.abs(kset.n).max())
 
 
 @pytest.mark.parametrize("dim,n,k_out", [(1, 9, 5.0), (2, 12, 4.0), (3, 10, 3.5)])

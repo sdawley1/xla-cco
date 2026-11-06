@@ -41,13 +41,6 @@ from xla_cco.kvectors import KSet
 
 _TWO_PI = 2.0 * np.pi
 
-# Phase tables pay off only for k-sets with at least this many vectors (R26).
-# Measured on an A100 (L-BFGS relax, d=3, N=100, batch 1000; RESULTS.md):
-# tables are 0.44-0.46x of trig at M = 13, 28, 61 and 1.27-1.36x per
-# evaluation at M = 89, 128; max|n| cannot separate these (3 at both M = 61
-# and 89). The threshold is the midpoint of the measured interval (61, 89).
-TABLE_MIN_M: int = 75
-
 
 def _density_block(
     s: Positions, n_block: Float[Array, "c d"]
@@ -324,12 +317,15 @@ def make_stealthy_energy(
 
     Notes
     -----
-    The factory picks the ``value_and_grad`` kernel with a backend-independent
-    rule on the k-set: per-axis phase tables (``n_max = max|n|``) iff
-    ``M >= TABLE_MIN_M`` (75), otherwise per-(k, j) trig (``n_max=None``). The
-    threshold comes from a GPU grid over chi (benchmarks/RESULTS.md): tables
-    lost 2.2x at M <= 61 and won 1.3x at M >= 89, while ``max|n|`` alone could
-    not separate the two regimes.
+    The factory always selects the per-(k, j) trig kernel (``n_max=None``).
+    The per-axis phase-table kernel (``n_max = max|n|``) is reachable by
+    constructing ``StealthyEnergy(..., n_max=...)`` directly. It is faster in
+    isolation (1.4x to 1.9x per lane at M = 101, 128) but not end to end in
+    ``relax``: job 16992894 measured 1200 configurations at d=3, N=100 with
+    the CLI settings on an A100 and found tables 1.03x faster at chi = 0.35
+    (M = 101) and 1.08x slower at chi = 0.45 (M = 128), an ambiguous result
+    that defaults to trig (benchmarks/RESULTS.md, ruling R32). Both kernels
+    agree to 1e-9 in ensemble statistics (docs/parity.md).
 
     Raises
     ------
@@ -352,5 +348,5 @@ def make_stealthy_energy(
         weights=jnp.asarray(wts),
         volume=jnp.asarray(box.volume),
         chunk_size=chunk_size,
-        n_max=int(np.max(np.abs(kset.n))) if m >= TABLE_MIN_M else None,
+        n_max=None,
     )

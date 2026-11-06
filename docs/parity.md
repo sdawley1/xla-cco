@@ -9,7 +9,8 @@ Evidence run: SLURM job **16988911** (gputest, 1 GPU, COMPLETED exit 0,
 13 passed, 307 s test session). Evaluated commit `974582ccedc51df3ad6d512ccf1d1eb7501f9d01`; the src tree
 is `78ddc262a32553ef6fbfb5bb646b482005368936` (`git rev-parse HEAD:src`, clean working tree), src SHA-256
 `e5b1077d9fe1e3b3abc2ade10a9bb7688dbe1ad074e44ebe2bc253c8f4b27502`. This is the rebased code that ships (includes the T11 phase
-tables, used by the factory for M >= 75, i.e. chi = 0.35 and 0.45). JAX
+tables, which the factory selected for M >= 75, i.e. chi = 0.35 and 0.45, at the
+time of this run; see the note below). JAX
 0.12.0.1; 400 configs per task (tasks 0000-0002 = 1200 per chi);
 success = Phi < 9.99999968e-21.
 
@@ -23,6 +24,14 @@ Change versus the earlier job 16986040 (pre-T11 src, identical settings): every
 relaxation was recomputed; no statistic moved materially (max change over all KS
 statistics and worst S(k) |z| is 1.3e-9; all p-values, success fractions and
 status counts equal at the printed precision).
+
+Kernel note (fix round T13, R32): the factory now always selects the trig
+kernel (benchmarks/RESULTS.md, "Fix round T13"); phase tables remain available
+via `StealthyEnergy(..., n_max=...)`. Parity evidence covers both kernels:
+job 16986040 ran trig at every chi including 0.35 and 0.45, and job 16988911
+ran tables at chi = 0.35 and 0.45; the statistics agree to 1.3e-9. The ensemble
+was not re-run after the selection change (the cache key hashes src, so a
+re-run would recompute; the kernels are unchanged).
 
 ### Acceptance rules and honest false-alarm rates
 
