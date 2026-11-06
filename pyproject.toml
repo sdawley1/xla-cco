@@ -48,9 +48,7 @@ markers = [
 
 [tool.coverage.run]
 source = ["xla_cco"]
-omit = [
-    "src/xla_cco/cli/*",  # owning task: T9 (stub until it lands)
-]
+omit = []
 
 [tool.ruff]
 line-length = 88

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-Unit tests for the cause classification in ``scripts/gpu_assert.py``.
+Unit tests for the GPU guard in ``xla_cco._device`` and its script wrapper.
 
 Samuel J. Dawley
 11/2026
@@ -12,6 +12,7 @@ Samuel J. Dawley
 # ============================================================
 
 # ----- standard library -----
+import importlib
 import importlib.util
 from pathlib import Path
 from types import ModuleType
@@ -33,6 +34,7 @@ def _load() -> ModuleType:
     return mod
 
 
+dev = importlib.import_module("xla_cco._device")
 ga = _load()
 
 # ============================================================
@@ -41,55 +43,55 @@ ga = _load()
 
 
 def test_gpu_present_gives_no_cause() -> None:
-    assert ga.classify_failure(["gpu"], {}, False) is None
+    assert dev.classify_failure(["gpu"], {}, False) is None
 
 
 @pytest.mark.parametrize("env", [{}, {"CUDA_VISIBLE_DEVICES": ""}])
 def test_no_gres(env: dict[str, str]) -> None:
-    cause = ga.classify_failure(["cpu"], env, True)
+    cause = dev.classify_failure(["cpu"], env, True)
     assert cause is not None and "--gres=gpu" in cause
 
 
 def test_no_plugin_wrong_env() -> None:
-    cause = ga.classify_failure(["cpu"], {"CUDA_VISIBLE_DEVICES": "0"}, False)
+    cause = dev.classify_failure(["cpu"], {"CUDA_VISIBLE_DEVICES": "0"}, False)
     assert cause is not None and ".venv-cuda" in cause
 
 
 def test_plugin_error_is_missing_libraries() -> None:
     err = RuntimeError("libcudnn.so not found")
-    cause = ga.classify_failure([], {"CUDA_VISIBLE_DEVICES": "0"}, True, err)
+    cause = dev.classify_failure([], {"CUDA_VISIBLE_DEVICES": "0"}, True, err)
     assert cause is not None
     assert "failed to initialize" in cause and "libcudnn" in cause
 
 
 def test_plugin_installed_detects_missing_module() -> None:
-    assert ga.plugin_installed(("definitely_not_a_module_xyz",)) is False
-    assert ga.plugin_installed(("json",)) is True
+    assert dev.plugin_installed(("definitely_not_a_module_xyz",)) is False
+    assert dev.plugin_installed(("json",)) is True
 
 
 # ============================================================
-# ASSERT_GPU_JAX / MAIN
+# REQUIRE_GPU / MAIN
 # ============================================================
 
 
-def test_assert_gpu_jax_raises_with_cause(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(ga, "probe_platforms", lambda: (["cpu"], None))
-    monkeypatch.setattr(ga, "plugin_installed", lambda: True)
+def test_require_gpu_raises_with_cause(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(dev, "probe_platforms", lambda: (["cpu"], None))
+    monkeypatch.setattr(dev, "plugin_installed", lambda: True)
     monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
     with pytest.raises(RuntimeError, match="--gres=gpu"):
-        ga.assert_gpu_jax()
+        dev.require_gpu()
 
 
-def test_assert_gpu_jax_passes_with_gpu(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(ga, "probe_platforms", lambda: (["gpu"], None))
-    ga.assert_gpu_jax()
+def test_require_gpu_passes_with_gpu(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(dev, "probe_platforms", lambda: (["gpu"], None))
+    dev.require_gpu()
 
 
 def test_main_exits_one(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(ga, "probe_platforms", lambda: (["cpu"], None))
-    monkeypatch.setattr(ga, "plugin_installed", lambda: False)
+    monkeypatch.setattr(dev, "probe_platforms", lambda: (["cpu"], None))
+    monkeypatch.setattr(dev, "plugin_installed", lambda: False)
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
     assert ga.main() == 1
     assert ".venv-cuda" in capsys.readouterr().err
