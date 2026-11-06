@@ -33,7 +33,7 @@ import json
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List
 
 # ----- numerics -----
 import jax
