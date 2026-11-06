@@ -49,7 +49,13 @@ def battery_dict(res: es.BatteryResult, k_shell: Any, n_tests: int) -> Dict[str,
         "n_b": res.n_b,
         "frac_a": res.frac_a,
         "frac_b": res.frac_b,
-        "prop": {"z": res.prop_z, "p": res.prop_p, "pass": res.prop_pass},
+        "prop": {
+            "z": res.prop_z,
+            "p": res.prop_p,
+            "p_two_sided": res.prop_p_two_sided,
+            "alternative": res.prop_alternative,
+            "pass": res.prop_pass,
+        },
         "ks": {
             k: {"stat": res.ks_stat[k], "p": res.ks_p[k], "pass": res.ks_pass[k]}
             for k in res.ks_p
@@ -75,10 +81,17 @@ def battery_table(b: Dict[str, Any]) -> List[str]:
     lines = [
         "| statistic | A | B | z or KS D | p raw | p corrected | verdict |",
         "|---|---|---|---|---|---|---|",
-        f"| success fraction | {b['frac_a']:.4f} | {b['frac_b']:.4f} "
+        f"| success fraction ({b['prop']['alternative']}) | {b['frac_a']:.4f} "
+        f"| {b['frac_b']:.4f} "
         f"| {b['prop']['z']:.3f} | {_fmt(b['prop']['p'])} "
         f"| {_fmt(min(1.0, b['prop']['p'] * n))} | {_ok(b['prop']['pass'])} |",
     ]
+    if b["prop"]["alternative"] != "two-sided":
+        p2 = b["prop"]["p_two_sided"]
+        lines.append(
+            f"| success fraction (two-sided, reported) | | | | {_fmt(p2)} "
+            f"| {_fmt(min(1.0, p2 * n))} | n/a |"
+        )
     for k, v in b["ks"].items():
         lines.append(
             f"| KS {KS_LABELS[k]} | | | {v['stat']:.4f} | {_fmt(v['p'])} "
@@ -113,7 +126,11 @@ def render(results: Dict[str, Any], summary: bool = False) -> str:
         f"- family-wise alpha = {meta['alpha']}, Bonferroni over {meta['n_tests']} "
         f"p-tests (5 chi x 5 tests x {{JAX vs C++, C++ false-alarm control}}): "
         f"p-test threshold {_fmt(meta['p_prop'])}; KS threshold "
-        f"min(KS_PMIN, alpha/n) = {_fmt(meta['p_ks'])}; |z|_max = {meta['zmax']}",
+        f"min(KS_PMIN, alpha/n) = {_fmt(meta['p_ks'])} (ruling R27); |z|_max = "
+        f"{meta['zmax']}",
+        "- success fraction: JAX vs C++ is ONE-SIDED (H1: JAX < C++; the port must "
+        "not reach ground states less often); the two-sided p is also reported; "
+        "the C++ false-alarm control is two-sided",
         f"- wall time (test session): {meta['wall_seconds']:.0f} s",
         f"- **verdict: {results['verdict']}**",
         "",
@@ -152,6 +169,9 @@ def _chi_block(chi_s: str, r: Dict[str, Any], summary: bool) -> List[str]:
     if not summary:
         out += [*battery_table(r["false_alarm"]), ""]
     out += [
+        f"- C++ energy floor: Phi_final quantiles {r['cpp_floor']['quantiles']}; "
+        f"C++ successes at 1e-20 / 2e-20 / 5e-20: {r['cpp_floor']['counts']} "
+        f"of {r['real']['n_b']}",
         f"- status counts (JAX): {r['status_counts']}; successes JAX "
         f"{r['n_success_jax']}/{r['real']['n_a']}, C++ {r['n_success_cpp']}/"
         f"{r['real']['n_b']}",

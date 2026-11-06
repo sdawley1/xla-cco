@@ -78,6 +78,18 @@ def _logphi(sample: es.EnsembleSample) -> str:
     return f"{med:.2f} [{q1:.2f}, {q3:.2f}]"
 
 
+def _cpp_floor(cpp: es.EnsembleSample) -> Dict[str, Any]:
+    """C++ Phi_final quantiles and success counts at fixed thresholds."""
+    e = cpp.energy
+    q = np.percentile(e, [50, 90, 99, 100])
+    return {
+        "quantiles": dict(
+            zip(("median", "q90", "q99", "max"), map(float, q), strict=True)
+        ),
+        "counts": [int((e < tol).sum()) for tol in (1e-20, 2e-20, 5e-20)],
+    }
+
+
 def _verify_all() -> List[str]:
     """Verify init-config mapping and the K window for every task and chi."""
     lines = []
@@ -105,13 +117,14 @@ def _chi_block(chi: float, limit: int, p_prop: float, p_ks: float) -> Dict[str, 
     t1 = time.perf_counter()
     jx, infos = run.jax_sample(chi, run.REAL_TASKS, 1.0, limit, an)
     t2 = time.perf_counter()
-    real = es.run_battery(jx, cpp, p_prop, p_ks, SK_ZMAX)
+    real = es.run_battery(jx, cpp, p_prop, p_ks, SK_ZMAX, "less")
     fa = es.run_battery(cpp, ctrl, p_prop, p_ks, SK_ZMAX)
     return {
         "physics": run.physics(chi),
         "real": er.battery_dict(real, an.k_shell, N_TESTS),
         "false_alarm": er.battery_dict(fa, an.k_shell, N_TESTS),
         "status_counts": run.status_counts(infos),
+        "cpp_floor": _cpp_floor(cpp),
         "n_success_jax": int(jx.success.sum()),
         "n_success_cpp": int(cpp.success.sum()),
         "logphi": {"jax": _logphi(jx), "cpp": _logphi(cpp)},

@@ -86,6 +86,8 @@ class BatteryResult:
     prop_z: float
     prop_p: float
     prop_pass: bool
+    prop_p_two_sided: float  # reported always; equals prop_p if two-sided
+    prop_alternative: str
     ks_stat: Dict[str, float]
     ks_p: Dict[str, float]
     ks_pass: Dict[str, bool]
@@ -113,19 +115,26 @@ class BatteryResult:
 # ============================================================
 
 
-def two_proportion_test(k1: int, n1: int, k2: int, n2: int) -> Tuple[float, float]:
-    """Return (z, two-sided p) of the pooled two-proportion z-test.
+def two_proportion_test(
+    k1: int, n1: int, k2: int, n2: int, alternative: str = "two-sided"
+) -> Tuple[float, float]:
+    """Return (z, p) of the pooled two-proportion z-test.
+
+    ``alternative`` is ``"two-sided"`` or ``"less"`` (H1: p1 < p2, one-sided).
 
     A degenerate pooled proportion (0 or 1) has zero variance: both samples are
     then identical in outcome, so z = 0 and p = 1.
     """
     assert n1 > 0 and n2 > 0, "need non-empty samples"
     assert 0 <= k1 <= n1 and 0 <= k2 <= n2, "counts out of range"
+    assert alternative in ("two-sided", "less"), "bad alternative"
     pooled = (k1 + k2) / (n1 + n2)
     var = pooled * (1.0 - pooled) * (1.0 / n1 + 1.0 / n2)
     if var <= 0.0:
         return 0.0, 1.0
     z = (k1 / n1 - k2 / n2) / np.sqrt(var)
+    if alternative == "less":
+        return float(z), float(stats.norm.cdf(z))
     return float(z), float(2.0 * stats.norm.sf(abs(z)))
 
 
@@ -203,11 +212,17 @@ def run_battery(
     p_prop: float,
     p_ks: float,
     zmax: float,
+    success_alternative: str = "two-sided",
 ) -> BatteryResult:
-    """Compare ensembles ``a`` and ``b`` with the full battery."""
+    """Compare ensembles ``a`` and ``b`` with the full battery.
+
+    ``success_alternative="less"`` makes the success-fraction test one-sided
+    (H1: success of ``a`` < success of ``b``), the JAX-vs-C++ acceptance rule.
+    """
     assert a.sk_shell.shape[1] == b.sk_shell.shape[1], "shell sets differ"
     ka, kb = int(a.success.sum()), int(b.success.sum())
-    z, p = two_proportion_test(ka, a.size, kb, b.size)
+    z, p = two_proportion_test(ka, a.size, kb, b.size, success_alternative)
+    p_two = two_proportion_test(ka, a.size, kb, b.size)[1]
     ks_stat: Dict[str, float] = {}
     ks_p: Dict[str, float] = {}
     for name in KS_NAMES:
@@ -224,6 +239,8 @@ def run_battery(
         prop_z=z,
         prop_p=p,
         prop_pass=p > p_prop,
+        prop_p_two_sided=p_two,
+        prop_alternative=success_alternative,
         ks_stat=ks_stat,
         ks_p=ks_p,
         ks_pass={k: v > p_ks for k, v in ks_p.items()},

@@ -197,7 +197,7 @@ def cache_key(chi: float, task: int, k_scale: float, limit: int) -> Dict[str, An
     """Return the cache key: source hash plus every relaxation setting."""
     from xla_cco.minimize.lbfgs import LBFGSSettings
 
-    return {
+    key = {
         "src_sha256": src_hash(),
         "chi": chi,
         "task": task,
@@ -209,6 +209,7 @@ def cache_key(chi: float, task: int, k_scale: float, limit: int) -> Dict[str, An
         "settings": dataclasses.asdict(LBFGSSettings()),
         "jax_version": jax.__version__,
     }
+    return dict(json.loads(json.dumps(key)))  # tuples -> lists, as read from disk
 
 
 def _cache_dir(chi: float, task: int, k_scale: float) -> Path:
