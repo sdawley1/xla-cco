@@ -85,7 +85,7 @@ def build_case(
     if variant.endswith("autochunk") or (batch == 1 and n >= 10_000):
         chunk = auto_chunk_size(n, m, BUDGET_BYTES // batch)
     energy = make_stealthy_energy(box, kset, chunk_size=chunk)
-    # force the path: the factory's own rule (TABLE_MIN_M) is not under test here
+    # the factory always builds trig (R32); force the path under test here
     n_max = None if variant.startswith("baseline") else int(np.abs(kset.n).max())
     energy = dataclasses.replace(energy, n_max=n_max)
     s = jnp.asarray(np.random.default_rng(seed).random((batch, n, d)))
