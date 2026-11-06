@@ -23,7 +23,7 @@ Samuel J. Dawley
 # ============================================================
 
 # ----- standard library -----
-from functools import lru_cache
+from functools import cache
 from typing import Any, Dict, List, NamedTuple, Optional
 
 # ----- numerics -----
@@ -69,12 +69,12 @@ class Report(NamedTuple):
     rejects: int
 
 
-@lru_cache(maxsize=None)
+@cache
 def _golden(name: str) -> Dict[str, Any]:
     return golden.load_golden(name)
 
 
-@lru_cache(maxsize=None)
+@cache
 def _energy(name: str):  # noqa: ANN202
     p = _golden(name)["params"]
     box = cubic_box(p["N"], p["d"])
@@ -96,7 +96,7 @@ def expected_steps(accepted: np.ndarray) -> np.ndarray:
     return STEP_INIT * 0.5 ** np.cumsum(~accepted)
 
 
-@lru_cache(maxsize=None)
+@cache
 def _run(name: str, b: int, p: int) -> Any:
     g = _golden(name)
     settings = DescentSettings(
