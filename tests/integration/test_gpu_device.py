@@ -3,8 +3,11 @@
 """
 GPU smoke test: kernel and trajectory parity on the GPU device.
 
-Run through ``slurm/test_gpu.slurm`` (JAX_PLATFORMS=cuda,cpu); deselected on
-CPU-only hosts by ``-m "not gpu"``.
+Run through ``slurm/test_gpu.slurm``; deselected on CPU-only hosts by
+``-m "not gpu"``. The checks run in a fresh interpreter with
+``JAX_PLATFORMS=cuda,cpu``: other tests call ``select_device("cpu")`` in
+process, which pins the platform list for the rest of the pytest session
+(job 16995049 saw no GPU device for that reason).
 
 Samuel J. Dawley
 11/2026
@@ -15,6 +18,10 @@ Samuel J. Dawley
 # ============================================================
 
 # ----- standard library -----
+import os
+import subprocess
+import sys
+from pathlib import Path
 from typing import Any, Dict, Tuple
 
 # ----- numerics -----
@@ -113,8 +120,32 @@ def check_kernel_matches_cpu(gpu: jax.Device, cpu: jax.Device) -> None:
 # ============================================================
 
 
-def test_gpu_matches_cpu_and_cpp() -> None:
+def main() -> None:
+    """Run the device checks in the current (fresh) interpreter."""
     gpus = [d for d in jax.devices() if d.platform in ("gpu", "cuda")]
-    assert gpus, "no GPU device present"
+    assert gpus, f"no GPU device present: {jax.devices()}"
     check_kernel_matches_cpu(gpus[0], jax.devices("cpu")[0])
     check_trajectory(gpus[0])
+    print("GPU-OK")
+
+
+def test_gpu_matches_cpu_and_cpp() -> None:
+    here = Path(__file__).resolve().parent
+    env = dict(os.environ)
+    env["JAX_PLATFORMS"] = "cuda,cpu"
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(here), str(here.parent)] + [env.get("PYTHONPATH", "")]
+    )
+    code = "import test_gpu_device as t; t.main()"
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert proc.returncode == 0 and "GPU-OK" in proc.stdout, proc.stderr[-3000:]
+
+
+if __name__ == "__main__":
+    main()
