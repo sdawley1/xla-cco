@@ -25,7 +25,7 @@ from hypothesis import strategies as st
 # ----- project -----
 import oracle
 from strategies import chunk_sizes, fractional_configs, integer_kvectors
-from tolerances import RTOL_KERNEL_E, RTOL_KERNEL_F
+from tolerances import GRAD_SUM_C, GRAD_SUM_FLOOR, RTOL_KERNEL_E, RTOL_KERNEL_F
 from xla_cco.energy import StealthyEnergy, auto_chunk_size
 
 # ============================================================
@@ -61,6 +61,36 @@ def _pair(
     return fast, dataclasses.replace(fast, n_max=None)
 
 
+def _grad_atol(
+    n: np.ndarray, w: np.ndarray, vol: float, n_part: int, ref: np.ndarray
+) -> float:
+    """Absolute gradient tolerance: relative to |grad|, floored by round-off.
+
+    Each dPhi/ds_j sums terms up to (4 pi n_max / V) sum(w) N before they
+    cancel (exactly, for coincident particles), so two summation orders differ
+    by about eps times that bound however small the gradient is (D-011, D-017).
+    """
+    term = 4 * np.pi * float(np.abs(n).max()) * float(np.sum(w)) * n_part / vol
+    roundoff = GRAD_SUM_C * float(np.finfo(np.float64).eps) * term + GRAD_SUM_FLOOR
+    return max(1e-12 * max(1.0, float(np.abs(ref).max())), roundoff)
+
+
+def _check_tables(case: tuple, chunk: int | None) -> None:
+    """Phase-table energy and gradient equal the oracle and the trig baseline."""
+    s, n, w, vol = case
+    fast, base = _pair(n, w, vol, chunk)
+    sj = jnp.asarray(s)
+    val, grad = fast.value_and_grad(sj)
+    bval, bgrad = base.value_and_grad(sj)
+    ref = oracle.energy(s, n, w, vol)
+    np.testing.assert_allclose(float(val), ref, rtol=RTOL_KERNEL_E, atol=1e-12)
+    np.testing.assert_allclose(float(val), float(bval), rtol=RTOL_KERNEL_E, atol=1e-12)
+    atol = _grad_atol(n, w, vol, s.shape[0], np.asarray(bgrad))
+    np.testing.assert_allclose(
+        np.asarray(grad), np.asarray(bgrad), rtol=RTOL_KERNEL_F, atol=atol
+    )
+
+
 # ============================================================
 # TESTS
 # ============================================================
@@ -70,18 +100,33 @@ def _pair(
 @FAST
 @given(systems(), chunk_sizes())
 def test_tables_match_oracle_and_baseline(case: tuple, chunk: int | None) -> None:
-    s, n, w, vol = case
-    fast, base = _pair(n, w, vol, chunk)
-    sj = jnp.asarray(s)
-    val, grad = fast.value_and_grad(sj)
-    bval, bgrad = base.value_and_grad(sj)
-    ref = oracle.energy(s, n, w, vol)
-    np.testing.assert_allclose(float(val), ref, rtol=RTOL_KERNEL_E, atol=1e-12)
-    np.testing.assert_allclose(float(val), float(bval), rtol=RTOL_KERNEL_E, atol=1e-12)
-    scale = max(1.0, float(np.abs(bgrad).max()))
-    np.testing.assert_allclose(
-        np.asarray(grad), np.asarray(bgrad), rtol=RTOL_KERNEL_F, atol=1e-12 * scale
+    _check_tables(case, chunk)
+
+
+def test_regression_D017_coincident_particles_gradient_tolerance() -> None:
+    """16 coincident particles: grad = 0 exactly; paths differ by ~1e-12 round-off.
+
+    CI (derandomized profile) found this case; the old atol of 1e-12 * max|grad|
+    ignored the pre-cancellation size of the terms.
+    """
+    s = np.full((16, 2), 0.8125)
+    n = np.array([[1, 1]] * 10 + [[0, 0]] * 6)
+    w = np.array(
+        [
+            1.45544253,
+            0.90468007,
+            0.56146029,
+            0.52479145,
+            1.71990536,
+            1.86913337,
+            1.40995366,
+            1.59424484,
+            1.31543749,
+            1.90260864,
+        ]
+        + [0.0] * 6
     )
+    _check_tables((s, n, w, 1.0), 1)
 
 
 @pytest.mark.slow
@@ -92,9 +137,9 @@ def test_tables_gradient_matches_autodiff(case: tuple, chunk: int | None) -> Non
     fast, _ = _pair(n, w, vol, chunk)
     _, grad = fast.value_and_grad(jnp.asarray(s))
     rgrad = jax.grad(fast)(jnp.asarray(s))
-    scale = max(1.0, float(np.abs(rgrad).max()))
+    atol = _grad_atol(n, w, vol, s.shape[0], np.asarray(rgrad))
     np.testing.assert_allclose(
-        np.asarray(grad), np.asarray(rgrad), rtol=RTOL_KERNEL_F, atol=1e-12 * scale
+        np.asarray(grad), np.asarray(rgrad), rtol=RTOL_KERNEL_F, atol=atol
     )
 
 
