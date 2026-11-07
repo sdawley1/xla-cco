@@ -163,3 +163,151 @@ def test_rejects_float32_and_bad_settings() -> None:
         gradient_flow(
             energy, jnp.zeros((4, 1)), jnp.asarray(basis), FlowSettings(atol=0.0)
         )
+
+
+# ============================================================
+# ARCLENGTH PARAMETRIZATION
+# ============================================================
+
+
+def test_arclength_traces_the_same_streamline() -> None:
+    """Time and arclength modes: same curve, same flow time, same length."""
+    energy, basis = _stealthy(16, 1, 4)
+    s0 = jnp.asarray(np.random.default_rng(5).uniform(size=(16, 1)))
+    common = dict(energy_tol=1e-16, rtol=1e-9, record_every=1, max_records=60_000)
+    a = gradient_flow(energy, s0, jnp.asarray(basis), FlowSettings(**common))
+    b = gradient_flow(
+        energy,
+        s0,
+        jnp.asarray(basis),
+        FlowSettings(parametrization="arclength", **common),
+    )
+    assert int(a.status) == int(b.status) == STATUS_ENERGY_TOL
+    assert float(b.length) == pytest.approx(float(a.length), rel=1e-6)
+    na, nb = int(a.trajectory.count), int(b.trajectory.count)
+    la, lb = np.asarray(a.trajectory.length[:na]), np.asarray(b.trajectory.length[:nb])
+    # Clock check without interpolation: rerun the true-time flow to the
+    # times recovered in arclength mode and compare positions there.
+    tb = np.asarray(b.trajectory.t[:nb])
+    for k in (nb // 4, nb // 2, (3 * nb) // 4):
+        fs = FlowSettings(rtol=1e-9, t_max=float(tb[k]))
+        at_t = gradient_flow(energy, s0, jnp.asarray(basis), fs)
+        np.testing.assert_allclose(
+            np.asarray(at_t.s), np.asarray(b.trajectory.s[k]), atol=1e-6
+        )
+    side = float(basis[0, 0])
+    xa = np.asarray(a.trajectory.s[:na, :, 0]) * side
+    xb = np.asarray(b.trajectory.s[:nb, :, 0]) * side
+    inside = lb <= la[-1]
+    for col in range(16):
+        on_a = np.interp(lb[inside], la, xa[:, col])
+        np.testing.assert_allclose(xb[inside, col], on_a, atol=1e-4)  # interp.
+
+
+def test_arclength_recovers_linear_flow_time() -> None:
+    """Quadratic Phi: t_end = (L^2 / c) ln|s0 - a| / |s_end - a|; length = |dx|."""
+    a, c, side = 0.3, 2.0, 1.7
+    energy = _Quadratic(a=jnp.asarray([[a]]), c=jnp.asarray([c]))
+    s0 = jnp.asarray([[0.9]])
+    fs = FlowSettings(parametrization="arclength", energy_tol=1e-14, rtol=1e-10)
+    res = gradient_flow(energy, s0, jnp.eye(1) * side, fs)
+    s_end = float(res.s[0, 0])
+    expected_t = side**2 / c * np.log(abs(0.9 - a) / abs(s_end - a))
+    assert float(res.t) == pytest.approx(expected_t, rel=1e-6)
+    assert float(res.length) == pytest.approx(side * abs(0.9 - s_end), rel=1e-10)
+
+
+def test_arclength_rejects_t_max() -> None:
+    """t_max is defined on the physical clock, which arclength mode does not step."""
+    energy, basis = _stealthy(4, 1, 1)
+    fs = FlowSettings(parametrization="arclength", t_max=1.0)
+    with pytest.raises(ValueError, match="t_max"):
+        gradient_flow(energy, jnp.zeros((4, 1)), jnp.asarray(basis), fs)
+
+
+# ============================================================
+# ROSENBROCK (STIFF) METHOD
+# ============================================================
+
+
+def test_rosenbrock_linear_flow_matches_closed_form() -> None:
+    """ROS2 on a quadratic energy follows s(t) = a + (s0 - a) exp(-c t / L^2)."""
+    a = jnp.asarray([[0.3, 0.6]])
+    s0 = jnp.asarray([[0.9, 0.1]])
+    energy = _Quadratic(a=a, c=jnp.asarray([1.5, 1.5]))
+    fs = FlowSettings(method="rosenbrock", rtol=1e-3, atol=1e-10, t_max=1.3)
+    res = gradient_flow(energy, s0, jnp.eye(2) * 1.2, fs)
+    expected = a + (s0 - a) * np.exp(-1.5 * 1.3 / 1.2**2)
+    np.testing.assert_allclose(np.asarray(res.s), expected, atol=1e-5)
+
+
+@pytest.mark.parametrize("frac", [0.1, 0.5, 0.9])
+def test_rosenbrock_agrees_with_dopri(frac: float) -> None:
+    """Both methods integrate the same flow: equal positions at equal times."""
+    energy, basis = _stealthy(16, 1, 4)
+    s0 = jnp.asarray(np.random.default_rng(6).uniform(size=(16, 1)))
+    full = gradient_flow(energy, s0, jnp.asarray(basis), FlowSettings(energy_tol=1e-12))
+    t_stop = frac * float(full.t)
+    ref = gradient_flow(
+        energy, s0, jnp.asarray(basis), FlowSettings(rtol=1e-10, t_max=t_stop)
+    )
+    ros = gradient_flow(
+        energy,
+        s0,
+        jnp.asarray(basis),
+        FlowSettings(method="rosenbrock", rtol=1e-3, atol=1e-10, t_max=t_stop),
+    )
+    np.testing.assert_allclose(np.asarray(ros.s), np.asarray(ref.s), atol=1e-5)
+
+
+def test_rosenbrock_needs_fewer_steps_when_stiff() -> None:
+    """Curvatures 1e4 and 1: explicit steps are capped near 3e-4 by stability,
+    while the L-stable ROS2 step is limited only by accuracy on the slow mode."""
+    energy = _Quadratic(a=jnp.asarray([[0.3, 0.6]]), c=jnp.asarray([1e4, 1.0]))
+    s0 = jnp.asarray([[0.4, 0.9]])
+    common = dict(energy_tol=1e-20, max_steps=400_000)
+    dop = gradient_flow(energy, s0, jnp.eye(2), FlowSettings(**common))
+    ros_fs = FlowSettings(method="rosenbrock", rtol=1e-3, atol=1e-8, **common)
+    ros = gradient_flow(energy, s0, jnp.eye(2), ros_fs)
+    assert int(dop.status) == int(ros.status) == STATUS_ENERGY_TOL
+    assert int(ros.n_steps) < int(dop.n_steps) / 5
+
+
+def test_rosenbrock_rejects_arclength() -> None:
+    """ROS2 integrates the physical-time parametrization only."""
+    energy, basis = _stealthy(4, 1, 1)
+    fs = FlowSettings(method="rosenbrock", parametrization="arclength")
+    with pytest.raises(ValueError, match="rosenbrock"):
+        gradient_flow(energy, jnp.zeros((4, 1)), jnp.asarray(basis), fs)
+
+
+def test_resume_continues_the_same_flow() -> None:
+    """Two chunks restarted from (s, dt) match one uninterrupted run."""
+    energy, basis = _stealthy(16, 1, 4)
+    s0 = jnp.asarray(np.random.default_rng(8).uniform(size=(16, 1)))
+    b = jnp.asarray(basis)
+    whole = gradient_flow(energy, s0, b, FlowSettings(energy_tol=1e-14))
+    first = gradient_flow(energy, s0, b, FlowSettings(max_steps=60))
+    second = gradient_flow(
+        energy,
+        first.s,
+        b,
+        FlowSettings(energy_tol=1e-14, dt_init=float(first.dt)),
+    )
+    assert int(second.status) == STATUS_ENERGY_TOL
+    np.testing.assert_allclose(np.asarray(second.s), np.asarray(whole.s), atol=1e-6)
+    total_t = float(first.t) + float(second.t)
+    assert total_t == pytest.approx(float(whole.t), rel=1e-3)
+
+
+def test_dt0_below_floor_stops_immediately() -> None:
+    """A resume with dt0 = 0 (a frozen lane) does not move."""
+    from xla_cco.minimize.result import STATUS_STEP_FLOOR
+
+    energy, basis = _stealthy(8, 1, 2)
+    s0 = jnp.asarray(np.random.default_rng(9).uniform(size=(8, 1)))
+    res = gradient_flow(
+        energy, s0, jnp.asarray(basis), FlowSettings(), dt0=jnp.asarray(0.0)
+    )
+    assert int(res.status) == STATUS_STEP_FLOOR and int(res.n_steps) == 0
+    np.testing.assert_array_equal(np.asarray(res.s), np.asarray(s0))
