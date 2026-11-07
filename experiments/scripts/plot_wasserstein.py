@@ -66,7 +66,13 @@ plt.rcParams.update(
     }
 )
 
-COLORS = {"POS": "black", "GAU": "#1f4e9c"}
+COLORS = {
+    "POS": "black",
+    "GAU": "#1f4e9c",
+    "chi1-3": "black",  # Batten 2008 flows (batten2008_wasserstein.py)
+    "chi2-3": "#1f4e9c",
+}
+LABELS = {"chi1-3": r"$\chi = 1/3$", "chi2-3": r"$\chi = 2/3$"}
 TIME_LABEL = r"Dimensionless Time, $t/T$"
 FLOOR = 1e-12  # relative round-off floor for distances and gaps
 
@@ -112,7 +118,7 @@ def curve(
 def legend(fig: plt.Figure, ens: List[str], styles: Dict[str, str]) -> None:
     """Shared frameless legend: one entry per ensemble and per line style."""
     handles = [Line2D([], [], color=COLORS[e], lw=2.0) for e in ens]
-    labels = list(ens)
+    labels = [LABELS.get(e, e) for e in ens]
     for name, ls in styles.items():
         handles.append(Line2D([], [], color="0.3", lw=2.0, ls=ls))
         labels.append(name)
@@ -142,9 +148,17 @@ def finish(fig: plt.Figure, axes: np.ndarray, out: str, dpi: int) -> None:
 
 
 def mirror_figure(
-    data: Dict[str, np.ndarray], ens: List[str], out: str, dpi: int
+    data: Dict[str, np.ndarray],
+    ens: List[str],
+    out: str,
+    dpi: int,
+    prefix: str = "sk_",
 ) -> None:
-    """Wasserstein analogue of the proximity-metric figure (Sinkhorn curves)."""
+    """Wasserstein analogue of the proximity-metric figure.
+
+    ``prefix`` selects the distance curves: "sk_" for the full-resolution
+    Sinkhorn curves (PRE trajectories), "" for exact values at every frame.
+    """
     assert ens, "need at least one ensemble"
     fig, axes = plt.subplots(2, 2, figsize=(10.0, 7.6))
     ax = axes[0, 0]
@@ -164,11 +178,11 @@ def mirror_figure(
     ax.set_xlim(0.0, top)
     ax.set_ylim(0.0, top)
     for e in ens:
-        curve(axes[0, 1], data, e, "sk_w0_dist")
-        curve(axes[0, 1], data, e, "sk_w_inf", ls="--", shade=False)
+        curve(axes[0, 1], data, e, f"{prefix}w0_dist")
+        curve(axes[0, 1], data, e, f"{prefix}w_inf", ls="--", shade=False)
         curve(axes[1, 0], data, e, "log10_energy", log10=True)
         phi = 10.0 ** data[f"{e}/log10_energy_mean"]
-        for key, ls in (("sk_w0_dist", "-"), ("sk_w_inf", "--")):
+        for key, ls in ((f"{prefix}w0_dist", "-"), (f"{prefix}w_inf", "--")):
             d2 = data[f"{e}/{key}_mean"] ** 2
             keep = d2 > FLOOR**2 * float(np.max(d2))
             axes[1, 1].loglog(d2[keep], phi[keep], color=COLORS[e], lw=2.0, ls=ls)
@@ -205,6 +219,14 @@ def overlay_figure(
             p = data[f"{e}/{den}_mean"]
             gap = np.abs(1.0 - w / np.where(p > 0.0, p, 1.0))
             keep = (x > 0.0) & (p > 0.0) & (gap > FLOOR)
+            # With the identity as the optimal matching at every frame, W and
+            # p are the same sums: any gap left is round-off of differences
+            # of nearly equal distances, not a physical difference.
+            identity = all(
+                float(np.max(data[f"{e}/{k}_q90"])) == 0.0
+                for k in ("n_re0", "n_re_inf")
+            )
+            keep &= not identity
             gap_drawn |= bool(keep.any())
             axes[1, 1].plot(x[keep], gap[keep], color=COLORS[e], lw=2.0, ls=ls)
     axes[0, 0].set_ylabel(r"Distance, $W_0(\infty)-W_0(t)$")
@@ -257,6 +279,11 @@ if __name__ == "__main__":
         default=Path("experiments/trajectories/chi0.1/wasserstein/summary.npz"),
     )
     parser.add_argument("--ensembles", nargs="+", default=["POS", "GAU"])
+    parser.add_argument(
+        "--exact",
+        action="store_true",
+        help="summary has exact W at every frame (no Sinkhorn curves)",
+    )
 
     # ----- output -----
     parser.add_argument("--out", type=Path, default=Path("experiments/figures/chi0.1"))
@@ -266,6 +293,7 @@ if __name__ == "__main__":
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with np.load(args.summary) as npz:
         data = {k: npz[k] for k in npz.files}
-    mirror_figure(data, args.ensembles, f"{args.out}_w2", args.dpi)
+    prefix = "" if args.exact else "sk_"
+    mirror_figure(data, args.ensembles, f"{args.out}_w2", args.dpi, prefix)
     overlay_figure(data, args.ensembles, f"{args.out}_w2_vs_p0", args.dpi)
     print("Done.", flush=True)

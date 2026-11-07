@@ -35,7 +35,7 @@ import sys
 import time
 from fractions import Fraction
 from pathlib import Path
-from typing import Callable, Dict
+from typing import Callable, Dict, Tuple
 
 # ----- numerics -----
 import jax
@@ -105,51 +105,77 @@ def span(lo: float, hi: float, pad: float, min_half: float, n: int) -> np.ndarra
 # ============================================================
 
 
-def start_end_view(x: np.ndarray, to_s: Callable, ev: Evaluator, g: int) -> Dict:
+Axes = Tuple[np.ndarray, np.ndarray, np.ndarray]  # origin, e1, e2 (flattened R^N)
+
+
+def start_end_axes(x: np.ndarray) -> Axes:
     """Plane through X(0) spanned by the net displacement and max excursion."""
     y = x - x[0]
     dist = float(np.linalg.norm(y[-1]))
     assert dist > 0.0, "flow did not move"
     e1 = y[-1] / dist
-    a = y @ e1
-    perp = y - a[:, None] * e1
-    k = int(np.argmax(np.linalg.norm(perp, axis=1)))
-    pk = perp[k]
+    perp = y - (y @ e1)[:, None] * e1
+    pk = perp[int(np.argmax(np.linalg.norm(perp, axis=1)))]
     if np.linalg.norm(pk) < 1e-12 * dist:  # straight path: any orthogonal e2
         pk = np.random.default_rng(0).normal(size=e1.shape)
         pk -= (pk @ e1) * e1
-    e2 = pk / np.linalg.norm(pk)
-    b = y @ e2
-    ra = span(min(a.min(), 0.0), max(a.max(), dist), 0.3, 0.0, g)
-    rb = span(min(b.min(), 0.0), max(b.max(), 0.0), 0.6, 0.25 * dist, g)
-    off = np.linalg.norm(y - a[:, None] * e1 - b[:, None] * e2, axis=1)
-    phi = plane_grid(x[0], e1, e2, ra, rb, to_s, ev)
-    return {"a": ra, "b": rb, "phi": phi, "path": np.stack([a, b], 1), "offplane": off}
+    return x[0], e1, pk / np.linalg.norm(pk)
 
 
-def pca_view(x: np.ndarray, to_s: Callable, ev: Evaluator, g: int) -> Dict:
-    """Plane through the path mean spanned by its first two principal axes."""
+def pca_axes(x: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Path mean, its first two principal axes and their variance fractions."""
     c = x.mean(axis=0)
     _, sv, vt = np.linalg.svd(x - c, full_matrices=False)
-    e1, e2 = vt[0], vt[1]
-    p = (x - c) @ np.stack([e1, e2], 1)
-    ra = span(p[:, 0].min(), p[:, 0].max(), 0.3, 1e-3, g)
-    rb = span(p[:, 1].min(), p[:, 1].max(), 0.3, 1e-3, g)
-    phi = plane_grid(c, e1, e2, ra, rb, to_s, ev)
-    explained = sv[:2] ** 2 / np.sum(sv**2)
-    return {"a": ra, "b": rb, "phi": phi, "path": p, "explained": explained}
+    return c, vt[0], vt[1], sv[:2] ** 2 / np.sum(sv**2)
 
 
-def pair_view(x: np.ndarray, to_s: Callable, ev: Evaluator, g: int) -> Dict:
-    """Two particles free (largest displacements), the rest at X(inf); d = 1."""
+def pair_axes(x: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, int, int]:
+    """X(inf) with the two most-displaced particles i, j free (d = 1)."""
     disp = np.abs(x[-1] - x[0])
     i, j = (int(v) for v in np.argsort(disp)[::-1][:2])
-    ra = span(x[:, i].min(), x[:, i].max(), 0.3, 0.75, g)
-    rb = span(x[:, j].min(), x[:, j].max(), 0.3, 0.75, g)
     ei, ej = np.zeros_like(x[0]), np.zeros_like(x[0])
     ei[i], ej[j] = 1.0, 1.0
     origin = x[-1].copy()
     origin[i], origin[j] = 0.0, 0.0
+    return origin, ei, ej, i, j
+
+
+def project(z: np.ndarray, axes: Axes) -> Tuple[np.ndarray, np.ndarray]:
+    """In-plane coordinates (P, 2) of points z (P, N) and their distance from it."""
+    origin, e1, e2 = axes
+    y = z - origin
+    coords = np.stack([y @ e1, y @ e2], axis=1)
+    off = np.linalg.norm(y - coords[:, :1] * e1 - coords[:, 1:] * e2, axis=1)
+    return coords, off
+
+
+def start_end_view(x: np.ndarray, to_s: Callable, ev: Evaluator, g: int) -> Dict:
+    """Start-end plane view: Phi grid, projected path and off-plane distance."""
+    axes = start_end_axes(x)
+    dist = float(np.linalg.norm(x[-1] - x[0]))
+    path, off = project(x, axes)
+    a, b = path[:, 0], path[:, 1]
+    ra = span(min(a.min(), 0.0), max(a.max(), dist), 0.3, 0.0, g)
+    rb = span(min(b.min(), 0.0), max(b.max(), 0.0), 0.6, 0.25 * dist, g)
+    phi = plane_grid(*axes, ra, rb, to_s, ev)
+    return {"a": ra, "b": rb, "phi": phi, "path": path, "offplane": off}
+
+
+def pca_view(x: np.ndarray, to_s: Callable, ev: Evaluator, g: int) -> Dict:
+    """PCA plane view: Phi grid, projected path and variance fractions."""
+    c, e1, e2, explained = pca_axes(x)
+    p, _ = project(x, (c, e1, e2))
+    ra = span(p[:, 0].min(), p[:, 0].max(), 0.3, 1e-3, g)
+    rb = span(p[:, 1].min(), p[:, 1].max(), 0.3, 1e-3, g)
+    phi = plane_grid(c, e1, e2, ra, rb, to_s, ev)
+    return {"a": ra, "b": rb, "phi": phi, "path": p, "explained": explained}
+
+
+def pair_view(x: np.ndarray, to_s: Callable, ev: Evaluator, g: int) -> Dict:
+    """Two-particle slice: Phi grid with the rest at X(inf), and the pair's path."""
+    origin, ei, ej, i, j = pair_axes(x)
+    ra = span(x[:, i].min(), x[:, i].max(), 0.3, 0.75, g)
+    rb = span(x[:, j].min(), x[:, j].max(), 0.3, 0.75, g)
     phi = plane_grid(origin, ei, ej, ra, rb, to_s, ev)
     path = np.stack([x[:, i], x[:, j]], 1)
     return {"a": ra, "b": rb, "phi": phi, "path": path, "pair": np.array([i, j])}

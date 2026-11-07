@@ -171,3 +171,42 @@ uv run --no-sync python -I experiments/scripts/batten2008_plot.py
 - `views_chi<a-b>.npz` and `landscape_chi<a-b>.npz` hold the slices.
 
 **Figures.** `figures/batten2008_N3`, `figures/batten2008_N1000_chi<a-b>_{se,pca,pair}` and `figures/batten2008_energy`.
+
+### Wasserstein-2 along the 2008 flows
+
+`batten2008_wasserstein.py` computes the exact W₂ at every stored frame of every flow (N = 3: 50 flows per χ; N = 1000: 20), against both r(0) and r(∞). It uses `xla_cco.analysis.transport.periodic_assignment_1d`, an exact O(N log N) solver for squared cost on a circle: the optimal matching is a cyclic shift of the sorted orders, found by FFT and checked directly (Delon, Salomon & Sobolevski 2010). It is tested against the Hungarian algorithm.
+
+The overlays (`batten2008_w2_plot.py`) add three curves to each landscape figure:
+
+- the flow **relabelled** by its optimal matching to r(0);
+- the flow relabelled by its optimal matching to r(∞);
+- the **W₂ geodesic** r(0) + s·d, s ∈ [0, 1], where d is the optimal displacement from r(0) to r(∞). This is the shortest transport path between the two ends.
+
+For N = 1000 the curves are projected onto the same start-end, PCA and two-particle planes, and `batten2008_w2_N1000_offplane` reports each point's distance from its plane.
+
+**Results.**
+
+- **The optimal matching is the identity at every frame of every flow,** for both references, both χ and both N. So W₀(t) = p₀(t) and W∞(t) = q∞(t) to round-off (|W₀ − p₀| ≤ 1e-13), and the relabelled curves lie exactly on the flows. This holds for any 1D collective-coordinate energy:
+  - ∂Φ/∂x_i depends on i only through x_i, so all particles move in one velocity field G(x, t);
+  - trajectories of a 1D ODE in a common field cannot cross, so the cyclic order is preserved;
+  - with the centre of mass also conserved, the identity stays optimal.
+  `tests/unit/test_periodic_assignment.py::test_1d_stealthy_flow_keeps_the_identity_matching` checks it. In 2D, particles pass around one another, which is why the PRE trajectories re-match (≈30 particles for POS at χ = 0.4).
+- **The geodesic is the straight chord r(0) → r(∞),** and the flow is longer than it:
+  - N = 3: the flow arclength is 1.06× W₀(∞) (median; up to 1.5×);
+  - N = 1000: it is 1.5× (1.3–1.6×).
+- **The geodesic crosses high-energy ground** (`batten2008_w2_geodesic_energy`). Halfway along at N = 1000, Φ on the geodesic is 87 (χ = 1/3) and 197 (χ = 2/3), against 1.2–1.4 on the flow, starting from Φ(0) ≈ M. In the PCA planes the chord cuts straight across the low-Φ valley that the flow follows. At N = 3 the two energy profiles nearly coincide.
+
+```bash
+sbatch experiments/slurm/batten2008_wasserstein_gpu.slurm      # exceeds login-node limits at N = 1000
+uv run --no-sync python -I experiments/scripts/batten2008_w2_plot.py
+uv run --no-sync python -I experiments/scripts/plot_wasserstein.py --exact --ensembles chi1-3 chi2-3 \
+    --summary experiments/trajectories/batten2008/N1000/w2_summary.npz --out experiments/figures/batten2008_N1000
+```
+
+**Figures.**
+
+- `figures/batten2008_w2_N3`
+- `figures/batten2008_w2_N1000_chi<a-b>_{se,pca,pair}`
+- `figures/batten2008_w2_N1000_offplane`
+- `figures/batten2008_w2_geodesic_energy`
+- `figures/batten2008_N{3,1000}_w2{,_vs_p0}`: the PRE-style summaries.
