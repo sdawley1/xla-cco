@@ -219,3 +219,39 @@ uv run --no-sync python -I experiments/scripts/plot_wasserstein.py --exact --ens
 - `figures/batten2008_w2_N1000_offplane`
 - `figures/batten2008_w2_geodesic_energy`
 - `figures/batten2008_N{3,1000}_w2{,_vs_p0}`: the PRE-style summaries.
+
+### Collective coordinates, valley floors and Hessians along the 2008 flows
+
+Flat 2D slices give the path's shape but not its energy (`batten2008_N1000_mismatch`), and no single plane does much better: the best plane through an arclength-resampled path still leaves it up to 12% of |r(∞) − r(0)| away; 3, 5 and 10 principal axes leave 7.5%, 3.6% and under 1%. Three analyses of the N = 1000 flows avoid projecting Φ:
+
+1. **Collective coordinates** (`batten2008_modes.py`). Φ = Σₙ S(kₙ) with S(kₙ) = |ρ(kₙ)|²/N over the M constrained modes, so the energy along the flow is exact mode by mode (Σₙ S matches the recorded Φ to 1e-15).
+2. **Valley floors** (`batten2008_floor.py`). On the start-end and PCA planes, Φ is minimized over the N − 2 directions orthogonal to the plane at each grid point (L-BFGS on an energy whose gradient has its in-plane part removed). Each grid point starts from the nearest flow frame's off-plane offset, and sampled flow frames are relaxed from r(t) itself.
+3. **Hessians** (`batten2008_hessian.py`). Eigenvalues of the exact Hessian at t/T = 0, 1e-5, 1e-3, 1e-2, 0.1 and 1 on every flow, and cross-sections of Φ through r(t) spanned by the flow direction τ = −∇Φ/|∇Φ| and the stiffest eigenvector.
+
+**Results.**
+
+- **Short wavelengths relax first; the energy ends up in the longest ones** (`batten2008_N1000_modes`). The last time S(kₙ) exceeds 10⁻² scales as n⁻²: over n = 1–300 at χ = 1/3, and up to n ≈ 30 at χ = 2/3. By t/T ≈ 10⁻³ the lowest 10% of modes carry essentially all of Φ.
+- **The longest wavelength obeys the linearized flow exactly.** Linearizing gives dρ(k)/dt = −k²ρ(k). Mode n = 1 decays as S(k₁, t) = S(k₁, 0) exp(−2k₁²t) from the first step: the fitted rate is 0.499 × 4k₁² at both χ, and its phase changes by at most 0.02 rad over a whole flow (`batten2008_N1000_mode_planes`: straight radial lines). Its time constant 1/(2k₁²) = L²/(8π²) ≈ 1.3 × 10⁴ sets the length of the final approach. Because it ignores the other modes, S(k₁, t) from a given start is the same at χ = 1/3 and 2/3 (the curves overlap in panel (d)). Higher modes decay more slowly than their own linear rate 2kₙ², and their phases wind before collapsing: they are driven by the slow modes.
+- **χ = 2/3 orders in one event.** Every mode above n ≈ 30 falls below 10⁻⁸ together at t/T ≈ 2.5 × 10⁻⁴; the lower modes then follow the n⁻² law. At χ = 1/3 the modes relax one by one.
+- **Ground-state manifold dimension** (`batten2008_N1000_hessian`). At the end of every χ = 1/3 flow the Hessian has exactly 334 = N − 2M zero eigenvalues: the disordered ground states form a locally 334-dimensional manifold, one dimension per unconstrained degree of freedom. The near-zero count grows along the flow: 12 at t/T = 10⁻³, 60 at 10⁻², and all 334 by 0.1. At χ = 2/3 only the translation mode is zero: the lattice is an isolated minimum.
+- **Curvature along the path.** At the Poisson start about 55% of the eigenvalues are negative. At χ = 2/3 they are gone by t/T = 10⁻³, after which the flow is inside the lattice's convex basin. At χ = 1/3 about 170 weakly negative directions (λ ≈ −10⁻³ to −10⁻⁴) persist until the flow reaches the manifold. The stiffest eigenvalue settles at 6.3 (χ = 1/3) and 22 (χ = 2/3).
+- **The valley is narrow and the path bends** (`batten2008_N1000_sections`). At t/T = 0.1, Φ grows 100-fold within 0.53 (χ = 1/3) or 0.24 (χ = 2/3) along the stiffest direction, while the flow travels 12–15 for a tenfold drop. Straight down the local gradient, Φ starts to rise again within a few units, so the descent direction turns continually.
+- **Valley floors** (`batten2008_N1000_floor`; flow 0, 7 × 7 grid at χ = 1/3, 9 × 9 at χ = 2/3, plus 20 sampled frames):
+  - *χ = 1/3: the floor is zero everywhere.* Every grid point on both planes, and every sampled frame including the Poisson start, relaxes to a ground state (Φ ≤ 5 × 10⁻¹⁹) without leaving its fiber. As dimension counting predicts, the 334-dimensional ground-state manifold meets every (N − 2)-dimensional fiber, so the flat slices' barriers disappear once the other 998 directions can move. Getting there takes a median 1,200–1,300 units of motion, 4.5× the flow's net displacement.
+  - *χ = 2/3: a broad funnel to the lattice.* The floor stays at Φ ≈ 0.003–20 (median 4), 15–50× below the flat slice, and falls toward r(∞), unlike the flat slices' narrow groove. Beneath the path the floor is 12–16 at the start, where the true Φ is 629. From t/T ≈ 10⁻² on it equals Φ(r(t)) to 0.1%, so from then on the flow runs along its valley floor.
+  - *Caveats.* At χ = 2/3, L-BFGS (up to 3 × 10⁵ evaluations per point) ended on stagnation, line-search failure or the budget. Those floors are therefore upper bounds, local minima on each fiber. The in-plane drift has median 10⁻⁹ but reaches 2.3 at χ = 2/3, which is 12% of the 18.7 grid spacing. The cause is not yet confirmed; a likely one is that L-BFGS wraps positions into the cell between iterations. Dense grids are not affordable at N = 1000 without a preconditioner for the diffusive (λ ∝ k²) stiffness: one plane takes 14–28 min on an A100.
+
+```bash
+sbatch --export=ALL,STEP=modes experiments/slurm/batten2008_cc_gpu.slurm
+sbatch --export=ALL,STEP=hessian experiments/slurm/batten2008_cc_gpu.slurm
+# valley floors: one job per chi and plane (each under an hour)
+sbatch --export=ALL,STEP=floor,STEP_ARGS="--chi 1/3 --views se --grid 7 --path-points 20 --max-evals 100000 --batch 72" \
+    experiments/slurm/batten2008_cc_gpu.slurm
+sbatch --export=ALL,STEP=floor,STEP_ARGS="--chi 2/3 --views se --grid 9 --path-points 20 --max-evals 100000 --batch 104" \
+    experiments/slurm/batten2008_cc_gpu.slurm      # and --views pca for both
+uv run --no-sync python -I experiments/scripts/batten2008_cc_plot.py
+```
+
+**Data.** `trajectories/batten2008/N1000/{modes,hessian}_chi<a-b>.npz` and `floor_chi<a-b>_{se,pca}.npz`.
+
+**Figures.** `figures/batten2008_N1000_{modes,mode_planes,hessian,sections,floor}`.
