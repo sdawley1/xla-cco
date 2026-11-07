@@ -15,7 +15,7 @@
 
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
-export UV_CACHE_DIR=/scratch/gpfs/TORQUATO/sd2402/.uv-cache
+export UV_CACHE_DIR="${UV_CACHE_DIR:-/scratch/gpfs/TORQUATO/${USER}/.uv-cache}"
 export JAX_PLATFORMS=cpu
 export XLA_FLAGS="--xla_cpu_multi_thread_eigen=true intra_op_parallelism_threads=${SLURM_CPUS_PER_TASK}"
 

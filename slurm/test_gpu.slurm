@@ -13,7 +13,7 @@
 #   UV_PROJECT_ENVIRONMENT=.venv-cuda uv sync --dev --extra cuda --locked
 # Samuel J. Dawley, 11/2026
 set -euo pipefail
-export UV_CACHE_DIR=/scratch/gpfs/TORQUATO/sd2402/.uv-cache
+export UV_CACHE_DIR="${UV_CACHE_DIR:-/scratch/gpfs/TORQUATO/${USER}/.uv-cache}"
 export UV_PROJECT_ENVIRONMENT=.venv-cuda
 export JAX_PLATFORMS=cuda,cpu  # cuda first (default device); cpu for the CPU-vs-GPU test
 cd "${SLURM_SUBMIT_DIR:?submit with sbatch from the repository root}"

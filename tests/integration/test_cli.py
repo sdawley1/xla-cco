@@ -269,9 +269,36 @@ def test_cli_trajectory_multi_batch_matches_single(tmp_path: Path) -> None:
 
 
 def test_cli_rejects_non_unit_basis(tmp_path: Path) -> None:
-    _poisson_pack(tmp_path / "in", 16, 2, 2, basis=np.eye(2) * 4.0)
+    """Volume 9 with N = 16 matches neither the unit nor the scaled convention."""
+    _poisson_pack(tmp_path / "in", 16, 2, 2, basis=np.eye(2) * 3.0)
     with pytest.raises(ValueError, match=r"N\^\(1/d\)"):
         cli.run(_args(tmp_path, ka=_ka_d2()))
+
+
+@pytest.mark.parametrize(("scale", "mode"), [(1.0, "scaled"), (4.0, "unit")])
+def test_cli_input_basis_mode_is_enforced(
+    tmp_path: Path, scale: float, mode: str
+) -> None:
+    """An explicit --input-basis rejects the other convention."""
+    _poisson_pack(tmp_path / "in", 16, 2, 2, basis=np.eye(2) * scale)
+    with pytest.raises(ValueError, match=f"--input-basis {mode}"):
+        cli.run(_args(tmp_path, "--input-basis", mode, ka=_ka_d2()))
+
+
+def test_regression_D015_cli_reads_its_own_output(tmp_path: Path) -> None:
+    """The scaled output pack (basis x N^(1/d)) is a valid input under auto."""
+    _poisson_pack(tmp_path / "in", 16, 2, 3)
+    first = cli.run(_args(tmp_path, ka=_ka_d2()))
+    second_dir = tmp_path / "again"
+    second_dir.mkdir()
+    argv = _args(tmp_path, ka=_ka_d2())
+    argv.load, argv.save = tmp_path / "out", second_dir / "out"
+    second = cli.run(argv)
+    assert second["n_configs"] == first["n_configs"] == 3
+    out1 = read_configpack(tmp_path / "out")
+    out2 = read_configpack(second_dir / "out")
+    for a, b in zip(out1, out2, strict=True):
+        np.testing.assert_allclose(np.asarray(a.basis), np.asarray(b.basis))
 
 
 def test_cli_rejects_dim_mismatch(tmp_path: Path) -> None:
@@ -319,7 +346,8 @@ def test_cli_gpu_guard(tmp_path: Path) -> None:
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
     assert proc.returncode == 1
-    assert "ERROR" in proc.stderr and "--gres=gpu" in proc.stderr
+    # JAX_PLATFORMS=cpu is the actual cause here, and must be named as such.
+    assert "ERROR" in proc.stderr and "JAX_PLATFORMS=cpu" in proc.stderr
 
 
 def test_cli_help() -> None:

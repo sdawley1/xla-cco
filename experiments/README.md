@@ -15,15 +15,17 @@ Only scripts are tracked. All generated data lives in git-ignored directories:
 ### Pipeline (run from the repository root)
 
 ```bash
-export UV_CACHE_DIR=/scratch/gpfs/TORQUATO/sd2402/.uv-cache
-uv run --no-sync python -I experiments/scripts/make_initial_conditions.py
+export UV_CACHE_DIR="${UV_CACHE_DIR:-/scratch/gpfs/TORQUATO/${USER}/.uv-cache}"  # any directory you can write
+uv sync --dev --extra plot --locked            # once: adds matplotlib for the plot scripts
+uv run --no-sync python -I experiments/scripts/make_initial_conditions.py \
+    --gau-source <prefix of the GAUSSIAN-2D-N_1000 ConfigPack>   # also creates experiments/trajectories/
 sbatch experiments/slurm/run_trajectories_gpu.slurm      # chi = 0.1 (default); CPU: run_trajectories.slurm
 sbatch --export=ALL,CHI=0.4 experiments/slurm/run_trajectories_gpu.slurm
 # for chi = 0.4 pass --traj experiments/trajectories/chi0.4 to the analysis and
 # --summary .../chi0.4/summary.npz --out experiments/figures/chi0.4_<name> to the plot scripts
 JAX_PLATFORMS=cpu uv run --no-sync python -I experiments/scripts/analyze_trajectories.py
-/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/plot_figure.py
-/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/plot_ground_state_sk.py
+uv run --no-sync python -I experiments/scripts/plot_figure.py
+uv run --no-sync python -I experiments/scripts/plot_ground_state_sk.py
 ```
 
 ### Conventions
@@ -115,7 +117,7 @@ sbatch --export=ALL,CHI=0.1 experiments/slurm/wasserstein_gpu.slurm      # exact
 sbatch --export=ALL,CHI=0.4,ENSEMBLES=POS,START=0,LIMIT=20,EXACT=1 experiments/slurm/wasserstein_gpu.slurm
 sbatch --export=ALL,CHI=0.4 experiments/slurm/wasserstein_fallback.slurm  # after all Sinkhorn slices; CPU only
 JAX_PLATFORMS=cpu uv run --no-sync python -I experiments/scripts/analyze_wasserstein.py --traj experiments/trajectories/chi0.4
-/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/plot_wasserstein.py \
+uv run --no-sync python -I experiments/scripts/plot_wasserstein.py \
     --summary experiments/trajectories/chi0.4/wasserstein/summary.npz --out experiments/figures/chi0.4
 ```
 

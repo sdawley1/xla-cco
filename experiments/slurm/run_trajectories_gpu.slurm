@@ -16,7 +16,7 @@
 
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
-export UV_CACHE_DIR=/scratch/gpfs/TORQUATO/sd2402/.uv-cache
+export UV_CACHE_DIR="${UV_CACHE_DIR:-/scratch/gpfs/TORQUATO/${USER}/.uv-cache}"
 
 export UV_PROJECT_ENVIRONMENT="$PWD/.venv-cuda"
 uv run --no-sync python -I scripts/gpu_assert.py || { echo "ERROR: no GPU visible; aborting." >&2; exit 1; }

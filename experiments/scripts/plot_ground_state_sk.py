@@ -9,8 +9,9 @@ suppression inside the exclusion region k < K (shaded) and the recovery
 beyond it. Error bars are the standard error of the bin mean (shaded).
 Reads summary.npz from analyze_trajectories.py.
 
-Run with the plottime interpreter:
-/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python
+Needs matplotlib: `uv sync --dev --extra plot --locked` once, then
+`uv run --no-sync python -I experiments/scripts/<this script>` (any Python
+with numpy and matplotlib also works; xla_cco is not imported).
 
 Samuel J. Dawley
 11/2026
