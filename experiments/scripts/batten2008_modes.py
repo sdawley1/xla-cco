@@ -13,7 +13,10 @@ mode. For every recorded frame of every flow (N > 3) this script stores:
   time), shape (flows, grid, M);
 - t_relax: for thresholds eps, the last t/T at which S(k_n) > eps (0 if never),
   shape (flows, M, len(eps));
-- rho(k_n, t) / sqrt(N) at every frame for a few modes (phase planes);
+- rho(k_n, t) / sqrt(N) at every frame for n = 1-5, 10 and fractions of M
+  (phase planes);
+- per mode: phase turns, S at which the phase locks, unresolved-step
+  fraction (phase_stats);
 - the largest relative gap between sum_n S(k_n) and the recorded energy.
 
 Output: <root>/N<N>/modes_chi<tag>.npz.
@@ -52,6 +55,9 @@ from batten2008_wasserstein import pad  # noqa: E402
 # ============================================================
 
 EPS = (1e-2, 1e-8, 1e-14)  # S(k) thresholds for the relaxation times
+SMALL_N = (1, 2, 3, 4, 5, 10)  # modes always stored in full (phase planes)
+PHASE_FLOOR = 1e-16  # S below this: the phase of rho is round-off
+LOCK_RAD = 0.1  # phase "locked" once less than this remains to turn
 FRAME_BATCH = 128  # frames per collective-density call
 
 # ============================================================
@@ -60,9 +66,9 @@ FRAME_BATCH = 128  # frames per collective-density call
 
 
 def mode_indices(m: int, picks: Tuple[float, ...]) -> np.ndarray:
-    """Distinct mode numbers n in 1..m at fractions ``picks`` of m (n = 1 first)."""
+    """Distinct modes: SMALL_N (up to m) and fractions ``picks`` of m, sorted."""
     assert m >= 1 and all(0.0 <= p <= 1.0 for p in picks), "bad picks"
-    out = sorted({min(m, max(1, round(p * m))) for p in picks} | {1, 2})
+    out = sorted({min(m, max(1, round(p * m))) for p in picks} | set(SMALL_N))
     return np.array([n for n in out if n <= m], dtype=np.int64)
 
 
@@ -89,6 +95,32 @@ def relax_times(u: np.ndarray, sk: np.ndarray, eps: Tuple[float, ...]) -> np.nda
         last = sk.shape[0] - 1 - np.argmax(above[::-1], axis=0)
         out[:, e] = np.where(above.any(axis=0), u[last], 0.0)
     return out
+
+
+def phase_stats(re: np.ndarray, im: np.ndarray) -> Dict[str, np.ndarray]:
+    """Per mode: phase turns, S when the phase locks, unresolved-step fraction.
+
+    Uses consecutive frames where S > PHASE_FLOOR at both ends. ``turns`` is
+    sum |d arg rho| / 2 pi; ``s_lock`` is S at the first frame after which
+    less than LOCK_RAD of turning remains (NaN if S never exceeds the floor);
+    ``unresolved`` is the fraction of steps with |d arg rho| > pi / 2, where the
+    frame spacing may alias the phase.
+    """
+    assert re.shape == im.shape and re.ndim == 2, "need (frames, modes)"
+    sk = re**2 + im**2
+    dth = np.angle(np.exp(1j * np.diff(np.arctan2(im, re), axis=0)))
+    ok = (sk[1:] > PHASE_FLOOR) & (sk[:-1] > PHASE_FLOOR)
+    step = np.where(ok, np.abs(dth), 0.0)
+    remaining = np.cumsum(step[::-1], axis=0)[::-1]  # turning still to come
+    locked = remaining < LOCK_RAD
+    first = np.where(locked.any(axis=0), np.argmax(locked, axis=0), step.shape[0])
+    s_lock = sk[np.minimum(first, sk.shape[0] - 1), np.arange(sk.shape[1])]
+    n_ok = np.maximum(ok.sum(axis=0), 1)
+    return {
+        "turns": step.sum(axis=0) / (2.0 * np.pi),
+        "s_lock": np.where(ok.any(axis=0), s_lock, np.nan),
+        "unresolved": (ok & (np.abs(dth) > 0.5 * np.pi)).sum(axis=0) / n_ok,
+    }
 
 
 def on_grid(u: np.ndarray, grid: np.ndarray) -> np.ndarray:
@@ -152,6 +184,8 @@ if __name__ == "__main__":
                 out.setdefault("rho_re", []).append(re[:, picks - 1])
                 out.setdefault("rho_im", []).append(im[:, picks - 1])
                 out.setdefault("u", []).append(u)
+                for key, val in phase_stats(re, im).items():
+                    out.setdefault(key, []).append(val)
                 out.setdefault("energy", []).append(e)
             packed = {k: pad(v) for k, v in out.items()}
             packed.update(grid=grid, eps=np.array(EPS), picks=picks, m=np.array(m))
