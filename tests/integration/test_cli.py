@@ -131,6 +131,7 @@ def _check_outputs(tmp_path: Path, summary: dict, cfgs: List[PackedConfig]) -> N
 # ============================================================
 
 
+@pytest.mark.critical
 @pytest.mark.parametrize("method", ["lbfgs", "descent"])
 def test_cli_end_to_end_small(tmp_path: Path, method: str) -> None:
     cfgs = _poisson_pack(tmp_path / "in", 64, 2, 4)
@@ -143,6 +144,7 @@ def test_cli_end_to_end_small(tmp_path: Path, method: str) -> None:
     assert abs(summary["chi"] - 0.25) < 0.03
 
 
+@pytest.mark.medium
 def test_cli_records_trajectory(tmp_path: Path) -> None:
     _poisson_pack(tmp_path / "in", 64, 2, 2)
     args = _args(tmp_path, "--record-every", "5", "--max-records", "4", ka=_ka_d2())
@@ -151,6 +153,7 @@ def test_cli_records_trajectory(tmp_path: Path) -> None:
     assert traj["s"].shape == (2, 4, 64, 2) and traj["energy"].shape == (2, 4)
 
 
+@pytest.mark.medium
 def test_cli_no_success_skips_analysis(tmp_path: Path) -> None:
     _poisson_pack(tmp_path / "in", 64, 2, 2)
     summary = cli.run(_args(tmp_path, "--max-steps", "2", ka=_ka_d2()))
@@ -188,12 +191,14 @@ def _base(tmp_path: Path, k1a: str) -> List[str]:
     ]  # fmt: skip
 
 
+@pytest.mark.critical
 def test_success_mask_is_strict() -> None:
     tol = 1e-20
     m = cli.success_mask(np.array([tol, np.nextafter(tol, 0.0), 2 * tol]), tol)
     assert m.tolist() == [False, True, False]
 
 
+@pytest.mark.critical
 def test_cli_mixed_success_selects_exact_configs(tmp_path: Path) -> None:
     summary, cfgs = _mixed_run(tmp_path)
     energies = np.load(tmp_path / "out_energies.npy")
@@ -224,6 +229,7 @@ def test_cli_mixed_success_selects_exact_configs(tmp_path: Path) -> None:
     assert np.isclose(g2[0, 0] - g2[0, 2], 0.0, atol=1e-12)
 
 
+@pytest.mark.high
 def test_cli_init_config_is_wrapped_input(tmp_path: Path) -> None:
     rng = np.random.default_rng(3)
     rel = rng.uniform(-2.0, 3.0, size=(64, 2))
@@ -235,6 +241,7 @@ def test_cli_init_config_is_wrapped_input(tmp_path: Path) -> None:
     assert got.min() >= 0.0 and got.max() < 1.0
 
 
+@pytest.mark.high
 def test_cli_k1_uses_shared_a(tmp_path: Path) -> None:
     _poisson_pack(tmp_path / "in", 64, 2, 1)
     ka = _ka_d2()
@@ -248,6 +255,7 @@ def test_cli_k1_uses_shared_a(tmp_path: Path) -> None:
     assert m < enumerate_kvectors(np.eye(2) * 8.0, 0.0, k2).n.shape[0]
 
 
+@pytest.mark.high
 def test_cli_trajectory_multi_batch_matches_single(tmp_path: Path) -> None:
     _poisson_pack(tmp_path / "in", 64, 2, 3)
     rec = ["--record-every", "5", "--max-records", "4", "--max-steps", "60"]
@@ -268,6 +276,7 @@ def test_cli_trajectory_multi_batch_matches_single(tmp_path: Path) -> None:
 # ============================================================
 
 
+@pytest.mark.medium
 def test_cli_rejects_non_unit_basis(tmp_path: Path) -> None:
     """Volume 9 with N = 16 matches neither the unit nor the scaled convention."""
     _poisson_pack(tmp_path / "in", 16, 2, 2, basis=np.eye(2) * 3.0)
@@ -275,6 +284,7 @@ def test_cli_rejects_non_unit_basis(tmp_path: Path) -> None:
         cli.run(_args(tmp_path, ka=_ka_d2()))
 
 
+@pytest.mark.medium
 @pytest.mark.parametrize(("scale", "mode"), [(1.0, "scaled"), (4.0, "unit")])
 def test_cli_input_basis_mode_is_enforced(
     tmp_path: Path, scale: float, mode: str
@@ -285,6 +295,7 @@ def test_cli_input_basis_mode_is_enforced(
         cli.run(_args(tmp_path, "--input-basis", mode, ka=_ka_d2()))
 
 
+@pytest.mark.high
 def test_regression_D015_cli_reads_its_own_output(tmp_path: Path) -> None:
     """The scaled output pack (basis x N^(1/d)) is a valid input under auto."""
     _poisson_pack(tmp_path / "in", 16, 2, 3)
@@ -301,12 +312,14 @@ def test_regression_D015_cli_reads_its_own_output(tmp_path: Path) -> None:
         np.testing.assert_allclose(np.asarray(a.basis), np.asarray(b.basis))
 
 
+@pytest.mark.medium
 def test_cli_rejects_dim_mismatch(tmp_path: Path) -> None:
     _poisson_pack(tmp_path / "in", 16, 2, 2)
     with pytest.raises(ValueError, match="--dim"):
         cli.run(_args(tmp_path, ka=_ka_d2(), dim=3))
 
 
+@pytest.mark.medium
 @pytest.mark.parametrize(
     "extra",
     [
@@ -323,6 +336,7 @@ def test_cli_rejects_bad_arguments(tmp_path: Path, extra: List[str]) -> None:
         cli.run(_args(tmp_path, *extra, ka=_ka_d2()))
 
 
+@pytest.mark.medium
 def test_cli_gpu_guard(tmp_path: Path) -> None:
     # force the guard on any host (including GPU nodes): CPU-only JAX, no GPU
     env = {k: v for k, v in os.environ.items() if k != "CUDA_VISIBLE_DEVICES"}
@@ -350,6 +364,7 @@ def test_cli_gpu_guard(tmp_path: Path) -> None:
     assert "ERROR" in proc.stderr and "JAX_PLATFORMS=cpu" in proc.stderr
 
 
+@pytest.mark.low
 def test_cli_help() -> None:
     proc = subprocess.run(
         [sys.executable, "-m", "xla_cco.cli.relax", "--help"],
@@ -366,6 +381,7 @@ def test_cli_help() -> None:
 # ============================================================
 
 
+@pytest.mark.high
 @given(
     st.lists(st.integers(0, 50), min_size=1, max_size=30).filter(lambda c: sum(c) > 0),
     st.floats(0.1, 5.0),
@@ -378,6 +394,7 @@ def test_hp_table_is_normalized_density(counts: List[int], width: float) -> None
     assert np.all(t[np.array(counts) == 0, 3] == 0.0)
 
 
+@pytest.mark.medium
 def test_hp_g2_table_columns_example() -> None:
     edges = np.array([0.0, 1.0, 3.0])
     h = cli.hp_table(np.array([1, 3]), edges)
@@ -388,6 +405,7 @@ def test_hp_g2_table_columns_example() -> None:
     assert np.allclose(g[:, 3], [1.0, 0.0]) and np.allclose(g[:, 1], [2.0, 4.0])
 
 
+@pytest.mark.medium
 @given(
     st.lists(st.integers(0, 50), min_size=1, max_size=30),
     st.floats(0.5, 20.0),

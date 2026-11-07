@@ -46,6 +46,7 @@ def _hungarian(a: np.ndarray, b: np.ndarray, length: float) -> float:
 # ============================================================
 
 
+@pytest.mark.high
 @settings(deadline=None, max_examples=300)
 @given(
     n=st.integers(1, 14),
@@ -80,6 +81,7 @@ def test_matches_hungarian(n: int, length: float, seed: int, clump: bool) -> Non
         )
 
 
+@pytest.mark.medium
 def test_identical_configurations_give_identity() -> None:
     """W_2(a, a) = 0 with the identity matching (distinct points)."""
     a = np.array([0.1, 2.5, 0.7, 3.9])
@@ -88,6 +90,7 @@ def test_identical_configurations_give_identity() -> None:
     np.testing.assert_array_equal(res.perm[0], np.arange(4))
 
 
+@pytest.mark.high
 def test_invariant_under_relabelling_and_translation() -> None:
     """Permuting b leaves the cost; a common translation leaves cost and pairs."""
     rng = np.random.default_rng(3)
@@ -101,6 +104,7 @@ def test_invariant_under_relabelling_and_translation() -> None:
     np.testing.assert_allclose(shifted.disp[0], base.disp[0], atol=1e-10)
 
 
+@pytest.mark.high
 def test_symmetric_in_its_arguments() -> None:
     """W_2(a, b) = W_2(b, a), with inverse matchings."""
     rng = np.random.default_rng(4)
@@ -111,6 +115,7 @@ def test_symmetric_in_its_arguments() -> None:
     np.testing.assert_array_equal(ba.perm[0][ab.perm[0]], np.arange(30))
 
 
+@pytest.mark.high
 def test_large_n_matches_hungarian() -> None:
     """N = 300, frames near a lattice (the stealthy regime) and random ones."""
     rng = np.random.default_rng(5)
@@ -125,6 +130,7 @@ def test_large_n_matches_hungarian() -> None:
         )
 
 
+@pytest.mark.medium
 def test_rejects_bad_inputs() -> None:
     """Shape mismatches, a non-positive period and non-finite values raise."""
     with pytest.raises(ValueError):
@@ -135,6 +141,7 @@ def test_rejects_bad_inputs() -> None:
         periodic_assignment_1d(np.array([0.0, np.nan]), np.zeros((1, 2)), 1.0)
 
 
+@pytest.mark.high
 @settings(deadline=None, max_examples=5)
 @given(seed=st.integers(0, 2**31 - 1), shells=st.integers(2, 10))
 def test_1d_stealthy_flow_keeps_the_identity_matching(seed: int, shells: int) -> None:

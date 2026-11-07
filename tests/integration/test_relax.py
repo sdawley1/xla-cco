@@ -83,6 +83,7 @@ _METHODS: list[Callable[[], Settings]] = [
 # ============================================================
 
 
+@pytest.mark.critical
 @pytest.mark.parametrize("make", _METHODS, ids=["descent", "lbfgs"])
 def test_relax_batched_equals_single(make: Callable[[], Settings]) -> None:
     """relax equals the single-config minimizer lane by lane.
@@ -107,6 +108,7 @@ def _mixed_batch() -> jnp.ndarray:
     return jnp.asarray(np.concatenate([lattice[None], rest]))
 
 
+@pytest.mark.critical
 @pytest.mark.parametrize("make", _METHODS, ids=["descent", "lbfgs"])
 def test_relax_per_config_stopping(make: Callable[[], Settings]) -> None:
     """A converged lane stops at once and is bit-identical across further rounds."""
@@ -143,6 +145,7 @@ def _batched_fns(settings: Settings) -> tuple[Callable[..., Any], Callable[..., 
     return mod.init_batch, mod.chunk_batch
 
 
+@pytest.mark.critical
 @pytest.mark.parametrize("make", _METHODS, ids=["descent", "lbfgs"])
 def test_relax_compaction_preserves_results(make: Callable[[], Settings]) -> None:
     """chunk_iters=7 (many compactions) equals chunk_iters=10_000 exactly."""
@@ -159,6 +162,7 @@ def test_relax_compaction_preserves_results(make: Callable[[], Settings]) -> Non
     assert iters.min() != iters.max(), "lanes must finish at different rounds"
 
 
+@pytest.mark.critical
 def test_relax_returns_original_order() -> None:
     """Lane i of the result belongs to input i whatever order lanes finish in."""
     _, _, energy = small_system(16, 2, 4.0)
@@ -175,6 +179,7 @@ def _chunk_compiles(caplog: pytest.LogCaptureFixture) -> int:
     return sum(1 for m in msgs if "Compiling" in m and "chunk_one" in m)
 
 
+@pytest.mark.medium
 def test_relax_compiles_once_per_shape(caplog: pytest.LogCaptureFixture) -> None:
     """A repeated call with the same shapes triggers no new chunk compilation."""
     _, _, energy = small_system(20, 2, 4.0)  # shape unique to this test
@@ -188,6 +193,7 @@ def test_relax_compiles_once_per_shape(caplog: pytest.LogCaptureFixture) -> None
     assert second == first, "same shapes must not recompile"
 
 
+@pytest.mark.high
 def test_relax_odd_batch_with_staggered_finish() -> None:
     """An odd batch with staggered finishes (padding path) completes in full."""
     _, _, energy = small_system(16, 2, 4.0)
@@ -197,6 +203,7 @@ def test_relax_odd_batch_with_staggered_finish() -> None:
     assert out.s.shape[0] == 7 and np.all(np.asarray(out.status) != STATUS_RUNNING)
 
 
+@pytest.mark.high
 def test_loop_run_freezes_done_lanes_and_bounds_iterations() -> None:
     """_loop.run: finished lanes are untouched; max_iters bounds the loop."""
 
@@ -212,6 +219,7 @@ def test_loop_run_freezes_done_lanes_and_bounds_iterations() -> None:
     assert float(capped) == 4.0
 
 
+@pytest.mark.medium
 def test_relax_rejects_non_float64_and_bad_settings() -> None:
     """float32 input raises TypeError; unknown settings raise TypeError."""
     _, _, energy = small_system(8, 2, 4.0)
@@ -221,6 +229,7 @@ def test_relax_rejects_non_float64_and_bad_settings() -> None:
         relax(energy, jnp.zeros((2, 8, 2)), object())  # type: ignore[arg-type]
 
 
+@pytest.mark.high
 def test_relax_budget_status_all_lanes() -> None:
     """Out-of-budget lanes finish with STATUS_BUDGET and n_evals = 2 * iterations."""
     _, _, energy = small_system(16, 2, 4.0)
@@ -247,6 +256,7 @@ def _ground_state(n: int = 16) -> tuple[Any, jnp.ndarray]:
     return energy, s
 
 
+@pytest.mark.high
 @pytest.mark.parametrize("method", ["descent", "lbfgs"])
 def test_ground_state_lane_is_returned_bit_exactly(method: str) -> None:
     """A converged lane's s is bit-identical to its input (no s*R/R round trip)."""
@@ -292,6 +302,7 @@ def _is_same_mod_1(a: np.ndarray, b: np.ndarray, tol: float = 1e-15) -> bool:
     return bool(np.max(np.abs(diff - np.round(diff))) <= tol)
 
 
+@pytest.mark.high
 def test_descent_output_is_wrapped_into_unit_cube() -> None:
     """Final s lies in [0, 1) and equals the unwrapped iterate mod 1."""
     _, _, energy = small_system(16, 2, 4.0)
@@ -308,6 +319,7 @@ def test_descent_output_is_wrapped_into_unit_cube() -> None:
         assert _is_same_mod_1(s, unwrapped)
 
 
+@pytest.mark.high
 def test_lbfgs_output_is_wrapped_into_unit_cube() -> None:
     """Final s lies in [0, 1) and equals the carried unwrapped s mod 1."""
     from xla_cco.minimize import _loop as loop
@@ -349,6 +361,7 @@ def _freeze_settings(kind: str, s0: jnp.ndarray, energy: Any) -> Settings:
     return type(base)(**{**_fields(base), "energy_tol": float(0.9 * f0.min())})
 
 
+@pytest.mark.high
 @pytest.mark.parametrize("kind", ["descent", "lbfgs"])
 def test_finished_lane_with_nonzero_gradient_stays_frozen(kind: str) -> None:
     """A lane that finishes mid-chunk (energy_tol, |g| != 0) is bit-frozen after.

@@ -32,6 +32,7 @@ from xla_cco.kvectors import enumerate_kvectors
 # ============================================================
 
 
+@pytest.mark.high
 @settings(deadline=None, max_examples=40)
 @given(data=st.data())
 def test_closed_form_hessian_matches_autodiff(data: st.DataObject) -> None:
@@ -53,6 +54,7 @@ def test_closed_form_hessian_matches_autodiff(data: st.DataObject) -> None:
     np.testing.assert_allclose(got, ref, rtol=1e-10, atol=1e-11 * scale)
 
 
+@pytest.mark.high
 def test_hessian_symmetric_with_padding_and_tables() -> None:
     """Factory energy (padded k-set, phase-table path): symmetric, = autodiff."""
     box = cubic_box(12, 2)
@@ -67,6 +69,7 @@ def test_hessian_symmetric_with_padding_and_tables() -> None:
     np.testing.assert_allclose(h, ref, rtol=1e-10, atol=1e-10)
 
 
+@pytest.mark.medium
 def test_hessian_rejects_float32() -> None:
     """float32 positions raise TypeError, like the energy itself."""
     energy = StealthyEnergy(

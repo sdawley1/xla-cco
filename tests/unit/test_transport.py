@@ -80,6 +80,7 @@ def _jittered_lattice(n_side: int, noise: float, seed: int) -> np.ndarray:
 # ============================================================
 
 
+@pytest.mark.high
 @settings(deadline=None)
 @given(data=st.data())
 def test_cost_matches_bruteforce_images(data: st.DataObject) -> None:
@@ -92,6 +93,7 @@ def test_cost_matches_bruteforce_images(data: st.DataObject) -> None:
     np.testing.assert_allclose(got, _oracle_cost(a, b, basis), rtol=1e-12, atol=1e-14)
 
 
+@pytest.mark.high
 @settings(deadline=None)
 @given(data=st.data())
 def test_cost_single_image_exact_for_orthogonal_cells(data: st.DataObject) -> None:
@@ -109,6 +111,7 @@ def test_cost_single_image_exact_for_orthogonal_cells(data: st.DataObject) -> No
     )
 
 
+@pytest.mark.high
 @settings(deadline=None, max_examples=30)
 @given(
     shear=st.integers(-6, 6),
@@ -134,6 +137,7 @@ def test_regression_D013_cost_exact_for_unreduced_cells(
     )
 
 
+@pytest.mark.medium
 def test_cost_rejects_too_few_images() -> None:
     """An explicit radius below required_images raises for a concrete basis."""
     basis = jnp.asarray([[1.0, 0.0], [5.0, 1.0]])
@@ -142,6 +146,7 @@ def test_cost_rejects_too_few_images() -> None:
         torus_sq_cost(a, a, basis, images=1)
 
 
+@pytest.mark.medium
 def test_cost_needs_explicit_images_under_jit() -> None:
     """images=None cannot size the scan from a traced basis."""
     a = jnp.zeros((3, 2))
@@ -151,12 +156,14 @@ def test_cost_needs_explicit_images_under_jit() -> None:
     assert out.shape == (3, 3)
 
 
+@pytest.mark.medium
 def test_required_images_orthogonal_is_zero() -> None:
     """Rounding alone is exact for diagonal cells."""
     assert required_images(np.diag([1.0, 2.0, 0.5])) == (0, 0, 0)
     assert required_images(np.array([[1.0, 0.0], [5.0, 1.0]]))[0] >= 5
 
 
+@pytest.mark.high
 def test_cost_periodic_example() -> None:
     """Points 0.05 and 0.95 of a unit 1-D cell are 0.1 apart (squared 0.01)."""
     a = jnp.asarray([[0.05]])
@@ -170,6 +177,7 @@ def test_cost_periodic_example() -> None:
 # ============================================================
 
 
+@pytest.mark.high
 def test_sinkhorn_marginals_converge() -> None:
     """Row and column sums of the converged plan are 1/N."""
     rng = np.random.default_rng(3)
@@ -181,6 +189,7 @@ def test_sinkhorn_marginals_converge() -> None:
     assert float(res.marginal_error) < 1e-12 and int(res.n_iters) < 5000
 
 
+@pytest.mark.medium
 def test_sinkhorn_rejects_bad_arguments() -> None:
     """Non-square cost and non-positive eps are refused."""
     with pytest.raises(AssertionError):
@@ -189,6 +198,7 @@ def test_sinkhorn_rejects_bad_arguments() -> None:
         sinkhorn(jnp.ones((2, 2)), 0.0)
 
 
+@pytest.mark.high
 @pytest.mark.slow
 @settings(deadline=None, max_examples=30)
 @given(
@@ -209,6 +219,7 @@ def test_relabelled_pattern_has_zero_distance(perm_seed: int, shift: float) -> N
     assert w == pytest.approx(5.0 * abs(shift), abs=1e-12)
 
 
+@pytest.mark.high
 @settings(deadline=None, max_examples=25)
 @given(seed=st.integers(0, 2**31 - 1), noise=st.floats(0.05, 0.6))
 def test_rounded_matching_is_optimal_and_bounded(seed: int, noise: float) -> None:
@@ -231,6 +242,7 @@ def test_rounded_matching_is_optimal_and_bounded(seed: int, noise: float) -> Non
     assert ent == pytest.approx(exact, rel=0.05, abs=0.05)
 
 
+@pytest.mark.high
 def test_round_to_matching_detects_collision() -> None:
     """Two rows sharing one argmax column are reported as a non-bijection."""
     cost = jnp.asarray([[0.0, 5.0], [0.0, 5.0]])
@@ -239,6 +251,7 @@ def test_round_to_matching_detects_collision() -> None:
     assert np.asarray(sigma).tolist() == [0, 0]
 
 
+@pytest.mark.high
 def test_matching_distance_example() -> None:
     """Identity on a diagonal cost returns rho^{1/2} sqrt(trace)."""
     cost = jnp.diag(jnp.asarray([1.0, 4.0, 4.0]))
@@ -251,6 +264,7 @@ def test_matching_distance_example() -> None:
 # ============================================================
 
 
+@pytest.mark.high
 @settings(deadline=None, max_examples=40)
 @given(
     seed=st.integers(0, 2**31 - 1),
@@ -266,6 +280,7 @@ def test_repair_returns_bijection(seed: int, n: int) -> None:
     assert sorted(out.tolist()) == list(range(n))
 
 
+@pytest.mark.high
 @settings(deadline=None, max_examples=20)
 @given(seed=st.integers(0, 2**31 - 1))
 def test_repair_keeps_bijection_and_bounds_exact(seed: int) -> None:
@@ -280,6 +295,7 @@ def test_repair_keeps_bijection_and_bounds_exact(seed: int) -> None:
     assert w >= _exact_w2(np.asarray(cost), 1.0) - 1e-12
 
 
+@pytest.mark.medium
 def test_repair_collision_example() -> None:
     """Tied rows on one column: the lower row index keeps it."""
     cost = jnp.asarray([[0.0, 5.0], [0.0, 5.0]])
@@ -287,6 +303,7 @@ def test_repair_collision_example() -> None:
     assert np.asarray(out).tolist() == [0, 1]
 
 
+@pytest.mark.medium
 def test_stop_on_matching_stops_early_with_bijection() -> None:
     """The matching stop returns a bijective rounding in no more iterations."""
     a = _jittered_lattice(6, 0.4, seed=11)

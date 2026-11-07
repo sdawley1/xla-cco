@@ -18,6 +18,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+# ----- testing -----
+import pytest
+
 # ============================================================
 # TESTS
 # ============================================================
@@ -25,6 +28,7 @@ from pathlib import Path
 SCRIPT = Path(__file__).resolve().parents[2] / "benchmarks" / "bench_energy.py"
 
 
+@pytest.mark.low
 def test_bench_energy_smoke(tmp_path: Path) -> None:
     out = tmp_path / "res.json"
     cmd = [sys.executable, str(SCRIPT), "--device", "cpu", "--small"]

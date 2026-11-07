@@ -50,6 +50,7 @@ def _sinkhorn(is_perm: np.ndarray, err: np.ndarray, lengths: list) -> Dict:
 # ============================================================
 
 
+@pytest.mark.high
 def test_regression_D014_converged_collision_not_certified() -> None:
     """A converged plan (err < tol) whose rounding collides is not trusted.
 
@@ -62,6 +63,7 @@ def test_regression_D014_converged_collision_not_certified() -> None:
     np.testing.assert_array_equal(certified(sk), is_perm == 1.0)
 
 
+@pytest.mark.high
 def test_apply_fallback_substitutes_exact_values() -> None:
     """Uncertified entries take the fallback value; certified ones are kept."""
     is_perm = np.ones((5, 2))
@@ -80,6 +82,7 @@ def test_apply_fallback_substitutes_exact_values() -> None:
     np.testing.assert_array_equal(w, expected)
 
 
+@pytest.mark.medium
 def test_apply_fallback_requires_full_coverage() -> None:
     """A missing fallback for an uncertified entry is an error, not a gap."""
     is_perm = np.ones((3, 2))
@@ -96,6 +99,7 @@ def test_apply_fallback_requires_full_coverage() -> None:
         apply_fallback(sk, empty)
 
 
+@pytest.mark.medium
 @settings(deadline=None, max_examples=50)
 @given(seed=st.integers(0, 2**31 - 1), n_traj=st.integers(1, 4))
 def test_apply_fallback_covers_exactly_uncertified(seed: int, n_traj: int) -> None:

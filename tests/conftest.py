@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
 """
-Shared pytest configuration: Hypothesis profiles, x64 check, RNG policy.
+Shared pytest configuration: Hypothesis profiles, x64 check, RNG policy, and
+the priority tiers (tests/tiers.py: --priority, one tier marker per test).
 
 RNG policy: every random test input uses an explicit seed through
 ``np.random.default_rng(seed)``; no global seeding.
@@ -22,6 +23,8 @@ import jax
 import numpy as np
 import pytest
 from hypothesis import HealthCheck, settings
+
+pytest_plugins = ["tiers", "pytester"]  # tiers: tests/tiers.py (on pythonpath)
 
 # ============================================================
 # HYPOTHESIS PROFILES

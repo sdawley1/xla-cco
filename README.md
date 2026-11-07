@@ -117,6 +117,39 @@ directory at a time, and leave the full run to CI or a compute node.
 Hypothesis profiles (`tests/conftest.py`): `dev` (100 examples, default),
 `ci` (300, derandomized), `thorough` (5000). Markers: `slow` (> 30 s), `gpu`.
 
+#### Priority tiers
+
+Every test carries exactly one tier marker; a test with none, or two, stops
+collection with a usage error. `--priority=<tier>` runs that tier and every
+higher one (`tests/tiers.py`):
+
+| Tier | Covers | Tests | Cumulative CI time* |
+|---|---|---|---|
+| `critical` | Core numbers: energy and forces vs oracle and the C++ closed form, k-set enumeration and shell boundaries, χ/K conversions, minimizer agreement with the transcribed C++, batched `relax` (lane freezing, compaction order), ConfigPack round trip, CLI end to end and its success mask | 59 | 110 s |
+| `high` | Secondary numerical paths and invariants: chunking, padding, phase tables, Hessian, gradient flow, S(k)/g₂/NN analysis, transport and exact 1D matching, trajectory tools, and regressions of defects that changed results | 157 | 717 s (404 s with `-m "not slow"`) |
+| `medium` | Error contracts and input validation, dtypes, recording and status bookkeeping, file-format edge cases, the test oracles' own checks | 129 | 746 s |
+| `low` | Tooling and messages: CLI help, GPU diagnostics, Hypothesis profiles, benchmark smoke, export list | 22 | 758 s (full suite) |
+
+\* Hypothesis `ci` profile, 4 CPU cores on Della; GitHub runners are slower.
+Tiers rank importance, not cost: eight `slow` Hypothesis sweeps (313 s) sit in
+`high`. Combine the two when time matters, e.g.
+`--priority high -m "not gpu and not slow"`.
+
+```bash
+uv run pytest -m "not gpu" --priority critical    # critical only
+uv run pytest -m "not gpu" --priority high        # critical + high
+uv run pytest -m "critical or high"               # same, as a marker expression
+uv run pytest --priority high -m "not gpu and not slow"   # ~half the full time
+```
+
+CI (`.github/workflows/ci.yml`) picks the tiers per event: pushes to feature
+branches run `critical` (or the repository variable `CI_PRIORITY`); pull requests
+and pushes to `main` run every tier with the coverage gate, unless the pull
+request carries a `ci:<tier>` label; manual runs (Actions → CI → Run
+workflow) take the tier as an input. The coverage gate applies only when every
+tier runs. New tests: mark the function, e.g. `@pytest.mark.high`, above its
+other decorators.
+
 ### Static checks and pre-commit
 
 ```bash

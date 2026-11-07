@@ -94,6 +94,7 @@ def _cpp_descent(
 # ============================================================
 
 
+@pytest.mark.critical
 @pytest.mark.parametrize("grow", [1.0, 2.0])
 def test_descent_matches_transcribed_cpp(grow: float) -> None:
     """100 iterations match the verbatim C++ loop: iterates, accepts, steps."""
@@ -127,6 +128,7 @@ def test_descent_matches_transcribed_cpp(grow: float) -> None:
     assert any(accepts) and not all(accepts), "test must exercise both branches"
 
 
+@pytest.mark.high
 def test_descent_eval_budget() -> None:
     """max_evals = 2m runs exactly m iterations and 2m counted evaluations."""
     _, _, energy = small_system(12, 2, 4.0)
@@ -136,6 +138,7 @@ def test_descent_eval_budget() -> None:
     assert int(res.status) == STATUS_BUDGET
 
 
+@pytest.mark.high
 def test_regression_D003_odd_budget_no_underflow() -> None:
     """D-003: an odd budget 2m+1 runs m iterations and terminates (no underflow)."""
     _, _, energy = small_system(12, 2, 4.0)
@@ -147,6 +150,7 @@ def test_regression_D003_odd_budget_no_underflow() -> None:
     assert int(one.n_iters) == 0 and int(one.status) == STATUS_BUDGET
 
 
+@pytest.mark.high
 def test_descent_step_floor_status() -> None:
     """Always-reject (rel_tol ~ 0) halves the step to the floor; s is unchanged."""
     _, _, energy = small_system(12, 2, 4.0)
@@ -157,6 +161,7 @@ def test_descent_step_floor_status() -> None:
     assert np.array_equal(np.asarray(res.s), np.asarray(s0))
 
 
+@pytest.mark.high
 def test_descent_energy_tol_status() -> None:
     """Stops with STATUS_ENERGY_TOL once Phi < energy_tol; zero iterations if met."""
     _, _, energy = small_system(12, 2, 4.0)
@@ -169,6 +174,7 @@ def test_descent_energy_tol_status() -> None:
     assert int(met.status) == STATUS_ENERGY_TOL and int(met.n_iters) == 0
 
 
+@pytest.mark.medium
 def test_trajectory_recording() -> None:
     """Iterations 0, r, 2r, ... are stored; count is capped; off gives None."""
     _, _, energy = small_system(12, 2, 4.0)
@@ -193,6 +199,7 @@ def test_trajectory_recording() -> None:
         assert adaptive_descent(energy, s0, off).trajectory is None
 
 
+@pytest.mark.medium
 def test_descent_rejects_non_float64() -> None:
     """float32 input raises TypeError before any compute."""
     _, _, energy = small_system(8, 2, 4.0)
@@ -200,6 +207,7 @@ def test_descent_rejects_non_float64() -> None:
         adaptive_descent(energy, jnp.zeros((8, 2), jnp.float32), DescentSettings())
 
 
+@pytest.mark.medium
 def test_result_dtypes_descent() -> None:
     """Every RelaxResult leaf (with trajectory) is float64 or integer."""
     _, _, energy = small_system(8, 2, 4.0)
@@ -240,6 +248,7 @@ class _SpyEnergy(AbstractEnergy):
         return self.inner.value_and_grad(s)
 
 
+@pytest.mark.medium
 def test_descent_uses_value_and_grad_once_per_iteration() -> None:
     """f1 and f2 share one code path: exactly 1 value_and_grad per iteration."""
     _, _, energy = small_system(12, 2, 4.0)
@@ -259,6 +268,7 @@ def _single_particle_energy() -> AbstractEnergy:
     )
 
 
+@pytest.mark.high
 @pytest.mark.parametrize("grow", [1.0, 2.0])
 def test_regression_D012_zero_gradient_stops_finite(grow: float) -> None:
     """At s = 0 the computed gradient is exactly zero.
@@ -276,6 +286,7 @@ def test_regression_D012_zero_gradient_stops_finite(grow: float) -> None:
     assert np.isfinite(float(res.energy))
 
 
+@pytest.mark.high
 @settings(deadline=None, max_examples=20)
 @given(
     grow=st.sampled_from((1.0, 2.0)),
