@@ -20,6 +20,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from hypothesis import example, given, settings
+from hypothesis import strategies as st
 
 # ----- project -----
 import oracle
@@ -34,6 +36,7 @@ from xla_cco.minimize.descent import DescentSettings, adaptive_descent
 from xla_cco.minimize.result import (
     STATUS_BUDGET,
     STATUS_ENERGY_TOL,
+    STATUS_GRAD_TOL,
     STATUS_STEP_FLOOR,
 )
 
@@ -278,3 +281,44 @@ def test_descent_uses_value_and_grad_once_per_iteration() -> None:
     jax.effects_barrier()
     assert int(res.n_iters) == 20
     assert spy.calls.n == 1 + int(res.n_iters)  # initial + one per iteration
+
+
+def _single_particle_energy() -> AbstractEnergy:
+    """N = 1: Phi is constant and the exact gradient vanishes everywhere."""
+    return make_stealthy_energy(
+        cubic_box(1, 2), enumerate_kvectors(np.eye(2), 0.0, 7.0)
+    )
+
+
+@pytest.mark.parametrize("grow", [1.0, 2.0])
+def test_regression_D012_zero_gradient_stops_finite(grow: float) -> None:
+    """At s = 0 the computed gradient is exactly zero.
+
+    The 0/0 accept test used to accept forever; with grow = 2 the step
+    overflowed and the positions became NaN. Descent must stop at once with
+    STATUS_GRAD_TOL and leave the configuration unchanged.
+    """
+    s0 = jnp.zeros((1, 2))
+    settings_ = DescentSettings(grow=grow, max_evals=2200)
+    res = adaptive_descent(_single_particle_energy(), s0, settings_)
+    assert int(res.status) == STATUS_GRAD_TOL
+    assert int(res.n_iters) == 0
+    np.testing.assert_array_equal(np.asarray(res.s), np.asarray(s0))
+    assert np.isfinite(float(res.energy))
+
+
+@settings(deadline=None, max_examples=20)
+@given(
+    grow=st.sampled_from((1.0, 2.0)),
+    start=st.lists(st.floats(0.0, 1.0, exclude_max=True), min_size=2, max_size=2),
+)
+@example(grow=2.0, start=[0.0, 0.0])
+@example(grow=2.0, start=[0.0, 0.625])
+def test_descent_flat_energy_stays_finite(grow: float, start: List[float]) -> None:
+    """On a flat energy (gradient zero or round-off) descent ends finite."""
+    s0 = jnp.asarray([start])
+    settings_ = DescentSettings(grow=grow, max_evals=2200)
+    res = adaptive_descent(_single_particle_energy(), s0, settings_)
+    assert np.all(np.isfinite(np.asarray(res.s)))
+    assert np.isfinite(float(res.energy))
+    assert int(res.status) in (STATUS_GRAD_TOL, STATUS_STEP_FLOOR, STATUS_BUDGET)

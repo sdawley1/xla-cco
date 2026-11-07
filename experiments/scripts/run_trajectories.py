@@ -70,7 +70,15 @@ from xla_cco.minimize.result import STATUS_ENERGY_TOL
 # ============================================================
 
 PHI_FOR_KA: float = 0.05  # cancels in K (only fixes the Ka <-> K convention)
-STATUS_NAMES = {0: "RUNNING", 1: "ENERGY_TOL", 2: "STEP_FLOOR", 3: "BUDGET"}
+STATUS_NAMES = {
+    0: "RUNNING",
+    1: "ENERGY_TOL",
+    2: "STEP_FLOOR",
+    3: "BUDGET",
+    4: "STAGNATED",
+    5: "LINESEARCH_FAIL",
+    6: "GRAD_TOL",
+}
 # The descent stops at Phi < 1e-22 (paper) or at the step floor, where the
 # float64 acceptance test can no longer resolve energy changes (Phi ~ 1e-22);
 # a terminal Phi below this tolerance counts as a stealthy ground state.
