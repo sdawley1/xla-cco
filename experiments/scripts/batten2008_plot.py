@@ -232,7 +232,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
 
-    roots = {int(p.name[1:]): p for p in args.root.glob("N*") if p.is_dir()}
+    roots = {
+        int(p.name[1:]): p
+        for p in args.root.glob("N*")
+        if p.is_dir() and p.name[1:].isdigit()  # skip e.g. N1000_rtol1e-3
+    }
     if 3 in roots:
         figure_n3(roots[3], args.out, args.dpi)
     for n, root in sorted(roots.items()):
