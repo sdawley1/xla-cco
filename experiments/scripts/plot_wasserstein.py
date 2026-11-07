@@ -16,8 +16,9 @@ log-spaced frames per trajectory:
 (a) W_0(inf) - W_0(t) (solid) and p_0(inf) - p_0(t) (dashed);
 (b) W_inf(t) (solid) and q_inf(t) = rho^{1/2}|r(t) - r(inf)| (dashed);
 (c) particles re-matched by the optimal map, relative to r(0) (solid) and
-    r(inf) (dashed);
-(d) relative gaps 1 - W/p at matching frames.
+    r(inf) (dotted);
+(d) relative gaps |1 - W/p| for W_0 vs p_0 (solid) and W_inf vs q_inf
+    (dotted).
 Panels on t/T use log-log axes (log-linear for counts). Lines are ensemble
 means; shading spans the 10-90 % range.
 
@@ -66,6 +67,7 @@ plt.rcParams.update(
 
 COLORS = {"POS": "black", "GAU": "#1f4e9c"}
 TIME_LABEL = r"Dimensionless Time, $t/T$"
+FLOOR = 1e-12  # relative round-off floor for distances and gaps
 
 # ============================================================
 # HELPERS
@@ -80,13 +82,20 @@ def curve(
     ls: str = "-",
     log10: bool = False,
     shade: bool = True,
+    positive: bool = True,
 ) -> None:
-    """Plot the ensemble mean of ``key`` vs t/T (t/T > 0, positive values)."""
+    """Plot the ensemble mean of ``key`` vs t/T.
+
+    Drops t/T = 0 and values below ``FLOOR`` times the curve maximum, i.e.
+    round-off in differences of equal distances at t/T -> 1 (energies, which
+    are not differences, are kept down to zero).
+    """
     x = data[f"{e}/grid"]
     m, lo, hi = (data[f"{e}/{key}_{s}"] for s in ("mean", "q10", "q90"))
     if log10:
         m, lo, hi = 10.0**m, 10.0**lo, 10.0**hi
-    keep = (x > 0.0) & (m > 0.0)
+    floor = 0.0 if log10 else FLOOR * float(np.max(m))
+    keep = (x > 0.0) & ((m > floor) if positive else np.isfinite(m))
     if shade:
         ax.fill_between(
             x[keep],
@@ -160,7 +169,7 @@ def mirror_figure(
         phi = 10.0 ** data[f"{e}/log10_energy_mean"]
         for key, ls in (("sk_w0_dist", "-"), ("sk_w_inf", "--")):
             d2 = data[f"{e}/{key}_mean"] ** 2
-            keep = d2 > 0.0
+            keep = d2 > FLOOR**2 * float(np.max(d2))
             axes[1, 1].loglog(d2[keep], phi[keep], color=COLORS[e], lw=2.0, ls=ls)
     axes[0, 1].set_ylabel(r"Distance, $W_0(\infty)-W_0(t)$, $W_\infty(t)$")
     axes[1, 0].set_ylabel(r"Energy, $\Phi(t)$")
@@ -181,40 +190,55 @@ def overlay_figure(
     """Exact W_2 against the labelled proximity metrics on the same frames."""
     assert ens, "need at least one ensemble"
     fig, axes = plt.subplots(2, 2, figsize=(10.0, 7.6))
+    gap_drawn = False
     for e in ens:
         curve(axes[0, 0], data, e, "w0_dist")
         curve(axes[0, 0], data, e, "p0_dist", ls="--", shade=False)
         curve(axes[0, 1], data, e, "w_inf")
         curve(axes[0, 1], data, e, "q_inf", ls="--", shade=False)
-        curve(axes[1, 0], data, e, "n_re0", shade=False)
-        curve(axes[1, 0], data, e, "n_re_inf", ls="--", shade=False)
+        curve(axes[1, 0], data, e, "n_re0", shade=False, positive=False)
+        curve(axes[1, 0], data, e, "n_re_inf", ls=":", shade=False, positive=False)
         x = data[f"{e}/grid"]
-        for num, den, ls in (("w0_dist", "p0_dist", "-"), ("w_inf", "q_inf", "--")):
-            w0 = data[f"{e}/{num}_mean"]
-            p0 = data[f"{e}/{den}_mean"]
-            keep = (
-                (x > 0.0)
-                & (p0 > 0.0)
-                & (np.abs(1.0 - w0 / np.where(p0 > 0, p0, 1)) > 0)
-            )
-            axes[1, 1].plot(
-                x[keep],
-                np.abs(1.0 - w0[keep] / p0[keep]),
-                color=COLORS[e],
-                lw=2.0,
-                ls=ls,
-            )
-    axes[0, 0].set_ylabel(r"Distance, $W_0(\infty)-W_0(t)$, $p_0(\infty)-p_0(t)$")
-    axes[0, 1].set_ylabel(r"Distance to $r(\infty)$, $W_\infty(t)$, $q_\infty(t)$")
+        for num, den, ls in (("w0_dist", "p0_dist", "-"), ("w_inf", "q_inf", ":")):
+            w = data[f"{e}/{num}_mean"]
+            p = data[f"{e}/{den}_mean"]
+            gap = np.abs(1.0 - w / np.where(p > 0.0, p, 1.0))
+            keep = (x > 0.0) & (p > 0.0) & (gap > FLOOR)
+            gap_drawn |= bool(keep.any())
+            axes[1, 1].plot(x[keep], gap[keep], color=COLORS[e], lw=2.0, ls=ls)
+    axes[0, 0].set_ylabel(r"Distance, $W_0(\infty)-W_0(t)$")
+    axes[0, 1].set_ylabel(r"Distance to $r(\infty)$, $W_\infty(t)$")
     axes[1, 0].set_ylabel(r"Re-matched Particles, $n_{\mathrm{re}}$")
     axes[1, 1].set_ylabel(r"Relative Gap, $|1 - W/p|$")
+    t_min = float(np.min(data[f"{ens[0]}/grid"][data[f"{ens[0]}/grid"] > 0.0]))
     for ax in axes.flat:
         ax.set_xscale("log")
         ax.set_xlabel(TIME_LABEL)
-        ax.set_xlim(right=1.0)
-    for ax in (axes[0, 0], axes[0, 1], axes[1, 1]):
+        ax.set_xlim(t_min, 1.0)
+    for ax in (axes[0, 0], axes[0, 1]):
         ax.set_yscale("log")
-    legend(fig, ens, {"Wasserstein": "-", "Labelled": "--"})
+    # Panels (c), (d): line style distinguishes the reference, not the metric.
+    refs = [
+        Line2D([], [], color="0.3", lw=2.0, ls="-"),
+        Line2D([], [], color="0.3", lw=2.0, ls=":"),
+    ]
+    axes[1, 0].legend(refs, [r"vs $r(0)$", r"vs $r(\infty)$"], frameon=False)
+    if gap_drawn:
+        axes[1, 1].set_yscale("log")
+        axes[1, 1].legend(
+            refs, [r"$W_0$ vs $p_0$", r"$W_\infty$ vs $q_\infty$"], frameon=False
+        )
+    else:
+        axes[1, 1].text(
+            0.5,
+            0.5,
+            "$W = p$ at every frame\n(optimal matching is the identity)",
+            transform=axes[1, 1].transAxes,
+            ha="center",
+            va="center",
+        )
+        axes[1, 1].set_yticks([])
+    legend(fig, ens, {r"Wasserstein, $W$": "-", r"Labelled, $p_0$, $q_\infty$": "--"})
     finish(fig, axes, out, dpi)
 
 

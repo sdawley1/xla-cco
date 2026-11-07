@@ -14,7 +14,8 @@
 # Guarded: fails fast without a GPU. Submit from the repository root:
 #   sbatch --export=ALL,CHI=0.1 experiments/slurm/wasserstein_gpu.slurm
 # Optional: ENSEMBLES="POS", START/LIMIT (trajectory slice; the Sinkhorn part
-# is written as sinkhorn_<ENS>_<START>.npz), EXACT=0 to skip the exact pass.
+# is written as sinkhorn_<ENS>_<START>.npz), EXACT=0 to skip the exact pass,
+# SINKHORN_ARGS="--max-iters 100" for extra wasserstein_sinkhorn.py options.
 
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
@@ -45,7 +46,7 @@ fi
 
 # shellcheck disable=SC2086
 uv run --no-sync python -I experiments/scripts/wasserstein_sinkhorn.py \
-    --traj "${TRAJ}" --ensembles ${ENSEMBLES} --device gpu "${SLICE_ARG[@]}"
+    --traj "${TRAJ}" --ensembles ${ENSEMBLES} --device gpu "${SLICE_ARG[@]}" ${SINKHORN_ARGS:-}
 
 if [[ -n "${exact_pid}" ]]; then wait "${exact_pid}"; fi
 echo "Done."

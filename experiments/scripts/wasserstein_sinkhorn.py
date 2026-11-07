@@ -217,7 +217,7 @@ if __name__ == "__main__":
     # ----- Sinkhorn -----
     parser.add_argument("--eps", type=float, default=1e-2)
     parser.add_argument("--tol", type=float, default=1e-4)
-    parser.add_argument("--max-iters", type=int, default=2_000)
+    parser.add_argument("--max-iters", type=int, default=100)
     parser.add_argument("--cold-iters", type=int, default=2_000)
 
     # ----- execution -----
