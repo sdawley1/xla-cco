@@ -87,21 +87,18 @@ The library code is in `xla_cco.analysis.transport`:
   - Parameters: eps = 1e-2 (Cartesian² units, ρ = 1).
   - Lanes: each (trajectory, reference) pair is an independent lane that warm-starts from its previous frame.
   - Stopping: a frame stops once the plan's row-argmax rounding is a bijection, once its marginal error is below tol = 1e-4, or after 100 iterations.
-  - Repair: a rounding that is still not a bijection is repaired greedily.
-  - Reported value: `w_round`, the cost of that matching. It is a feasible matching, so `w_round` ≥ exact W.
+  - Repair: a rounding that is still not a bijection is repaired greedily and flagged (`is_perm = 0`). Such frames are not certified; the exact fallback below replaces them.
+  - Reported value: `w_round`, the cost of that matching. It is a feasible matching, so `w_round` ≥ exact W for finite inputs.
   - Diagnostic only: `w_ent`, the entropic plan's own cost. It carries a bias of order eps, which swamps W near t → T.
   - Output: `wasserstein/sinkhorn_<ENS>[_<start>].npz`, with per-frame arrays concatenated over trajectories and delimited by `offsets`. The last axis is (r(0), r(∞)). Slices from `--start/--limit` are merged by the analysis.
 
-### Accuracy of Sinkhorn against exact
+### Accuracy of Sinkhorn against exact, and the exact fallback
 
-The comparison uses all exact frames: 2 × 201 per trajectory, 300 trajectories.
-
-- **Bijective rounding** (≈95% of POS r(0) frames and essentially all others): the matching was the exact optimum on every one of the 76k compared frames. The worst relative error is 3e-16.
-- **Converged plan with a colliding rounding:** a genuine near-tie (swapping the partners of a close particle pair costs less than ~eps), which the greedy repair resolves. The worst relative error is 4.3e-4 at χ = 0.1 and 2.8e-3 at χ = 0.4.
-- **Unconverged at the 100-iteration cap:** the plan's potentials are stale, which happens at t/T ≈ 0.7–0.9 where descent steps are largest. The greedy repair can then be badly wrong, by up to 100%.
-  - These frames are **rejected**: 1.3% of all POS Sinkhorn frames at each χ, and none for GAU.
-- `analyze_wasserstein.py` interpolates the Sinkhorn curves over certified frames only. A frame is certified if its rounding is bijective or its plan has converged, meaning marginal error < tol. `summary.npz` stores the per-class worst errors (`<ENS>/disc_*`) and the rejected fraction.
-- A 2000-iteration cap removes most rejections but stalls for hours on persistent near-ties, because the GPU lanes then wait on a few hard frames.
+- **Certified frames.** A frame is trusted only if the plan's row-argmax rounding is a bijection. All 76k compared bijective frames equalled the exact optimum (worst relative error 3e-16).
+- **Uncertified frames.** Where the rounding collides, the greedy repair can be suboptimal, even when the plan has converged (D-014). This happens at genuine near-ties, where two close particles' partner swap costs less than ~eps, and at plans still unconverged at the 100-iteration cap, at t/T ≈ 0.7–0.9. The repair's error reached 2.8e-3 relative on converged frames and 100% on unconverged ones.
+- **Exact fallback.** `wasserstein_fallback.py` solves the exact assignment at every uncertified (frame, reference) entry, about 3–5% of POS r(0) entries and essentially no GAU ones. It writes `wasserstein/fallback_<ENS>.npz`. `analyze_wasserstein.py` substitutes these values and stops with an error if any are missing, so every curve value is exact.
+- **Diagnostics.** `summary.npz` stores the worst errors per class (`<ENS>/disc_rel_certified`, `disc_rel_repaired`, `disc_rel_final`, `disc_rel_ent`) and the fallback fraction (`disc_frac_fallback`).
+- **Why not a higher cap.** A 2000-iteration cap removes most collisions but stalls for hours on persistent near-ties, because GPU lanes wait on a few hard frames.
 
 ### Results
 
@@ -116,6 +113,7 @@ The comparison uses all exact frames: 2 × 201 per trajectory, 300 trajectories.
 sbatch --export=ALL,CHI=0.1 experiments/slurm/wasserstein_gpu.slurm      # exact (CPU cores) + Sinkhorn (GPU)
 # chi = 0.4 needs slices to fit gputest's 59 min:
 sbatch --export=ALL,CHI=0.4,ENSEMBLES=POS,START=0,LIMIT=20,EXACT=1 experiments/slurm/wasserstein_gpu.slurm
+sbatch --export=ALL,CHI=0.4 experiments/slurm/wasserstein_fallback.slurm  # after all Sinkhorn slices; CPU only
 JAX_PLATFORMS=cpu uv run --no-sync python -I experiments/scripts/analyze_wasserstein.py --traj experiments/trajectories/chi0.4
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/plot_wasserstein.py \
     --summary experiments/trajectories/chi0.4/wasserstein/summary.npz --out experiments/figures/chi0.4

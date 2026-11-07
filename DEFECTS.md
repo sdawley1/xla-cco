@@ -18,6 +18,9 @@ needed for parity, reproduce the behaviour.
 | D-009 | fixed | `io/tables.py` (`write_function_table`) | Rejected NaN, which C++ `WriteFunction` writes. |
 | D-010 | fixed | `energy.py` (`StealthyEnergy`) | Undersized `n_max` and non-integer `n_vectors` failed silently on the table path. |
 | D-011 | fixed | `tests/property/test_energy_props.py` | Gradient-sum test tolerance blind to pre-cancellation magnitude. |
+| D-012 | fixed | `minimize/descent.py` (`_status`) | Exactly zero gradient: the C++ 0/0 accept test accepts forever; with `grow = 2` the step overflows and positions become NaN. |
+| D-013 | fixed | `analysis/transport.py` (`torus_sq_cost`) | Fixed 3^d image scan is not exact for unreduced (strongly sheared) cells, though documented as exact for sheared cells. |
+| D-014 | fixed | `experiments/scripts/analyze_wasserstein.py` (`certified`) | Converged Sinkhorn plans with a colliding rounding were trusted; their greedy-repaired matching is often suboptimal. |
 
 ## D-006 — `unit_ball_volume` is not bit-equal to the C++ hard-coded constants
 - **Found:** 2026-11-05, by the T4 auditor's preview parity
@@ -79,3 +82,34 @@ needed for parity, reproduce the behaviour.
 - **Impact:** test-only; spurious red runs. For coincident particles |rho| = N, so each gradient is a large sum that cancels to ~0; the rounding error follows the pre-cancellation size, not |g|
 - **Regression test:** tests/property/test_energy_props.py::test_regression_D011_grad_sum_tolerance_scales_with_gradient_magnitude
 - **Fix:** atol = GRAD_SUM_C eps N (4 pi n_max sum(w) N / V) + GRAD_SUM_FLOOR (constants in tests/tolerances.py)
+
+## D-012 — Descent overflows to NaN at an exactly zero gradient
+- **Found:** 2026-11-06, repository audit (gstack /review)
+- **Status:** fixed
+- **Where:** src/xla_cco/minimize/descent.py (`chunk_one`, `_status`)
+- **Symptom:** N = 1 at s = (0, 0) with `grow = 2.0`, `max_evals = 2200` returns NaN positions and NaN energy
+- **Repro:** the single-particle stealthy energy is constant, so the gradient is exactly zero at s = 0; df2 = step * |g| = 0, the reject test is 0/0 = NaN and accepts (C++ semantics), and the step doubles until it overflows; s - 0 * inf = NaN
+- **Impact:** the library could return NaN without an error status. Production runs stop on the energy tolerance before a stationary point, so no stored trajectory is affected
+- **Regression test:** tests/unit/test_descent.py::test_regression_D012_zero_gradient_stops_finite (also test_descent_flat_energy_stays_finite)
+- **Fix:** an exactly zero gradient is a stationary point; `_status` returns STATUS_GRAD_TOL (precedence: energy tol > zero gradient > step floor > budget), so descent stops with the configuration unchanged
+
+## D-013 — Minimum-image cost wrong for unreduced cells
+- **Found:** 2026-11-06, repository audit (gstack /review)
+- **Status:** fixed
+- **Where:** src/xla_cco/analysis/transport.py (`torus_sq_cost`)
+- **Symptom:** with basis [[1, 0], [5, 1]], 36 % of cost entries were wrong, by up to 2.04 in squared distance
+- **Repro:** rounding the fractional difference and scanning only the 3^d neighbouring images misses the nearest translate when the cell is far from reduced
+- **Impact:** wrong W_2 for strongly sheared cells. The experiments use square boxes (single-image path), so no stored result is affected
+- **Regression test:** tests/unit/test_transport.py::test_regression_D013_cost_exact_for_unreduced_cells (also test_cost_rejects_too_few_images, test_cost_needs_explicit_images_under_jit)
+- **Fix:** `required_images(basis)` bounds the per-axis image radius (|n_k| <= 1/2 + R |B^-1 e_k|, R = max |ds B| over the half-cube), which is exact for any cell; `images=None` (default) uses it, an explicit radius below it raises for a concrete basis, and the scan runs as a `lax.scan` over the translates
+
+## D-014 — Converged-but-colliding Sinkhorn frames trusted
+- **Found:** 2026-11-06, repository audit (gstack /review)
+- **Status:** fixed
+- **Where:** experiments/scripts/analyze_wasserstein.py (`certified`)
+- **Symptom:** frames whose plan had converged (marginal error < tol) but whose row-argmax rounding collided were certified; the greedy repair there exceeded the exact W_2 on 343 of 1860 compared chi = 0.4 POS frames (worst 2.8e-3 relative) and 28 of 1699 at chi = 0.1
+- **Repro:** genuine near-ties (two close particles whose partner swap costs less than ~eps) split the plan's mass, so the argmax collides however long Sinkhorn runs
+- **Impact:** the full-resolution Sinkhorn curves carried errors up to 2.8e-3 at about 1.5 % of POS frames; the exact 201-frame curves were unaffected
+- **Regression test:** tests/unit/test_wasserstein_analysis.py::test_regression_D014_converged_collision_not_certified (also the apply_fallback tests)
+- **Fix:** only a bijective rounding certifies a frame (every compared bijective frame equalled the exact optimum); `wasserstein_fallback.py` solves the exact assignment at all other frames and `apply_fallback` substitutes those values, failing loudly if any are missing
+
