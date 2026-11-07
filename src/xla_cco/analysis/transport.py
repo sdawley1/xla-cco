@@ -15,7 +15,9 @@ approximated with log-domain Sinkhorn iterations (eps annealing, warm
 starts); the transport plan is rounded to a matching by a row argmax, whose
 cost is an exact W_2 whenever the rounded map is the optimal permutation.
 Exact assignment (e.g. scipy.optimize.linear_sum_assignment) is left to the
-caller, so the library has no SciPy dependency.
+caller, so the library has no SciPy dependency. In one dimension the exact
+optimum is cheap and provided here: ``periodic_assignment_1d`` (cyclic shifts
+of the sorted orders, NumPy, host side).
 
 Samuel J. Dawley
 11/2026
@@ -27,7 +29,7 @@ Samuel J. Dawley
 
 # ----- standard library -----
 import itertools
-from typing import Optional, Sequence, Tuple, Union
+from typing import NamedTuple, Optional, Sequence, Tuple, Union
 
 # ----- numerics -----
 import equinox as eqx
@@ -337,3 +339,113 @@ def entropic_distance(
     assert res.f.shape == (cost.shape[0],), "potential/cost mismatch"
     plan = jnp.exp((res.f[:, None] + res.g[None, :] - cost) / eps)
     return jnp.sqrt(density * cost.shape[0] * jnp.sum(plan * cost))
+
+
+# ============================================================
+# EXACT 1D PERIODIC ASSIGNMENT
+# ============================================================
+
+
+class PeriodicAssignment(NamedTuple):
+    """Exact optimal matchings of a reference to F frames on a circle.
+
+    ``cost[f]`` = sum_i disp[f, i]^2 = W_2^2 (unscaled); ``perm[f, i]`` is
+    the frame particle matched to reference particle i; ``disp[f, i]`` is
+    its minimum-image displacement (|disp| <= L/2), so
+    ``reference + disp[f]`` is frame f relabelled into the reference order.
+    """
+
+    cost: np.ndarray
+    perm: np.ndarray
+    disp: np.ndarray
+
+
+_SHIFT_RTOL = 1e-9  # FFT costs within this (relative) of the min are rechecked
+_N_CANDIDATES = 4  # shifts rechecked exactly per frame (more on ties)
+
+
+def periodic_assignment_1d(
+    reference: np.ndarray, frames: np.ndarray, length: float
+) -> PeriodicAssignment:
+    """Exact squared-cost optimal matching on a circle of circumference L.
+
+    For a convex cost on the circle, an optimal matching between two sets of
+    N points pairs the sorted orders up to a cyclic shift k with a consistent
+    lift (Delon, Salomon & Sobolevski, SIAM J. Appl. Math. 70, 2239 (2010)).
+    The lifted costs C(k) = sum_i (y_{i+k} - x_i)^2, k in [-N, N], come from
+    one FFT cross-correlation per frame; the few smallest are recomputed
+    directly (and every near-tie), so the result is the exact optimum.
+    O(N log N) per frame.
+
+    Parameters
+    ----------
+    reference : np.ndarray
+        (N,) positions (any real values; taken mod L).
+    frames : np.ndarray
+        (F, N) or (N,) positions to match against ``reference``.
+    length : float
+        Circumference L > 0.
+
+    Returns
+    -------
+    PeriodicAssignment
+        Per-frame cost, matching and minimum-image displacements.
+    """
+    x_raw = np.asarray(reference, dtype=np.float64)
+    y_raw = np.atleast_2d(np.asarray(frames, dtype=np.float64))
+    n = x_raw.shape[0]
+    if x_raw.ndim != 1 or y_raw.ndim != 2 or y_raw.shape[1] != n or n == 0:
+        raise ValueError(f"need (N,) and (F, N), got {x_raw.shape}, {y_raw.shape}")
+    if not (length > 0.0 and np.isfinite(length)):
+        raise ValueError(f"length must be positive and finite, got {length}")
+    if not (np.all(np.isfinite(x_raw)) and np.all(np.isfinite(y_raw))):
+        raise ValueError("positions must be finite")
+    order_x = np.argsort(np.mod(x_raw, length), kind="stable")
+    xs = np.mod(x_raw, length)[order_x]
+    order_y = np.argsort(np.mod(y_raw, length), axis=1, kind="stable")
+    ys = np.take_along_axis(np.mod(y_raw, length), order_y, axis=1)
+    lifted = np.concatenate([ys - length, ys, ys + length], axis=1)  # (F, 3N)
+    m_star = _best_shift(xs, lifted)
+    idx = np.arange(n)[None, :] + m_star[:, None]  # lifted index of the partner
+    disp_sorted = np.take_along_axis(lifted, idx, axis=1) - xs[None, :]
+    # The optimal lifted displacements are minimum-image (otherwise rounding
+    # one would lower the cost of an optimal matching); guard round-off.
+    assert np.all(np.abs(disp_sorted) <= 0.5 * length * (1.0 + 1e-9)), "not min-image"
+    partner_sorted = order_y[np.arange(y_raw.shape[0])[:, None], idx % n]
+    perm = np.empty_like(partner_sorted)
+    disp = np.empty_like(disp_sorted)
+    perm[:, order_x] = partner_sorted
+    disp[:, order_x] = disp_sorted
+    return PeriodicAssignment(cost=np.sum(disp**2, axis=1), perm=perm, disp=disp)
+
+
+def _best_shift(xs: np.ndarray, lifted: np.ndarray) -> np.ndarray:
+    """Return m* = k* + N in [0, 2N] minimizing the lifted cost per frame."""
+    n = xs.shape[0]
+    n_fft = 1 << int(np.ceil(np.log2(4 * n)))
+    spec = np.fft.rfft(lifted, n_fft, axis=1) * np.conj(np.fft.rfft(xs, n_fft))
+    cross = np.fft.irfft(spec, n_fft, axis=1)[:, : 2 * n + 1]
+    csum = np.concatenate(
+        [np.zeros((lifted.shape[0], 1)), np.cumsum(lifted**2, axis=1)], axis=1
+    )
+    window = csum[:, n : 3 * n + 1] - csum[:, : 2 * n + 1]  # sum_i y_{i+m}^2
+    approx = window + float(np.sum(xs**2)) - 2.0 * cross
+    scale = np.max(window, axis=1) + float(np.sum(xs**2)) + 1.0
+    near = approx <= approx.min(axis=1, keepdims=True) + _SHIFT_RTOL * scale[:, None]
+    n_near = near.sum(axis=1)
+    k = min(_N_CANDIDATES, 2 * n + 1)
+    cand = np.argsort(approx, axis=1)[:, :k]
+    best = _exact_min(xs, lifted, cand)
+    for f in np.flatnonzero(n_near > k):  # many near-ties: check all of them
+        best[f] = _exact_min(xs, lifted[f : f + 1], np.flatnonzero(near[f])[None])[0]
+    return best
+
+
+def _exact_min(xs: np.ndarray, lifted: np.ndarray, cand: np.ndarray) -> np.ndarray:
+    """Directly evaluate the lifted cost at candidate shifts; return the best."""
+    n = xs.shape[0]
+    idx = cand[:, :, None] + np.arange(n)[None, None, :]  # (F, K, N)
+    rows = np.arange(lifted.shape[0])[:, None, None]
+    cost = np.sum((lifted[rows, idx] - xs[None, None, :]) ** 2, axis=2)
+    out: np.ndarray = cand[np.arange(cand.shape[0]), np.argmin(cost, axis=1)]
+    return out
