@@ -151,8 +151,15 @@ This section recreates the energy-landscape picture in the appendix of *Classica
 - **N = 3 endpoints.** The flows end at the two crystalline arrangements (x₂, x₃) = (1/3, 2/3) and (2/3, 1/3), as in Fig. 15.
 - **N = 1000 cost.** Flows took 3,400–3,800 ROS2 steps at χ = 1/3, about 3 min on an A100 for all 20, and 9,900–18,000 steps at χ = 2/3, about 15 min.
 - **N = 1000 is dominated by long-range transport.** Particles move 8.7 spacings RMS from the Poisson start (median over flows; 5.8–14.8, with single particles up to about 21). A 1D Poisson pattern has large long-wavelength density fluctuations, and the smallest constrained wavevectors force them out by moving particles over many spacings.
-- **χ = 1/3 and χ = 2/3 flows nearly coincide.** Both constrain the same longest wavelengths, so from the same start their large-scale paths agree. In the start-end plane the two χ values look alike. Their final configurations differ by only 0.25 spacing RMS: the extra short wavelengths at χ = 2/3 add local rearrangements and lengthen the path by about 3% (median arclength 410 vs 423).
+- **χ = 2/3 ends on the crystal; χ = 1/3 ends disordered.** In 1D, χ > 1/2 leaves the integer lattice as the only ground state, and every χ = 2/3 flow ends on it: the deviation from a translated lattice is ≤ 1e-9 and every spacing equals 1. At χ = 1/3 the ground-state manifold contains disordered states, and every flow ends in one. Particles sit 0.24–0.25 spacing RMS from the nearest lattice site (max 0.5), with spacings from 0.001 to 2.1 (std 0.47).
+- **The two χ values share their large-scale path.** Both constrain the same longest wavelengths, so from the same start the paths agree at large scales and look alike in the start-end plane. The endpoints differ by 0.25 spacing RMS, which is exactly the χ = 1/3 state's distance from the lattice. At χ = 2/3 the extra short wavelengths remove that local disorder and lengthen the path by about 3% (median arclength 410 vs 423).
 - **Shape of the flows.** In the start-end and PCA planes each flow first rises out of the plane's straight line into a long, narrow low-Φ valley, then follows the valley floor to the ground state. In the two-particle slices, the two most-moved particles drift together across 10–25 spacings, and the low-Φ lines mark either particle at its ground-state position.
+- **The contours do not give the energy along the flow** (`batten2008_N1000_mismatch`, computed by `batten2008_mismatch.py`). A slice shows Φ at the projected point, not at r(t). Panels (d–f) give log₁₀(Φ_plane/Φ) against t/T over all flows:
+  - *Start-end:* exact at both ends, since both lie in the plane, and 1–2 orders too high in between.
+  - *PCA:* within about an order until t/T ≈ 0.1. After that the plane misses the ground state: r(∞) lies 2–10 spacings off it, and the contour reads Φ ≈ 0.1–6 (median 0.3 at χ = 1/3, 2.1 at χ = 2/3) where the true value is below 1e-20.
+  - *Two-particle:* about 2.4 orders too low at the start, because the other 998 particles already sit at r(∞). Late in the flow it is about 2 orders too high, and it matches only at the end.
+
+  The slices show the shape of the valley, not the energy on the path; Φ(t) is in `batten2008_energy`.
 
 ```bash
 uv run --no-sync python -I experiments/scripts/batten2008_flows.py --n 3 --n-traj 50 \
@@ -161,6 +168,7 @@ uv run --no-sync python -I experiments/scripts/batten2008_slices.py \
     --dir experiments/trajectories/batten2008/N3 --device cpu
 sbatch --export=ALL,CHI=1/3 experiments/slurm/batten2008_flows_gpu.slurm   # N = 1000; resubmit to resume
 sbatch --export=ALL,CHI=1/3 experiments/slurm/batten2008_slices_gpu.slurm  # after the flows finish
+sbatch experiments/slurm/batten2008_mismatch_gpu.slurm   # contour vs true energy, N = 1000
 uv run --no-sync python -I experiments/scripts/batten2008_plot.py
 ```
 
@@ -169,8 +177,9 @@ uv run --no-sync python -I experiments/scripts/batten2008_plot.py
 - `trajectories/batten2008/N<N>/flows_chi<a-b>.{npz,json}` hold the thinned paths: up to 4000 rows each, unwrapped fractional positions, with t, arclength and Φ.
 - `N<N>/chi<a-b>/chunk_*.npz` hold every accepted step.
 - `views_chi<a-b>.npz` and `landscape_chi<a-b>.npz` hold the slices.
+- `mismatch_chi<a-b>.npz` holds Φ at the projected point and the off-plane distance, per view and frame.
 
-**Figures.** `figures/batten2008_N3`, `figures/batten2008_N1000_chi<a-b>_{se,pca,pair}` and `figures/batten2008_energy`.
+**Figures.** `figures/batten2008_N3`, `figures/batten2008_N1000_chi<a-b>_{se,pca,pair}`, `figures/batten2008_N1000_mismatch` and `figures/batten2008_energy`.
 
 ### Wasserstein-2 along the 2008 flows
 
