@@ -11,8 +11,9 @@ the ensemble mean and 10-90 % band of
 - exact frames:    w0_dist = W_0(inf) - W_0(t), w_inf = W_inf(t),
                    p0_dist = p_0(inf) - p_0(t), q_inf = q_inf(t),
                    n_re0, n_re_inf (labels re-matched), log10 Phi;
-- Sinkhorn frames: sk_w0_dist, sk_w_inf (rounded matching), certified
-                   frames only (bijective rounding or converged plan).
+- every stored frame: sk_w0_dist, sk_w_inf, from Sinkhorn where its
+                   rounding is bijective (certified) and from the exact
+                   fallback (wasserstein_fallback.py) elsewhere.
 
 Per-trajectory scalars (W_0(inf), p_0(inf)) and the Sinkhorn-vs-exact
 discrepancy on the exact frames are also stored. Writes
@@ -97,32 +98,49 @@ def exact_curves(ex: Dict[str, np.ndarray], grid: np.ndarray) -> Dict[str, np.nd
 
 
 def certified(sk: Dict[str, np.ndarray]) -> np.ndarray:
-    """Frames whose Sinkhorn matching is trusted: bijective rounding or a
-    converged plan (marginal error < tol, i.e. a genuine near-tie that the
-    greedy repair resolves). Frames still unconverged at the iteration cap
-    are rejected."""
-    assert sk["is_perm"].shape == sk["err"].shape, "shape mismatch"
-    ok: np.ndarray = (sk["is_perm"] == 1) | (sk["err"] < float(sk["tol"]))
+    """Frames whose Sinkhorn matching is trusted: bijective rounding only.
+
+    Every bijective rounding compared so far equalled the exact optimum; at
+    colliding frames the greedy repair can be suboptimal even when the plan
+    has converged (D-014), so those frames take the exact fallback values.
+    """
+    ok: np.ndarray = sk["is_perm"] == 1
     return ok
 
 
+def apply_fallback(sk: Dict[str, np.ndarray], fb: Dict[str, np.ndarray]) -> np.ndarray:
+    """Return per-frame W (frames, 2): Sinkhorn where certified, else exact."""
+    off = sk["offsets"]
+    assert np.array_equal(fb["names"], sk["names"]), "fallback/Sinkhorn mismatch"
+    w = np.array(sk["w_round"], dtype=np.float64)
+    rows = off[fb["traj"]] + fb["frame"]
+    covered = np.zeros(w.shape, dtype=bool)
+    covered[rows, fb["col"]] = True
+    missing = ~certified(sk) & ~covered
+    if missing.any():
+        raise SystemExit(
+            f"{int(missing.sum())} uncertified Sinkhorn entries lack an exact "
+            "fallback; run wasserstein_fallback.py"
+        )
+    w[rows, fb["col"]] = fb["w"]
+    return w
+
+
 def sinkhorn_curves(
-    sk: Dict[str, np.ndarray], w0_inf: np.ndarray, grid: np.ndarray
+    sk: Dict[str, np.ndarray], w: np.ndarray, w0_inf: np.ndarray, grid: np.ndarray
 ) -> Dict[str, np.ndarray]:
-    """Interpolate certified per-frame Sinkhorn distances onto ``grid``.
+    """Interpolate per-frame distances ``w`` (every stored frame) onto ``grid``.
 
     W_0(inf) is taken from the exact pass (``w0_inf``, one per trajectory).
     """
     off = sk["offsets"]
-    assert off[0] == 0 and off[-1] == sk["u"].shape[0], "bad offsets"
+    assert off[0] == 0 and off[-1] == sk["u"].shape[0] == w.shape[0], "bad offsets"
     assert w0_inf.shape == (off.shape[0] - 1,), "one W_0(inf) per trajectory"
-    ok = certified(sk)
     per: Dict[str, List[np.ndarray]] = {"sk_w0_dist": [], "sk_w_inf": []}
     for i, (a, b) in enumerate(zip(off[:-1], off[1:], strict=True)):
-        u, w = sk["u"][a:b], sk["w_round"][a:b]
-        m0, m1 = ok[a:b, 0], ok[a:b, 1]
-        per["sk_w0_dist"].append(np.interp(grid, u[m0], w0_inf[i] - w[m0, 0]))
-        per["sk_w_inf"].append(np.interp(grid, u[m1], w[m1, 1]))
+        u = sk["u"][a:b]
+        per["sk_w0_dist"].append(np.interp(grid, u, w0_inf[i] - w[a:b, 0]))
+        per["sk_w_inf"].append(np.interp(grid, u, w[a:b, 1]))
     out: Dict[str, np.ndarray] = {}
     for k, v in per.items():
         out.update(band(v, k))
@@ -130,34 +148,41 @@ def sinkhorn_curves(
 
 
 def discrepancy(
-    ex: Dict[str, np.ndarray], sk: Dict[str, np.ndarray]
+    ex: Dict[str, np.ndarray], sk: Dict[str, np.ndarray], w: np.ndarray
 ) -> Dict[str, float]:
-    """Max relative |Sinkhorn - exact| on the exact frames, by frame class.
+    """Max relative error against the exact pass, on the exact frames.
 
-    ``rel_certified`` covers the frames kept by ``certified``; ``rel_rejected``
-    the rejected ones; ``rel_ent`` the entropic-plan estimate on all frames.
-    ``frac_rejected`` is the rejected fraction of all Sinkhorn frames.
+    ``rel_certified``: Sinkhorn at certified (bijective) frames;
+    ``rel_repaired``: the greedy repair at uncertified frames (diagnostic);
+    ``rel_final``: the values actually used (``w``); ``rel_ent``: entropic
+    plan. ``frac_fallback`` is the uncertified fraction of all entries.
     """
     off = sk["offsets"]
     assert off.shape[0] - 1 == ex["u"].shape[0], "trajectory count mismatch"
     ok = certified(sk)
-    worst = {"rel_certified": 0.0, "rel_rejected": 0.0, "rel_ent": 0.0}
+    worst = {
+        "rel_certified": 0.0,
+        "rel_repaired": 0.0,
+        "rel_final": 0.0,
+        "rel_ent": 0.0,
+    }
     for i in range(ex["u"].shape[0]):
         rows = off[i] + ex["frame"][i]
         for col, key in ((0, "w0"), (1, "w_inf")):
             ref = ex[key][i]
             big = ref > 1e-6
-            rel = np.abs(sk["w_round"][rows, col] - ref) / np.maximum(ref, 1e-300)
-            ent = np.abs(sk["w_ent"][rows, col] - ref) / np.maximum(ref, 1e-300)
-            for name, mask in (
-                ("rel_certified", big & ok[rows, col]),
-                ("rel_rejected", big & ~ok[rows, col]),
-                ("rel_ent", big),
-            ):
+            scale = np.maximum(ref, 1e-300)
+            checks = (
+                ("rel_certified", sk["w_round"], big & ok[rows, col]),
+                ("rel_repaired", sk["w_round"], big & ~ok[rows, col]),
+                ("rel_final", w, big),
+                ("rel_ent", sk["w_ent"], big),
+            )
+            for name, vals, mask in checks:
                 if mask.any():
-                    vals = ent if name == "rel_ent" else rel
-                    worst[name] = max(worst[name], float(vals[mask].max()))
-    worst["frac_rejected"] = float(1.0 - ok.mean())
+                    rel = np.abs(vals[rows, col] - ref)[mask] / scale[mask]
+                    worst[name] = max(worst[name], float(rel.max()))
+    worst["frac_fallback"] = float(1.0 - ok.mean())
     return worst
 
 
@@ -197,17 +222,30 @@ if __name__ == "__main__":
         with np.load(wdir / f"exact_{ens}.npz") as npz:
             ex = {k: npz[k] for k in npz.files}
         sk = load_sinkhorn(wdir, ens)
+        fb_path = wdir / f"fallback_{ens}.npz"
+        if fb_path.exists():
+            with np.load(fb_path) as npz:
+                fb = {k: npz[k] for k in npz.files}
+        else:
+            fb = {
+                "traj": np.empty(0, int),
+                "frame": np.empty(0, int),
+                "col": np.empty(0, int),
+                "w": np.empty(0),
+                "names": sk["names"],
+            }
+        w_used = apply_fallback(sk, fb)
         assert np.array_equal(sk["names"], ex["names"]), "exact/Sinkhorn mismatch"
         result[f"{ens}/grid"] = grid
         for k, v in {
             **exact_curves(ex, grid),
-            **sinkhorn_curves(sk, ex["w0"][:, -1], grid),
+            **sinkhorn_curves(sk, w_used, ex["w0"][:, -1], grid),
         }.items():
             result[f"{ens}/{k}"] = v
         result[f"{ens}/w0_inf"] = ex["w0"][:, -1]
         result[f"{ens}/p0_inf"] = ex["p0"][:, -1]
         result[f"{ens}/n_re_final"] = ex["n_re0"][:, -1]
-        worst = discrepancy(ex, sk)
+        worst = discrepancy(ex, sk, w_used)
         for k, v in worst.items():
             result[f"{ens}/disc_{k}"] = np.asarray(v)
         result[f"{ens}/n_nonperm"] = np.asarray(int(np.sum(sk["is_perm"] == 0)))
