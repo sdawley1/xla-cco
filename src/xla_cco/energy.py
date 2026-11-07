@@ -125,6 +125,17 @@ class AbstractEnergy(eqx.Module):
         out = jax.value_and_grad(self.__call__)(s)
         return cast(Tuple[Float[Array, ""], Positions], out)
 
+    def hessian(self, s: Positions) -> Float[Array, "nd nd"]:
+        """Return d^2E/ds^2 as an (n d, n d) matrix (row-major flattening of s).
+
+        The default is ``jax.hessian`` of ``__call__``; subclasses may override
+        it with a closed form (its memory grows with the size of every
+        intermediate times n d).
+        """
+        n, d = s.shape
+        hess = jax.hessian(lambda y: self(y.reshape(n, d)))(s.reshape(-1))
+        return cast(Float[Array, "nd nd"], hess)
+
 
 class StealthyEnergy(AbstractEnergy):
     """Stealthy energy over a padded k-set.
@@ -235,6 +246,35 @@ class StealthyEnergy(AbstractEnergy):
         init = jnp.zeros_like(s)
         acc, _ = jax.lax.scan(grad_body, init, (n_blk, w_blk, rho_blk))
         return value, pref * acc
+
+    def hessian(self, s: Positions) -> Float[Array, "nd nd"]:
+        """Closed-form Hessian, flattened row-major to (n d, n d).
+
+        d^2 Phi / ds_ja ds_lb = (2 (2 pi)^2 / V) sum_k w_k n_ka n_kb
+        [cos th_kj cos th_kl + sin th_kj sin th_kl
+         - delta_jl (Re rho_k cos th_kj + Im rho_k sin th_kj)],
+        i.e. two (n, m) x (m, n) products per (a, b) pair: O(n^2 m d^2) work
+        and O(n m + n^2 d^2) memory, unlike autodiff (O(n^2 m d) memory).
+        """
+        require_float64(s, "s")
+        assert s.ndim == 2, "s must have shape (n, d)"
+        assert s.shape[1] == self.n_vectors.shape[1], "dimension mismatch"
+        n, d = s.shape
+        theta = _TWO_PI * (s @ self.n_vectors.T)  # (n, m)
+        cos, sin = jnp.cos(theta), jnp.sin(theta)
+        re, im = jnp.sum(cos, axis=0), jnp.sum(sin, axis=0)
+        pref = 2.0 * _TWO_PI**2 / self.volume
+        diag_core = re * cos + im * sin  # (n, m)
+        blocks = []
+        for a in range(d):
+            row = []
+            for b in range(d):
+                wab = self.weights * self.n_vectors[:, a] * self.n_vectors[:, b]
+                pair = (cos * wab) @ cos.T + (sin * wab) @ sin.T  # (n, n)
+                row.append(pref * (pair - jnp.diag(diag_core @ wab)))
+            blocks.append(jnp.stack(row, axis=-1))  # (n, n, d_b)
+        hess4 = jnp.stack(blocks, axis=1)  # (n, d_a, n, d_b)
+        return hess4.reshape(n * d, n * d)
 
     def _gradient(
         self, s: Positions, re: Float[Array, "m"], im: Float[Array, "m"]
