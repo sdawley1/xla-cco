@@ -14,7 +14,7 @@
 
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
-export UV_CACHE_DIR=/scratch/gpfs/TORQUATO/sd2402/.uv-cache
+export UV_CACHE_DIR="${UV_CACHE_DIR:-/scratch/gpfs/TORQUATO/${USER}/.uv-cache}"
 export JAX_PLATFORMS=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 
 CHI="${CHI:-0.1}"

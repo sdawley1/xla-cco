@@ -27,15 +27,6 @@ from hypothesis import strategies as st
 from xla_cco.io.tables import write_function_table
 
 # ============================================================
-# CONSTANTS
-# ============================================================
-
-CPP_SK = Path(
-    "/scratch/gpfs/TORQUATO/sd2402/cco_runs/"
-    "p3d-N100-phi0.05-chi0.05-val0.0/task_0000/ccopt-t0000_Sk.txt"
-)
-
-# ============================================================
 # TESTS
 # ============================================================
 
@@ -109,19 +100,6 @@ def test_write_function_table_property(cols: List[List[float]], n_cols: int) -> 
         assert len(fields) == 4
         for j, f in enumerate(fields):
             assert f == "%1.10e" % (float(arrays[j][i]) if j < len(arrays) else 0.0)
-
-
-@pytest.mark.della
-def test_cpp_sk_reformat_bytes_identical(tmp_path: Path) -> None:
-    """Re-formatting parsed values of a real C++ _Sk.txt reproduces its bytes."""
-    original = CPP_SK.read_bytes().split(b"\n")[:3]
-    rows = np.array(
-        [[float(t) for t in ln.decode().split("\t") if t] for ln in original]
-    )
-    assert rows.shape == (3, 4)
-    out = tmp_path / "sk.txt"
-    write_function_table(out, [rows[:, j] for j in range(4)])
-    assert out.read_bytes() == b"\n".join(original) + b"\n"
 
 
 def test_regression_D009_function_table_writes_nan_like_cpp(tmp_path: Path) -> None:

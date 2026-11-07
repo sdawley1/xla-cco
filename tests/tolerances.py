@@ -3,7 +3,7 @@
 """
 Single home of every numerical tolerance used by the test suite.
 
-Parity and oracle tolerances must come from this file. Test-local literals are
+Oracle tolerances must come from this file. Test-local literals are
 permitted only for analytic or round-trip checks.
 
 Samuel J. Dawley
@@ -22,21 +22,6 @@ RTOL_KERNEL_F: float = 1e-10
 ATOL_FD: float = 1e-6
 # Descent trajectories amplify roundoff mildly over O(1e3) steps (energy level).
 TRAJ_RTOL_E: float = 1e-9
-# Fractional-position drift of a trajectory vs C++ over the compared horizon.
-TRAJ_ATOL_S: float = 1e-10
-# Two-sample KS p-value floor for ensemble statistics; below it parity fails.
-KS_PMIN: float = 1e-3
-# Max |z| between binned S(k) of ensembles (about 4 sigma: false alarms ~6e-5).
-SK_ZMAX: float = 4.0
-# Binned S(k) vs C++ golden: relative tolerance; sums are re-ordered (JAX scan vs
-# sequential C++), which costs ~1e2 ulp.
-RTOL_SK: float = 1e-8
-# Below the stealthy window S ~ 1e-22 is pure cancellation noise of rho (|rho| ~
-# 1e-10 from O(1) terms, phases differing at 1 ulp in Cartesian vs fractional form).
-ATOL_SK_S: float = 1e-26
-# SEM of |k| is sqrt of a difference of equal sums (all k in a bin share |k|), i.e.
-# sqrt(eps) * |k| / sqrt(count) noise up to ~1e-5 at |k| = 400; true value is 0.
-ATOL_SK_KERR: float = 1e-5
 # FD roundoff: energy and phase rounding (eps*theta) give C*eps*(E+theta*dE/dtheta),
 # divided by h in the stencil; the factor 8 covers summation and the two evaluations.
 FD_ROUNDOFF_C: float = 8.0
@@ -47,9 +32,6 @@ FD_TRUNC_C: float = 1.0 / 6.0
 # Descent iterates vs the transcribed C++ loop: both use the same arithmetic up to
 # summation order of the energy sums (~1e-16 relative), times step 1e-3 per move.
 ATOL_DESCENT_ITERATE: float = 1e-14
-# First 10 descent iterations vs the C++ golden (min-image |ds|): C++ evaluates
-# Cartesian forces, we fractional gradients; roundoff ~1e2 ulp per step.
-ATOL_DESCENT_GOLDEN_S: float = 1e-12
 # L-BFGS pass-schedule equivalence (3 passes vs 3 restarts): the only difference is
 # the s -> x -> s round trip, ~1 ulp per pass amplified over a short run.
 ATOL_PASS_RESTART_S: float = 1e-8
@@ -59,9 +41,9 @@ ATOL_VMAP_S: float = 1e-12
 # Same effect on energies and gradient norms (cancellation in |g| costs ~2 digits).
 RTOL_VMAP_E: float = 1e-9
 
-# Per-config absolute floor for kernel energy parity: C_E eps sqrt(N M E_i), the
-# cancellation scale of M unit-weight terms; measured max ratio 1.0 across all 60
-# golden configs; 4x headroom.
+# Per-config absolute floor for kernel energy checks: C_E eps sqrt(N M E_i), the
+# cancellation scale of M unit-weight terms; measured max ratio 1.0 over the
+# kernel test configs; 4x headroom.
 C_E: float = 4.0
 # Grad-sum roundoff: each particle gradient is a sum whose terms reach
 # (4 pi n_max / V) sum(w) N before cancellation (|rho| <= N); N such terms add

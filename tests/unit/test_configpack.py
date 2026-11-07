@@ -3,8 +3,7 @@
 """
 Example tests of the ConfigPack reader, writer and fractional stacking.
 
-Layout facts and the C++ header values come from the real packs under
-/scratch and /home/sd2402/torquato-scratch-sd2402.
+Layout facts follow the C++ ConfigPack format.
 
 Samuel J. Dawley
 11/2026
@@ -16,7 +15,7 @@ Samuel J. Dawley
 
 # ----- standard library -----
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 # ----- numerics -----
 import numpy as np
@@ -28,19 +27,6 @@ from xla_cco.io.configpack import (
     read_configpack,
     stack_fractional,
     write_configpack,
-)
-
-# ============================================================
-# CONSTANTS
-# ============================================================
-
-POISSON = Path(
-    "/home/sd2402/torquato-scratch-sd2402/CONFIGURATIONS/POISSON/"
-    "POISSON-3D-N_100/POISSON-3D-N_100"
-)
-INIT_PREFIX = Path(
-    "/scratch/gpfs/TORQUATO/sd2402/cco_runs/"
-    "p3d-N100-phi0.05-chi0.05-val0.0/task_0000/ccopt-t0000_InitConfig"
 )
 
 # ============================================================
@@ -267,51 +253,6 @@ def test_stack_fractional_rejects_float32() -> None:
     f32 = PackedConfig(a.basis, a.relative.astype(np.float32), 1.0, a.names)
     with pytest.raises(TypeError):
         stack_fractional([f32])
-
-
-# ============================================================
-# TESTS: real C++ packs (della)
-# ============================================================
-
-
-@pytest.mark.della
-def test_reads_cpp_pack() -> None:
-    """Poisson N=100 3D pack: 2886 bytes per config, indices 0 and 9999."""
-    idx = np.fromfile(str(POISSON) + ".ConfigPackIndex", dtype="<i8")
-    assert np.all(np.diff(idx[1:]) == 2886)
-    got = read_configpack(POISSON, [0, 9999])
-    assert len(got) == 2
-    for c in got:
-        assert c.relative.shape == (100, 3) and c.basis.shape == (3, 3)
-        assert np.all(c.relative >= 0.0) and np.all(c.relative < 1.0)
-    assert not np.array_equal(got[0].relative, got[1].relative)
-
-
-@pytest.mark.della
-def test_cpp_initconfig_header() -> None:
-    """Header of a real C++ InitConfig pack."""
-    c = read_configpack(INIT_PREFIX, [0])[0]
-    side = 4.641588833612778
-    assert c.cell_size == side
-    np.testing.assert_array_equal(c.basis, side * np.eye(3))
-    assert c.relative.shape == (100, 3)
-    assert c.names[0] == b"a\x00\x00\x00"
-    s, ub = stack_fractional([c])
-    np.testing.assert_allclose(ub, np.eye(3), rtol=1e-14)
-
-
-@pytest.mark.della
-def test_cpp_initconfig_round_trip_bytes(tmp_path: Path) -> None:
-    """read -> write of the first 3 configs reproduces the original records."""
-    n_cfg = 3
-    cfgs = read_configpack(INIT_PREFIX, [0, 1, 2])
-    out = tmp_path / "rt"
-    write_configpack(out, cfgs)
-    orig = Path(str(INIT_PREFIX) + ".ConfigPack").read_bytes()
-    idx = np.fromfile(str(INIT_PREFIX) + ".ConfigPackIndex", dtype="<i8")
-    assert idx[0] >= n_cfg
-    end: Optional[int] = int(idx[1 + n_cfg]) if idx[0] > n_cfg else len(orig)
-    assert Path(str(out) + ".ConfigPack").read_bytes() == orig[:end]
 
 
 def test_write_rejects_wrong_length_names_total_multiple_of_four(

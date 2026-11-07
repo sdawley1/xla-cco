@@ -91,6 +91,14 @@ def classify_failure(
     assert isinstance(has_plugin, bool), "has_plugin must be bool"
     if any(p in ("gpu", "cuda") for p in platforms):
         return None
+    requested = env.get("JAX_PLATFORMS", "").strip().lower()
+    if requested and not any(
+        p in ("gpu", "cuda") for p in requested.replace(",", " ").split()
+    ):
+        return (
+            f"JAX_PLATFORMS={env['JAX_PLATFORMS']} hides any GPU: unset it, "
+            "or pass --device cpu to run on the CPU."
+        )
     if not env.get("CUDA_VISIBLE_DEVICES", ""):
         return (
             "no GPU visible and CUDA_VISIBLE_DEVICES is unset or empty: "
@@ -99,7 +107,9 @@ def classify_failure(
     if not has_plugin:
         return (
             "jaxlib has no CUDA plugin installed: wrong environment; "
-            "use .venv-cuda (uv sync --dev --extra cuda --locked)."
+            "use the CUDA environment, created on a login node with "
+            "UV_PROJECT_ENVIRONMENT=.venv-cuda uv sync --dev --extra cuda --locked "
+            "and selected with UV_PROJECT_ENVIRONMENT=.venv-cuda."
         )
     detail = f" ({type(error).__name__}: {error})" if error is not None else ""
     return (

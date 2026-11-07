@@ -3,21 +3,44 @@
 Pure-JAX collective-coordinate optimization for stealthy hyperuniform ground
 states; a port of the group's C++ CCO code.
 
-## Usage
+## Install
 
-Relax a batch of configurations to stealthy ground states (C++ ground/input
-mode; chi = 0.05 smoke case, d = 3, phi = 0.05):
+On Della, from a login node (compute nodes are offline):
 
 ```bash
-python -m xla_cco.cli.relax --dim 3 --k1a 0 --ka 0.5963271031078479 --phi 0.05 \
-    --load /path/to/ic/chunk_0000 --save out/smoke --method lbfgs \
-    --tol 9.99999968e-21 --device gpu
+git clone https://github.com/sdawley1/xla-cco.git && cd xla-cco
+# uv's cache must live on scratch (the home quota is too small); set it in
+# every shell and SLURM script. Any directory you can write works.
+export UV_CACHE_DIR="${UV_CACHE_DIR:-/scratch/gpfs/TORQUATO/${USER}/.uv-cache}"
+
+uv sync --dev --locked                                  # CPU env -> .venv (what CI uses)
+UV_PROJECT_ENVIRONMENT=.venv-cuda uv sync --dev --extra cuda --locked   # GPU env -> .venv-cuda
+uv sync --dev --extra plot --locked                     # optional: matplotlib for the experiment figures
 ```
 
+Run commands through the project environment, `uv run --no-sync ...` (or
+`.venv/bin/python`); the system `python` on Della does not have `xla_cco`.
+
+## Quickstart: command line
+
+Relax the 5 bundled Poisson configurations (d = 3, N = 100) to chi ~ 0.05
+stealthy ground states on the CPU, in about 10 s:
+
+```bash
+JAX_PLATFORMS=cpu uv run --no-sync python -m xla_cco.cli.relax \
+    --dim 3 --ka 0.5963271031078479 --phi 0.05 \
+    --load tests/data/inputs/poisson_d3_n100 --save out/smoke --device cpu
+```
+
+`--ka` is the exclusion radius K times the C++ length unit a; it equals
+`ka_from_chi(0.05, 0.05, 3)` here (see the Python quickstart). For real runs,
+use a GPU node (`--device gpu`, the default) with `UV_PROJECT_ENVIRONMENT=.venv-cuda`.
+
 - **Input** is a ConfigPack prefix (`--load X` reads `X.ConfigPack` and
-  `X.ConfigPackIndex`) holding unit-cell configurations: basis with
-  |det| = 1 (e.g. the `ic/chunk_*` packs). C++ `*_InitConfig` packs store a
-  basis of side N^(1/d) (|det| = N) and are rejected with an error.
+  `X.ConfigPackIndex`). `--input-basis auto` (default) accepts a unit-volume
+  basis (|det| = 1, C++ input mode) or a basis already scaled by N^(1/d)
+  (|det| = N, as this CLI writes its outputs), so outputs can be relaxed
+  again; `unit` or `scaled` enforce one convention.
 - **Parity tolerance:** C++ parses `1e-20` as float32, so use
   `--tol 9.99999968e-21` to reproduce its success counts (defect D-002).
 - **Outputs** (prefix `--save S`): `S.ConfigPack` (all relaxed configurations),
@@ -26,46 +49,73 @@ python -m xla_cco.cli.relax --dim 3 --k1a 0 --ka 0.5963271031078479 --phi 0.05 \
   tables `S_g2.txt`, `S_Hp.txt`, `S_Sk.txt`. Success is judged only by
   energy < `--tol`; an L-BFGS line-search end far below tol is normal.
 - **Device:** `--device gpu|cpu` (default gpu). `gpu` fails fast with the likely
-  cause (no `--gres=gpu`, wrong env, missing CUDA libraries) and never falls
-  back to the CPU.
+  cause (`JAX_PLATFORMS` hiding the GPU, no `--gres=gpu`, wrong environment,
+  missing CUDA libraries) and never falls back to the CPU.
 
-Parity evidence: [docs/parity.md](docs/parity.md). Timings and the kernel
+## Quickstart: Python
+
+```python
+import numpy as np
+import jax.numpy as jnp
+from xla_cco import (
+    DescentSettings,
+    chi_from_count,
+    cubic_box,
+    enumerate_kvectors,
+    k_outer_from_ka,
+    ka_from_chi,
+    make_stealthy_energy,
+    relax,
+)
+
+n, d, chi = 64, 2, 0.25  # particles, dimension, target chi
+box = cubic_box(n, d)  # density 1: side n**(1/d)
+K = k_outer_from_ka(ka_from_chi(chi, 0.05, d), 0.05, d)  # exclusion radius
+kset = enumerate_kvectors(np.asarray(box.basis), 0.0, K)  # half-space k, 0 < |k| < K
+print("M =", kset.n.shape[0], "chi =", chi_from_count(kset.n.shape[0], n, d))
+energy = make_stealthy_energy(box, kset)
+
+s0 = jnp.asarray(np.random.default_rng(0).uniform(size=(8, n, d)))  # fractional
+res = relax(energy, s0, DescentSettings(grow=2.0, max_evals=200_000, energy_tol=1e-20))
+print("final energies:", np.asarray(res.energy))
+```
+
+Conventions: positions are **fractional** coordinates s in [0, 1) of the box
+basis (rows = lattice vectors); the density is 1, so the box side is
+N^(1/d) and V = N; Phi = (1/V) sum_k |rho(k)|^2 over the half-space k-set;
+everything is float64 (float32 input raises `TypeError`).
+
+## Where next
+
+- [experiments/README.md](experiments/README.md): reproduction of Dawley &
+  Torquato, PRE 112, 045310 (2025) trajectories and the Wasserstein analysis.
+- [DEFECTS.md](DEFECTS.md): every defect found, with its regression test.
+- [docs/library-evaluation.md](docs/library-evaluation.md): library choices.
+
+Validated against the group's C++ code at kernel, trajectory and ensemble
+level during development. Timings and the kernel
 choice rule: [benchmarks/RESULTS.md](benchmarks/RESULTS.md).
 
 ## Development
 
-Set the uv cache on scratch (the home quota is too small), in every shell and
-in every SLURM script:
-
-```bash
-export UV_CACHE_DIR=/scratch/gpfs/TORQUATO/sd2402/.uv-cache
-```
-
-### Environments
-
-Two separate environments; the GitHub CI uses only the first.
-
-```bash
-# CPU dev env -> .venv
-uv sync --dev --locked
-
-# GPU env -> .venv-cuda; sync ONCE on a login node (compute nodes are offline)
-UV_PROJECT_ENVIRONMENT=.venv-cuda uv sync --dev --extra cuda --locked
-```
+Use the environments from [Install](#install).
 
 ### Tests
 
 ```bash
 export JAX_PLATFORMS=cpu
-uv run pytest -m "not gpu and not della"                       # dev profile
-uv run pytest -m "not gpu and not della" --hypothesis-profile=ci   # as in CI
+uv run pytest -m "not gpu"                       # dev profile
+uv run pytest -m "not gpu" --hypothesis-profile=ci   # as in CI
 uv run pytest --hypothesis-profile=thorough tests/property     # 5000 examples
-uv run pytest -m "not gpu and not della" --cov=xla_cco --cov-fail-under=90
+uv run pytest -m "not gpu" --cov=xla_cco --cov-fail-under=90
 ```
 
+The full suite with coverage needs more memory and time than a Della login
+node allows (it is killed); there, run `-m "not gpu and not slow"` or one test
+directory at a time, and leave the full run to CI or a compute node.
+
 Hypothesis profiles (`tests/conftest.py`): `dev` (100 examples, default),
-`ci` (300, derandomized), `thorough` (5000). Markers: `slow` (> 30 s), `gpu`,
-`della` (needs `/scratch` data or the C++ binary).
+`ci` (300, derandomized), `thorough` (5000). Markers: `slow` (> 30 s), `gpu`.
 
 ### Static checks and pre-commit
 
@@ -82,7 +132,5 @@ Submit from the repository root. GPU jobs fail fast through
 libraries; never a silent CPU fallback).
 
 ```bash
-sbatch slurm/test_gpu.slurm          # pytest -m "not della" on a GPU (.venv-cuda)
-sbatch slurm/parity_ensemble.slurm   # ensemble parity -> parity_reports/ensemble_<date>.md
-sbatch slurm/make_cpp_reference.slurm  # regenerate C++ goldens (CPU only)
+sbatch slurm/test_gpu.slurm          # pytest on a GPU (.venv-cuda)
 ```

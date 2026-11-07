@@ -20,6 +20,7 @@ dependencies = [
 
 [project.optional-dependencies]
 cuda = ["jax[cuda12]"]
+plot = ["matplotlib>=3.8"]
 
 [dependency-groups]
 dev = [
@@ -43,7 +44,6 @@ addopts = "--strict-markers"
 markers = [
     "slow: takes more than 30 s",
     "gpu: needs a GPU",
-    "della: needs /scratch data or the C++ binary",
 ]
 
 [tool.coverage.run]

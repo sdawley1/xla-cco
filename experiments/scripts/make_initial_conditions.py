@@ -110,10 +110,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--gau-source",
         type=Path,
-        default=Path(
-            "/home/sd2402/torquato-scratch-sd2402/CONFIGURATIONS/"
-            "N1000_configs_GaussianPairStat/GAUSSIAN-2D-N_1000"
-        ),
+        required=True,
+        help="ConfigPack prefix of the Gaussian-pair-statistics configurations "
+        "(the group copy is CONFIGURATIONS/N1000_configs_GaussianPairStat/"
+        "GAUSSIAN-2D-N_1000 under the TORQUATO scratch space; read-only)",
     )
 
     # ----- ensemble sizes -----
@@ -128,6 +128,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
+    # SLURM writes the trajectory-job logs here, so it must exist up front.
+    (args.out.parent / "trajectories").mkdir(parents=True, exist_ok=True)
 
     # =========================================================
     # POISSON

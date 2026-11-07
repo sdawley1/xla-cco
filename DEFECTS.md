@@ -21,6 +21,8 @@ needed for parity, reproduce the behaviour.
 | D-012 | fixed | `minimize/descent.py` (`_status`) | Exactly zero gradient: the C++ 0/0 accept test accepts forever; with `grow = 2` the step overflows and positions become NaN. |
 | D-013 | fixed | `analysis/transport.py` (`torus_sq_cost`) | Fixed 3^d image scan is not exact for unreduced (strongly sheared) cells, though documented as exact for sheared cells. |
 | D-014 | fixed | `experiments/scripts/analyze_wasserstein.py` (`certified`) | Converged Sinkhorn plans with a colliding rounding were trusted; their greedy-repaired matching is often suboptimal. |
+| D-015 | fixed | `cli/relax.py` (`load_input`) | The CLI rejected its own output packs (basis scaled by N^(1/d)) as input. |
+| D-016 | fixed | `_device.py` (`classify_failure`) | GPU guard blamed `--gres=gpu` when `JAX_PLATFORMS=cpu` hid the GPU, and its fix hint synced CUDA JAX into the CPU env. |
 
 ## D-006 — `unit_ball_volume` is not bit-equal to the C++ hard-coded constants
 - **Found:** 2026-11-05, by the T4 auditor's preview parity
@@ -29,7 +31,7 @@ needed for parity, reproduce the behaviour.
 - **Symptom:** for d=1 at chi 0.25 and 0.45, `k_outer_from_ka` differs from the C++ `k_outer_hex` by 1 ulp (...d18 vs ...d19)
 - **Repro:** `k_outer_from_ka(0.03926990816987242, 0.05, 1).hex()` gives `0x1.921fb54442d18p+0`, C++ gives `0x1.921fb54442d19p+0`
 - **Impact:** the recomputed k window can sit 1 ulp off the C++ one; parity tests replay the stored hex window, so no stored result is affected
-- **Regression test:** tests/unit/test_kvectors.py::test_regression_D006_k_outer_matches_cpp_bitwise (and tests/property/test_kvectors_props.py::test_unit_ball_volume_closed_form_and_cpp_constants)
+- **Regression test:** tests/unit/test_kvectors.py::test_regression_D006_k_outer_matches_cpp_bitwise (removed with the C++ parity suite) (and tests/property/test_kvectors_props.py::test_unit_ball_volume_closed_form_and_cpp_constants)
 - **Fix:** `HyperSphere_C` (etc.cpp:23-37) returns constants for d<=4 (2, pi, 4.1887902047863909846, 4.9348022005446793094); `unit_ball_volume` now uses the same constants; the closed-form d=3 volume differs from the C++ literal by 1 ulp (0x1.0c152382d7365p+2 vs 0x1.0c152382d7366p+2), so the literal is needed for bit-exactness even though k2 happened to be unaffected for the goldens; d>=5 uses `pi^(d/2)/Gamma(d/2+1)` (`math.gamma` vs `gsl_sf_gamma` may differ by an ulp; untested, no goldens)
 
 ## D-007 — Hypothesis wall-clock deadline flakes on loaded nodes
@@ -112,4 +114,24 @@ needed for parity, reproduce the behaviour.
 - **Impact:** the full-resolution Sinkhorn curves carried errors up to 2.8e-3 at about 1.5 % of POS frames; the exact 201-frame curves were unaffected
 - **Regression test:** tests/unit/test_wasserstein_analysis.py::test_regression_D014_converged_collision_not_certified (also the apply_fallback tests)
 - **Fix:** only a bijective rounding certifies a frame (every compared bijective frame equalled the exact optimum); `wasserstein_fallback.py` solves the exact assignment at all other frames and `apply_fallback` substitutes those values, failing loudly if any are missing
+
+## D-015 — CLI cannot read its own output
+- **Found:** 2026-11-06, repository audit (gstack /devex-review)
+- **Status:** fixed
+- **Where:** src/xla_cco/cli/relax.py (`load_input` vs `pack_configs`)
+- **Symptom:** relaxing `S.ConfigPack` again fails with "input basis has |det| = N, not unit volume"
+- **Repro:** outputs are written C++-style with basis x N^(1/d) (|det| = N), while the input check accepted only |det| = 1
+- **Impact:** relaxed packs could not be fed back (continuation, re-relaxation) without manual rescaling
+- **Regression test:** tests/integration/test_cli.py::test_regression_D015_cli_reads_its_own_output (also test_cli_input_basis_mode_is_enforced)
+- **Fix:** `--input-basis {auto,unit,scaled}` (default auto) accepts |det| = 1 or |det| = N and normalizes scaled bases to unit volume; any other volume still raises
+
+## D-016 — GPU guard misdiagnosis
+- **Found:** 2026-11-06, repository audit (gstack /devex-review)
+- **Status:** fixed
+- **Where:** src/xla_cco/_device.py (`classify_failure`)
+- **Symptom:** with `JAX_PLATFORMS=cpu` on a GPU node, the error said "probably no --gres=gpu"; the wrong-environment hint `uv sync --dev --extra cuda --locked` installed CUDA JAX into the CPU `.venv`
+- **Repro:** `JAX_PLATFORMS=cpu python -m xla_cco.cli.relax ... --device gpu` on della-gpu
+- **Impact:** misleading failure message; following the hint polluted the CPU environment
+- **Regression test:** tests/unit/test_gpu_assert.py::test_regression_D016_jax_platforms_hiding_gpu_is_named (also test_jax_platforms_allowing_gpu_falls_through, test_cli_gpu_guard)
+- **Fix:** `JAX_PLATFORMS` without cuda/gpu is reported first ("unset it, or pass --device cpu"); the hint now gives the full `UV_PROJECT_ENVIRONMENT=.venv-cuda uv sync ...` command
 

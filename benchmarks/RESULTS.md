@@ -67,7 +67,7 @@ Variants (the `tables` rows force `n_max = max|n|` and `baseline` forces `n_max=
 
 ## Decisions (ruling R20)
 
-| variant | speedup (value_and_grad) | (ii) oracle + kernel parity | (iii) C++ trajectory goldens | decision |
+| variant | speedup (value_and_grad) | (ii) oracle + kernel tests | (iii) trajectory check vs C++ (run at the time) | decision |
 |---|---|---|---|---|
 | (b) per-axis phase tables | CPU 2.3x / 3.8x / 2.4x (A chi 0.05 / 0.45, B); GPU 1.45x / 1.39x / 1.12x | pass, unchanged tolerances (92 tests) | accepts equal for m=1..200 in all 10 configs; max abs ds 4.4e-16 (baseline 4.4e-16) | **kept**, factory enables it only for M >= 75 (see last section) |
 | (a) auto `chunk_size` | memory only: A chi 0.45 peak 2033 -> 741 MiB (CPU), 909 -> 251 MiB (GPU) at 0.99x CPU / 0.82x GPU baseline speed | n/a (helper only; factory default unchanged) | n/a | **kept as internal helper `auto_chunk_size`**, not a speed variant (no 1.3x speedup; it is a memory tool) |
@@ -75,7 +75,7 @@ Variants (the `tables` rows force `n_max = max|n|` and `baseline` forces `n_max=
 | (b') per-axis tables by direct trig (no cumprod) | 0.2-0.25x in prototype: XLA fuses the table computation into the gather and recomputes trig per (k,j) | not run | not run | **rejected**: slower |
 | custom_vjp | not tried: `value_and_grad` is already the analytic path and `__call__` must stay plain jnp | | | not applicable |
 
-(iii) baseline: `OVERALL max|ds|=4.441e-16 PASS=True`; tables: `OVERALL max|ds|=4.441e-16 PASS=True` (throwaway script, 5 configs x 2 goldens, including the near-ordered config 4 with 6 and 8 rejects, `DescentSettings(record_every=1, max_records=201, max_evals=400)`).
+(iii) baseline: `OVERALL max|ds|=4.441e-16 PASS=True`; tables: `OVERALL max|ds|=4.441e-16 PASS=True` (throwaway script, 5 configs x 2 reference trajectories, including the near-ordered config 4 with 6 and 8 rejects, `DescentSettings(record_every=1, max_records=201, max_evals=400)`).
 
 ## Notes and caveats
 
@@ -103,7 +103,7 @@ Findings: tables lose (0.44-0.46x) at M = 13, 28, 61 and win (1.27-1.36x per eva
 
 **Chosen rule** (`make_stealthy_energy`, constant `TABLE_MIN_M = 75`, the midpoint of the measured interval 61 to 89): tables iff M >= 75, otherwise trig. No measured GPU relax case regresses under this rule (M < 75 uses the trig path, so it is identical to baseline). Consequences and limits: the CPU gains at small M (2.3x at M = 13) are given up so the rule stays backend independent; the threshold was measured only at d=3, N=100 and only on the A100, so other (N, d) are extrapolated.
 
-Factory path used by the C++ trajectory goldens: d=2 N=64 (M = 34) and d=3 N=100 (M = 13) both use trig; forcing tables gives the same result (accepts equal, max abs ds 4.4e-16 both ways).
+Factory path used by the C++ reference trajectories (compared during development): d=2 N=64 (M = 34) and d=3 N=100 (M = 13) both use trig; forcing tables gives the same result (accepts equal, max abs ds 4.4e-16 both ways).
 
 ## Fix round T13: end-to-end timing through the CLI path (R32)
 

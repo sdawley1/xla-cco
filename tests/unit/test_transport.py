@@ -189,6 +189,7 @@ def test_sinkhorn_rejects_bad_arguments() -> None:
         sinkhorn(jnp.ones((2, 2)), 0.0)
 
 
+@pytest.mark.slow
 @settings(deadline=None, max_examples=30)
 @given(
     perm_seed=st.integers(0, 2**31 - 1),

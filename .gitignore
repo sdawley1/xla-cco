@@ -2,7 +2,6 @@
 pdfs/
 .hypothesis/
 .venv/
-parity_reports/
 __pycache__/
 .coverage
 .mutmut-cache
@@ -18,3 +17,6 @@ slurm-*.out
 experiments/initial_conditions/
 experiments/trajectories/
 experiments/figures/
+
+# CLI quickstart outputs
+out/
