@@ -38,5 +38,5 @@ jobs:
         run: uv run --no-sync mypy --strict src
       - name: Pytest
         run: >
-          uv run --no-sync pytest -m "not gpu and not della"
+          uv run --no-sync pytest -m "not gpu"
           --hypothesis-profile=ci --cov=xla_cco --cov-fail-under=90

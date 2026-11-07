@@ -325,7 +325,7 @@ def make_stealthy_energy(
     the CLI settings on an A100 and found tables 1.03x faster at chi = 0.35
     (M = 101) and 1.08x slower at chi = 0.45 (M = 128), an ambiguous result
     that defaults to trig (benchmarks/RESULTS.md, ruling R32). Both kernels
-    agree to 1e-9 in ensemble statistics (docs/parity.md).
+    agree to 1e-9 in ensemble statistics (checked during development).
 
     Raises
     ------

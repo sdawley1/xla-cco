@@ -32,6 +32,6 @@ fi
 # ============================================================
 # RUN
 # ============================================================
-uv run --no-sync pytest -m "not della" --hypothesis-profile=ci
+uv run --no-sync pytest --hypothesis-profile=ci
 
 echo "Done."
