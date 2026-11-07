@@ -50,7 +50,7 @@ import numpy as np
 from xla_cco.cli.relax import select_device
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from batten2008_flows import build_energy, chi_tag  # noqa: E402
+from batten2008_flows import chi_tag, load_system  # noqa: E402
 from batten2008_slices import make_evaluator  # noqa: E402
 
 # ============================================================
@@ -69,39 +69,63 @@ ZERO_REL = (1e-9, 1e-6)  # |lambda| < z * lambda_max counts as a zero mode
 # ============================================================
 
 
-def density_wave_stiffness(x: np.ndarray, h: np.ndarray, m: int) -> np.ndarray:
-    """Rayleigh quotients of H along the density-wave directions, (m, 2).
+def density_wave_stiffness(
+    x: np.ndarray, h: np.ndarray, kvec: np.ndarray
+) -> np.ndarray:
+    """Rayleigh quotients of H along the density-wave directions, (M, 2).
 
-    For mode n the directions are the gradients of Re rho(k_n) and
-    Im rho(k_n) with respect to x: -k_n sin(k_n x_j) and k_n cos(k_n x_j),
+    ``x`` (N, d) Cartesian, ``h`` (N d, N d) Cartesian Hessian, ``kvec`` (M, d).
+    For wavevector k the directions are the gradients of Re rho(k) and
+    Im rho(k) with respect to r: -sin(k . r_j) k and cos(k . r_j) k,
     normalized. At a ground state they are eigenvectors with eigenvalue
-    k_n^2 when the modes decouple; elsewhere the quotient is the curvature
+    |k|^2 when the modes decouple; elsewhere the quotient is the curvature
     of Phi along that density wave.
     """
-    n = x.shape[0]
-    assert h.shape == (n, n) and 1 <= m < n, "shapes"
-    k = 2.0 * np.pi * np.arange(1, m + 1) / n  # density 1: L = N
-    phase = np.outer(x, k)  # (N, m)
+    n, d = x.shape
+    m = kvec.shape[0]
+    assert h.shape == (n * d, n * d) and kvec.shape[1] == d and m >= 1, "shapes"
+    phase = x @ kvec.T  # (N, M)
     out = np.empty((m, 2))
-    for c, g in enumerate((-np.sin(phase), np.cos(phase))):
+    for c, wave in enumerate((-np.sin(phase), np.cos(phase))):
+        g = (wave[:, None, :] * kvec.T[None, :, :]).reshape(n * d, m)
         g = g / np.linalg.norm(g, axis=0, keepdims=True)
         out[:, c] = np.einsum("im,im->m", g, h @ g)
     return out
 
 
-def wavelength_power(x: np.ndarray, vecs: np.ndarray) -> np.ndarray:
-    """Mean Fourier power |sum_j v_j exp(i q_m x_j)|^2 of unit vectors v, m = 1..N/2.
+def qvectors(n: int, d: int, side: float) -> np.ndarray:
+    """Wavevectors 2 pi q / L for the wavelength spectra, sorted by |q|.
 
-    Averages over the columns of ``vecs`` (N, K); the mean over m of the
-    result is about 2 for a vector spread evenly over wavelengths.
+    1D: q = 1..N/2. d > 1: half-space integer q with every |q_a| <= L, which
+    reaches past K for the 2D chi values used here.
     """
-    n = x.shape[0]
+    if d == 1:
+        ints = np.arange(1, n // 2 + 1, dtype=np.float64)[:, None]
+    else:
+        lim = int(round(side))
+        axes = np.meshgrid(*[np.arange(-lim, lim + 1)] * d, indexing="ij")
+        grid = np.stack([a.ravel() for a in axes], axis=1)
+        first = np.array([row[np.flatnonzero(row)[0]] if row.any() else 0
+                          for row in grid])  # fmt: skip
+        ints = grid[first > 0].astype(np.float64)  # half space, no q = 0
+    q = 2.0 * np.pi * ints / side
+    return q[np.argsort(np.einsum("qa,qa->q", q, q), kind="stable")]
+
+
+def wavelength_power(x: np.ndarray, vecs: np.ndarray, q: np.ndarray) -> np.ndarray:
+    """Mean Fourier power sum_a |sum_j v_ja exp(i q . r_j)|^2 of unit vectors v.
+
+    ``x`` (N, d), ``vecs`` (N d, K) unit columns, ``q`` (Q, d); averages over
+    the K columns. Only relative values (across q, or between sets of
+    eigenvectors) are used.
+    """
+    n, d = x.shape
     if vecs.shape[1] == 0:
-        return np.full(n // 2, np.nan)
-    q = 2.0 * np.pi * np.arange(1, n // 2 + 1) / n
-    amp = np.exp(1j * np.outer(q, x)) @ vecs  # (N/2, K)
-    out: np.ndarray = np.mean(np.abs(amp) ** 2, axis=1)
-    return out
+        return np.full(q.shape[0], np.nan)
+    e = jnp.exp(1j * (jnp.asarray(x) @ jnp.asarray(q).T))  # (N, Q)
+    v = jnp.asarray(vecs).reshape(n, d, -1)  # (N, d, K)
+    power = sum(jnp.abs(e.T @ v[:, a, :]) ** 2 for a in range(d))  # (Q, K)
+    return np.asarray(jnp.mean(power, axis=1))
 
 
 def sample_frames(u: np.ndarray, times: Tuple[float, ...]) -> np.ndarray:
@@ -117,6 +141,7 @@ def section_axes(grad: np.ndarray, vecs: np.ndarray) -> Tuple[np.ndarray, np.nda
     tau = -grad / gn
     v = vecs[:, -1] - (vecs[:, -1] @ tau) * tau
     assert np.linalg.norm(v) > 1e-6, "stiffest mode parallel to the flow"
+    v = v * np.sign(v[np.argmax(np.abs(v))])  # eigenvector sign is arbitrary
     return tau, v / np.linalg.norm(v)
 
 
@@ -129,9 +154,9 @@ def tenfold_distance(x: np.ndarray, e: np.ndarray, k: int) -> float:
 
 def cross_section(
     x: np.ndarray, e: np.ndarray, k: int, grad: np.ndarray, lam: np.ndarray,
-    vecs: np.ndarray, ev: object, side: float, g: int,
+    vecs: np.ndarray, ev: object, side: float, g: int, n_part: int,
 ) -> Dict[str, np.ndarray]:  # fmt: skip
-    """Phi on the (tau, v) plane through frame k, with the path projected."""
+    """Phi on the (tau, v) plane through frame k of x (F, N d), with the path."""
     tau, v = section_axes(grad, vecs)
     half_b = np.sqrt(2.0 * (GROWTH - 1.0) * e[k] / lam[-1])
     half_a = tenfold_distance(x, e, k)
@@ -139,7 +164,7 @@ def cross_section(
     rb = np.linspace(-half_b, half_b, g)
     aa, bb = np.meshgrid(ra, rb)
     pts = x[k][None, :] + aa.reshape(-1, 1) * tau + bb.reshape(-1, 1) * v
-    phi = ev(pts.reshape(-1, x.shape[1], 1) / side).reshape(aa.shape)  # type: ignore[operator]
+    phi = ev(pts.reshape(-1, n_part, x.shape[1] // n_part) / side).reshape(aa.shape)  # type: ignore[operator]
     y = x - x[k]
     path = np.stack([y @ tau, y @ v], axis=1)
     off = np.linalg.norm(y - path[:, :1] * tau - path[:, 1:] * v, axis=1)
@@ -171,8 +196,11 @@ if __name__ == "__main__":
             tag = chi_tag(Fraction(chi_str))
             with np.load(root / f"flows_chi{tag}.npz") as z:
                 flows = {k: z[k] for k in z.files}
-            energy, basis, m = build_energy(n, Fraction(chi_str))
-            side = float(basis[0, 0])
+            energy, basis, nvec, kmag = load_system(root, tag)
+            side, d = float(basis[0, 0]), basis.shape[0]
+            kvec = nvec @ (2.0 * np.pi * np.linalg.inv(basis)).T  # Cartesian k
+            q = qvectors(n, d, side)
+            eigh = jax.jit(jnp.linalg.eigh)
             hess = jax.jit(lambda s: energy.hessian(s))  # noqa: B023
             vag = jax.jit(lambda s: energy.value_and_grad(s))  # noqa: B023
             ev = make_evaluator(energy, 512)
@@ -181,31 +209,32 @@ if __name__ == "__main__":
             for b in range(flows["s0"].shape[0]):
                 cnt = int(flows["traj_count"][b])
                 t = flows["traj_t"][b, :cnt]
-                u, x = t / t[-1], flows["traj_s"][b, :cnt, :, 0] * side
+                u, x3 = t / t[-1], flows["traj_s"][b, :cnt] * side  # (F, N, d)
+                x = x3.reshape(cnt, -1)
                 e = flows["traj_energy"][b, :cnt]
                 rows: Dict[str, list] = {
                     "lam": [], "phi": [], "gnorm": [], "u": [],
                     "dw_stiff": [], "neg_power": [], "pos_power": [],
                 }  # fmt: skip
                 for i, k in enumerate(sample_frames(u, SAMPLES)):
-                    s = jnp.asarray(x[k][:, None] / side)
+                    s = jnp.asarray(x3[k] / side)
                     h = np.asarray(hess(s)) / side**2  # Cartesian Hessian
-                    lam, vecs = np.linalg.eigh(0.5 * (h + h.T))
+                    lam, vecs = (np.asarray(a) for a in eigh(0.5 * (h + h.T)))
                     phi, g = vag(s)
-                    grad = np.asarray(g)[:, 0] / side  # Cartesian gradient
+                    grad = np.asarray(g).reshape(-1) / side  # Cartesian gradient
                     rows["lam"].append(lam)
                     rows["phi"].append(np.array(float(phi)))
                     rows["gnorm"].append(np.array(np.linalg.norm(grad)))
                     rows["u"].append(np.array(u[k]))
-                    rows["dw_stiff"].append(density_wave_stiffness(x[k], h, m))
+                    rows["dw_stiff"].append(density_wave_stiffness(x3[k], h, kvec))
                     neg = lam < -ZERO_REL[1] * lam[-1]
-                    rows["neg_power"].append(wavelength_power(x[k], vecs[:, neg]))
+                    rows["neg_power"].append(wavelength_power(x3[k], vecs[:, neg], q))
                     stiff = vecs[:, -max(1, int(neg.sum())) :]  # as many, stiffest
-                    rows["pos_power"].append(wavelength_power(x[k], stiff))
+                    rows["pos_power"].append(wavelength_power(x3[k], stiff, q))
                     if b == 0 and SAMPLES[i] in SECTIONS:
                         j = SECTIONS.index(SAMPLES[i])
                         sec = cross_section(
-                            x, e, k, grad, lam, vecs, ev, side, args.grid
+                            x, e, k, grad, lam, vecs, ev, side, args.grid, n
                         )
                         for name, val in sec.items():
                             sections[f"sec{j}_{name}"] = val
@@ -220,11 +249,14 @@ if __name__ == "__main__":
             zero = np.abs(lam) < ZERO_REL[0] * lam[..., -1:]
             packed["n_negative"] = ((lam < 0) & ~zero).sum(axis=-1)
             np.savez(root / f"hessian_chi{tag}.npz", samples=np.array(SAMPLES),
+                     kmag=kmag, nvec=nvec, qmag=np.linalg.norm(q, axis=1),
+                     dim=np.array(d),
                      **packed, **sections)  # fmt: skip
             nz, nl = packed["n_zero"][:, -1], packed["n_zero_loose"][:, -1]
             nn = packed["n_negative"]
             print(
                 f"N={n} chi={chi_str}: zero modes at the end {nz.min()}-{nz.max()} "
+                f"(dN - 2M = {n * d - 2 * nvec.shape[0]}) "
                 f"(loose {nl.min()}-{nl.max()}); "
                 f"negative modes per sample (median) {np.median(nn, axis=0)}; "
                 f"lambda_max per sample (median) "
