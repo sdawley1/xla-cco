@@ -37,7 +37,7 @@ import math
 import time
 from fractions import Fraction
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 
 # ----- numerics -----
 import equinox as eqx
@@ -173,38 +173,50 @@ def advance(
 def consolidate(
     run_dir: Path, state: Dict[str, np.ndarray], max_records: int
 ) -> Dict[str, np.ndarray]:
-    """Join the chunk records per lane and thin each path to max_records rows."""
+    """Join the chunk records per lane, thinned to at most max_records rows.
+
+    Two streaming passes: the first reads only the per-chunk counts and picks
+    each lane's rows (uniform in accepted-step index, first and last kept);
+    the second loads every chunk array once and copies just those rows, so
+    memory stays at one chunk plus the output.
+    """
     n_chunks = int(state["next_chunk"])
-    keys = ("s", "t", "length", "energy")
-    lanes: List[Dict[str, List[np.ndarray]]] = [
-        {k: [] for k in keys} for _ in state["s0"]
-    ]
+    n_traj, n = state["s0"].shape[:2]
+    counts = np.zeros((n_chunks, n_traj), dtype=np.int64)
     for k in range(n_chunks):
         with np.load(run_dir / f"chunk_{k:05d}.npz") as c:
-            for b, lane in enumerate(lanes):
-                cnt = int(c["count"][b])
-                start = 0 if k == 0 else 1  # row 0 repeats the previous chunk's end
-                if cnt > start:
-                    for key in keys:
-                        lane[key].append(c[key][b, start:cnt])
-    n_traj, n = state["s0"].shape[:2]
+            counts[k] = c["count"]
+    # Row 0 of every chunk after the first repeats the previous chunk's end.
+    usable = counts - (np.arange(n_chunks) > 0)[:, None]
+    usable = np.maximum(usable, 0)
+    offsets = np.vstack([np.zeros((1, n_traj), dtype=np.int64), np.cumsum(usable, 0)])
+    keys = ("s", "t", "length", "energy")
     shapes = {"s": (n, 1), "t": (), "length": (), "energy": ()}
     out = {k: np.full((n_traj, max_records) + shapes[k], np.nan) for k in keys}
-    count = np.zeros(n_traj, dtype=np.int64)
-    for b, lane in enumerate(lanes):
-        full = {k: np.concatenate(v) for k, v in lane.items()}
-        rows = full["t"].shape[0]
-        pick = np.linspace(0, rows - 1, min(rows, max_records)).round().astype(int)
-        idx = np.unique(pick)
-        count[b] = idx.size
-        for key in keys:
-            out[key][b, : idx.size] = full[key][idx]
+    picks = []
+    for b in range(n_traj):
+        rows = int(offsets[-1, b])
+        assert rows > 0, f"lane {b} recorded nothing"
+        grid = np.linspace(0, rows - 1, min(rows, max_records)).round()
+        picks.append(np.unique(grid.astype(np.int64)))
+    for k in range(n_chunks):
+        with np.load(run_dir / f"chunk_{k:05d}.npz") as c:
+            arrays = {key: c[key] for key in keys}  # one read per array
+        start = 0 if k == 0 else 1
+        for b in range(n_traj):
+            lo, hi = offsets[k, b], offsets[k + 1, b]
+            sel = np.flatnonzero((picks[b] >= lo) & (picks[b] < hi))
+            if sel.size:
+                rows = picks[b][sel] - lo + start
+                for key in keys:
+                    out[key][b, sel] = arrays[key][b, rows]
+        del arrays
     return {
         "traj_s": out["s"],
         "traj_t": out["t"],
         "traj_length": out["length"],
         "traj_energy": out["energy"],
-        "traj_count": count,
+        "traj_count": np.array([p.size for p in picks], dtype=np.int64),
     }
 
 
