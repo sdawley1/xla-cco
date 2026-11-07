@@ -27,12 +27,13 @@ Samuel J. Dawley
 
 # ----- standard library -----
 import itertools
-from typing import Optional, Tuple
+from typing import Optional, Sequence, Tuple, Union
 
 # ----- numerics -----
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jaxtyping import Array, Float, Int
 
 # ----- project -----
@@ -43,8 +44,54 @@ from xla_cco._types import Positions
 # ============================================================
 
 
+def required_images(basis: np.ndarray) -> Tuple[int, ...]:
+    """Return per-axis image radii m_k that make ``torus_sq_cost`` exact.
+
+    After rounding, the fractional difference ds lies in [-1/2, 1/2]^d, so the
+    nearest translate x = (ds + n) B satisfies |x| <= R, the largest |ds B|
+    over that cube (attained at a vertex). Then |n_k| <= 1/2 + R |B^{-1} e_k|,
+    so scanning n_k in [-m_k, m_k] with m_k = floor(1/2 + R |B^{-1} e_k|) is
+    exact for any cell, reduced or not. A diagonal (orthogonal) basis needs
+    no scan: rounding alone is exact (all m_k = 0).
+
+    Parameters
+    ----------
+    basis : np.ndarray
+        (d, d) concrete basis, rows = lattice vectors; finite, nonsingular.
+
+    Returns
+    -------
+    Tuple[int, ...]
+        The radius m_k for each fractional axis k.
+    """
+    b = np.asarray(basis, dtype=np.float64)
+    if b.ndim != 2 or b.shape[0] != b.shape[1] or not np.all(np.isfinite(b)):
+        raise ValueError(f"basis must be a finite (d, d) array, got {b.shape}")
+    d = int(b.shape[0])
+    if np.abs(np.linalg.det(b)) == 0.0:
+        raise ValueError("basis is singular")
+    if np.array_equal(b, np.diag(np.diag(b))):
+        return (0,) * d
+    signs = np.array(list(itertools.product((-0.5, 0.5), repeat=d)))
+    reach = float(np.max(np.linalg.norm(signs @ b, axis=1)))
+    col = np.linalg.norm(np.linalg.inv(b), axis=0)
+    radii = np.floor(0.5 + reach * col * (1.0 + 1e-12))
+    return tuple(int(m) for m in radii)
+
+
+def _concrete(basis: Array) -> Optional[np.ndarray]:
+    """Return ``basis`` as NumPy if it is concrete, else None (under jit)."""
+    try:
+        return np.asarray(basis)
+    except jax.errors.TracerArrayConversionError:
+        return None
+
+
 def torus_sq_cost(
-    a: Positions, b: Positions, basis: Float[Array, "d d"], images: bool = True
+    a: Positions,
+    b: Positions,
+    basis: Float[Array, "d d"],
+    images: Optional[Union[int, Sequence[int]]] = None,
 ) -> Float[Array, "n n"]:
     """Return C_ij, the squared minimum-image Cartesian distance a_i -> b_j.
 
@@ -54,10 +101,13 @@ def torus_sq_cost(
         (N, d) fractional positions (any real values; taken mod 1).
     basis : Float[Array, "d d"]
         Rows are the lattice vectors of the periodic cell.
-    images : bool
-        Minimize over the 3^d neighbouring images (exact for sheared cells).
-        False uses the rounded fractional difference only, which is exact for
-        orthogonal cells and 3^d times cheaper.
+    images : int or sequence of int, optional
+        Image radius m (or one m_k per axis): after rounding the fractional
+        difference, translates n with |n_k| <= m_k are scanned. None (default)
+        uses ``required_images(basis)``, which is exact for any cell but needs
+        a concrete basis (pass ``images`` explicitly under jit). An explicit
+        radius below ``required_images`` raises for a concrete basis (D-013).
+        0 means rounding only, which is exact for orthogonal cells.
 
     Returns
     -------
@@ -65,17 +115,50 @@ def torus_sq_cost(
         Squared minimum-image Cartesian distances.
     """
     assert a.ndim == 2 and a.shape == b.shape, "a and b must be (N, d) alike"
-    assert basis.shape == (a.shape[1], a.shape[1]), "basis must be (d, d)"
+    d = a.shape[1]
+    assert basis.shape == (d, d), "basis must be (d, d)"
+    radii = _image_radii(basis, images, d)
     ds = a[:, None, :] - b[None, :, :]
     ds = ds - jnp.round(ds)
-    if not images:
+    if not any(radii):
         r = ds @ basis
         return jnp.sum(r * r, axis=-1)
-    best = jnp.full(ds.shape[:2], jnp.inf, dtype=ds.dtype)
-    for image in itertools.product((-1.0, 0.0, 1.0), repeat=a.shape[1]):
-        r = (ds + jnp.asarray(image, dtype=ds.dtype)) @ basis
-        best = jnp.minimum(best, jnp.sum(r * r, axis=-1))
+    shifts = jnp.asarray(
+        list(itertools.product(*(range(-m, m + 1) for m in radii))), dtype=ds.dtype
+    )
+
+    def scan_image(best: Array, shift: Array) -> Tuple[Array, None]:
+        r = (ds + shift) @ basis
+        return jnp.minimum(best, jnp.sum(r * r, axis=-1)), None
+
+    init = jnp.full(ds.shape[:2], jnp.inf, dtype=ds.dtype)
+    best, _ = jax.lax.scan(scan_image, init, shifts)
     return best
+
+
+def _image_radii(
+    basis: Array, images: Optional[Union[int, Sequence[int]]], d: int
+) -> Tuple[int, ...]:
+    """Resolve and validate the per-axis image radii for ``torus_sq_cost``."""
+    concrete = _concrete(basis)
+    if images is None:
+        if concrete is None:
+            raise ValueError(
+                "torus_sq_cost: images=None needs a concrete basis; under jit "
+                "pass images=required_images(basis) computed outside"
+            )
+        return required_images(concrete)
+    radii = (int(images),) * d if isinstance(images, int) else tuple(images)
+    if len(radii) != d or min(radii) < 0:
+        raise ValueError(f"images must be >= 0 per axis (d={d}), got {images}")
+    if concrete is not None:
+        need = required_images(concrete)
+        if any(m < r for m, r in zip(radii, need, strict=True)):
+            raise ValueError(
+                f"images={radii} is too small for this cell; the exact minimum "
+                f"image needs {need} (see required_images)"
+            )
+    return radii
 
 
 # ============================================================

@@ -18,10 +18,11 @@ Samuel J. Dawley
 import itertools
 
 # ----- numerics -----
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from hypothesis import given, settings
+from hypothesis import example, given, settings
 from hypothesis import strategies as st
 from scipy.optimize import linear_sum_assignment
 
@@ -31,6 +32,7 @@ from xla_cco.analysis.transport import (
     entropic_distance,
     matching_distance,
     repair_matching,
+    required_images,
     round_to_matching,
     sinkhorn,
     sinkhorn_annealed,
@@ -44,11 +46,16 @@ from xla_cco.analysis.transport import (
 EPS_SCHEDULE = (1.0, 0.3, 0.1, 0.03, 0.01, 0.003, 0.001)
 
 
-def _oracle_cost(a: np.ndarray, b: np.ndarray, basis: np.ndarray) -> np.ndarray:
-    """Brute-force squared periodic distances over images in {-2..2}^d."""
+def _oracle_cost(
+    a: np.ndarray, b: np.ndarray, basis: np.ndarray, radius: int = 5
+) -> np.ndarray:
+    """Brute-force squared periodic distances over images in [-radius, radius]^d.
+
+    No rounding: raw differences in (-1, 1) plus every translate in range.
+    """
     n, d = a.shape
     out = np.full((n, n), np.inf)
-    for image in itertools.product(range(-2, 3), repeat=d):
+    for image in itertools.product(range(-radius, radius + 1), repeat=d):
         r = (a[:, None, :] - b[None, :, :] + np.asarray(image, float)) @ basis
         out = np.minimum(out, np.sum(r * r, axis=-1))
     return out
@@ -100,6 +107,54 @@ def test_cost_single_image_exact_for_orthogonal_cells(data: st.DataObject) -> No
         rtol=1e-12,
         atol=1e-14,
     )
+
+
+@settings(deadline=None, max_examples=30)
+@given(
+    shear=st.integers(-6, 6),
+    stretch=st.floats(0.3, 3.0),
+    seed=st.integers(0, 2**31 - 1),
+)
+@example(shear=5, stretch=1.0, seed=0)
+def test_regression_D013_cost_exact_for_unreduced_cells(
+    shear: int, stretch: float, seed: int
+) -> None:
+    """Unreduced (strongly sheared) 2-D cells: the default scan is exact.
+
+    With basis [[1, 0], [5, 1]] the old fixed 3^d scan got 36 % of entries
+    wrong by up to 2.0 (D-013).
+    """
+    basis = np.array([[stretch, 0.0], [float(shear), 1.0]])
+    rng = np.random.default_rng(seed)
+    a, b = rng.uniform(size=(9, 2)), rng.uniform(size=(9, 2))
+    radius = max(required_images(basis)) + 3
+    got = np.asarray(torus_sq_cost(jnp.asarray(a), jnp.asarray(b), jnp.asarray(basis)))
+    np.testing.assert_allclose(
+        got, _oracle_cost(a, b, basis, radius), rtol=1e-12, atol=1e-12
+    )
+
+
+def test_cost_rejects_too_few_images() -> None:
+    """An explicit radius below required_images raises for a concrete basis."""
+    basis = jnp.asarray([[1.0, 0.0], [5.0, 1.0]])
+    a = jnp.zeros((3, 2))
+    with pytest.raises(ValueError, match="too small"):
+        torus_sq_cost(a, a, basis, images=1)
+
+
+def test_cost_needs_explicit_images_under_jit() -> None:
+    """images=None cannot size the scan from a traced basis."""
+    a = jnp.zeros((3, 2))
+    with pytest.raises(ValueError, match="concrete basis"):
+        jax.jit(lambda bas: torus_sq_cost(a, a, bas))(jnp.eye(2))
+    out = jax.jit(lambda bas: torus_sq_cost(a, a, bas, images=0))(jnp.eye(2))
+    assert out.shape == (3, 3)
+
+
+def test_required_images_orthogonal_is_zero() -> None:
+    """Rounding alone is exact for diagonal cells."""
+    assert required_images(np.diag([1.0, 2.0, 0.5])) == (0, 0, 0)
+    assert required_images(np.array([[1.0, 0.0], [5.0, 1.0]]))[0] >= 5
 
 
 def test_cost_periodic_example() -> None:
