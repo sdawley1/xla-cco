@@ -52,9 +52,24 @@ def test_no_gres(env: dict[str, str]) -> None:
     assert cause is not None and "--gres=gpu" in cause
 
 
+@pytest.mark.parametrize("value", ["cpu", "CPU", "cpu,tpu"])
+def test_regression_D016_jax_platforms_hiding_gpu_is_named(value: str) -> None:
+    """JAX_PLATFORMS without cuda/gpu is reported before --gres guesses."""
+    env = {"JAX_PLATFORMS": value, "CUDA_VISIBLE_DEVICES": "0"}
+    cause = dev.classify_failure(["cpu"], env, True)
+    assert cause is not None and "JAX_PLATFORMS" in cause and "--gres" not in cause
+
+
+@pytest.mark.parametrize("value", ["cuda", "cuda,cpu", ""])
+def test_jax_platforms_allowing_gpu_falls_through(value: str) -> None:
+    """A JAX_PLATFORMS that allows the GPU does not mask the real cause."""
+    cause = dev.classify_failure(["cpu"], {"JAX_PLATFORMS": value}, True)
+    assert cause is not None and "--gres=gpu" in cause
+
+
 def test_no_plugin_wrong_env() -> None:
     cause = dev.classify_failure(["cpu"], {"CUDA_VISIBLE_DEVICES": "0"}, False)
-    assert cause is not None and ".venv-cuda" in cause
+    assert cause is not None and "UV_PROJECT_ENVIRONMENT=.venv-cuda" in cause
 
 
 def test_plugin_error_is_missing_libraries() -> None:
@@ -78,6 +93,7 @@ def test_require_gpu_raises_with_cause(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(dev, "probe_platforms", lambda: (["cpu"], None))
     monkeypatch.setattr(dev, "plugin_installed", lambda: True)
     monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    monkeypatch.delenv("JAX_PLATFORMS", raising=False)
     with pytest.raises(RuntimeError, match="--gres=gpu"):
         dev.require_gpu()
 
@@ -93,5 +109,6 @@ def test_main_exits_one(
     monkeypatch.setattr(dev, "probe_platforms", lambda: (["cpu"], None))
     monkeypatch.setattr(dev, "plugin_installed", lambda: False)
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
+    monkeypatch.delenv("JAX_PLATFORMS", raising=False)
     assert ga.main() == 1
     assert ".venv-cuda" in capsys.readouterr().err

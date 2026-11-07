@@ -18,6 +18,7 @@ import dataclasses
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -65,6 +66,7 @@ def _pair(
 # ============================================================
 
 
+@pytest.mark.slow
 @FAST
 @given(systems(), chunk_sizes())
 def test_tables_match_oracle_and_baseline(case: tuple, chunk: int | None) -> None:
@@ -82,6 +84,7 @@ def test_tables_match_oracle_and_baseline(case: tuple, chunk: int | None) -> Non
     )
 
 
+@pytest.mark.slow
 @FAST
 @given(systems(), chunk_sizes())
 def test_tables_gradient_matches_autodiff(case: tuple, chunk: int | None) -> None:

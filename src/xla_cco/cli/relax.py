@@ -117,6 +117,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--k1a", type=float, default=0.0, help="K1 * a (default 0)")
     # ----- files -----
     p.add_argument("--load", type=Path, required=True, help="input pack prefix")
+    p.add_argument(
+        "--input-basis",
+        choices=("auto", "unit", "scaled"),
+        default="auto",
+        help="input cell convention: unit = unit-volume basis (C++ input mode); "
+        "scaled = basis already multiplied by N^(1/d), as this CLI writes its "
+        "outputs; auto = accept either (default)",
+    )
     p.add_argument("--save", type=Path, required=True, help="output prefix")
     # ----- minimizer -----
     p.add_argument("--method", choices=("lbfgs", "descent"), default="lbfgs")
@@ -213,17 +221,24 @@ def select_device(device: str) -> str:
 
 
 def load_input(
-    prefix: Path, dim: int
+    prefix: Path, dim: int, input_basis: str = "auto"
 ) -> Tuple[List[PackedConfig], np.ndarray, np.ndarray]:
-    """Read a pack; return (configs, (B, N, d) fractional, unit basis).
+    """Read a pack; return (unit-basis configs, (B, N, d) fractional, unit basis).
+
+    ``input_basis`` selects the accepted cell convention: "unit" (|det| = 1,
+    C++ input mode), "scaled" (|det| = N, i.e. basis times N^(1/d), the
+    convention of this CLI's outputs) or "auto" (either). Scaled bases are
+    divided by N^(1/d), so the returned configs always hold unit bases.
 
     Raises
     ------
     ValueError
-        On a dimension mismatch, mixed N/d, or a basis that is not unit volume.
+        On a dimension mismatch, mixed N/d, or a cell volume that matches
+        neither accepted convention.
     TypeError
         On non-float64 positions.
     """
+    assert input_basis in ("auto", "unit", "scaled"), "unknown input_basis"
     configs = read_configpack(prefix)
     if len(configs) == 0:
         raise ValueError(f"no configurations in {prefix}")
@@ -232,15 +247,26 @@ def load_input(
         raise ValueError(f"--dim {dim} does not match pack dimension {d_pack}")
     s0, _ = stack_fractional(configs)
     s0 = np.asarray(wrap_fractional_batch(jax.numpy.asarray(s0)))
+    n = int(s0.shape[1])
+    side = float(n) ** (1.0 / dim)
+    unit_configs = []
     for i, c in enumerate(configs):
         det = abs(float(np.linalg.det(np.asarray(c.basis))))
-        if abs(det - 1.0) > UNIT_VOLUME_ATOL:
+        is_unit = abs(det - 1.0) <= UNIT_VOLUME_ATOL
+        is_scaled = abs(det / n - 1.0) <= UNIT_VOLUME_ATOL * max(1.0, float(n))
+        if is_unit and input_basis in ("auto", "unit"):
+            unit_configs.append(c)
+        elif is_scaled and input_basis in ("auto", "scaled"):
+            basis = np.asarray(c.basis, dtype=np.float64) / side
+            unit_configs.append(dataclasses.replace(c, basis=basis))
+        else:
             raise ValueError(
-                f"config {i}: input basis has |det| = {det!r}, not unit volume; "
-                "C++ input mode multiplies the basis by N^(1/d), so the pack "
-                "must hold a unit-volume basis (cell volume 1)"
+                f"config {i}: input basis has |det| = {det!r}; with "
+                f"--input-basis {input_basis} the cell volume must be 1 (unit "
+                f"basis; C++ input mode multiplies it by N^(1/d)) or N = {n} "
+                "(basis already scaled by N^(1/d), as this CLI writes outputs)"
             )
-    return configs, s0, np.asarray(configs[0].basis, dtype=np.float64)
+    return unit_configs, s0, np.asarray(unit_configs[0].basis, dtype=np.float64)
 
 
 def build_physics(
@@ -449,7 +475,7 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
     validate_args(args)
     t0 = time.perf_counter()
     platform = select_device(args.device)
-    configs, s0, unit_basis = load_input(args.load, args.dim)
+    configs, s0, unit_basis = load_input(args.load, args.dim, args.input_basis)
     n = int(s0.shape[1])
     box, energy, info = build_physics(unit_basis, n, args)
     settings = make_settings(args)

@@ -17,3 +17,6 @@ slurm-*.out
 experiments/initial_conditions/
 experiments/trajectories/
 experiments/figures/
+
+# CLI quickstart outputs
+out/

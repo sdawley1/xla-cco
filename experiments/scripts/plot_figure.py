@@ -11,8 +11,9 @@ Panels, for comparison with Dawley & Torquato, PRE 112, 045310 (2025):
 Lines are ensemble means; shading
 spans the 10-90 % range. Reads summary.npz from analyze_trajectories.py.
 
-Run with the plottime interpreter:
-/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python
+Needs matplotlib: `uv sync --dev --extra plot --locked` once, then
+`uv run --no-sync python -I experiments/scripts/<this script>` (any Python
+with numpy and matplotlib also works; xla_cco is not imported).
 
 Samuel J. Dawley
 11/2026

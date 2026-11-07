@@ -17,6 +17,7 @@ import dataclasses
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -88,6 +89,7 @@ def test_energy_matches_oracle(case: tuple) -> None:
     np.testing.assert_allclose(got, ref, rtol=RTOL_KERNEL_E, atol=1e-12)
 
 
+@pytest.mark.slow
 @FAST
 @given(systems(), chunk_sizes())
 def test_value_and_grad_matches_autodiff(case: tuple, chunk: int | None) -> None:
@@ -299,6 +301,7 @@ def test_window_additivity(case: tuple, cut: int) -> None:
     np.testing.assert_allclose(whole, parts, rtol=1e-12, atol=1e-12)
 
 
+@pytest.mark.slow
 @FAST
 @given(systems(), st.sampled_from((1, 64, 128)))
 def test_padding_rows_inert(case: tuple, pad_to: int) -> None:
@@ -317,6 +320,7 @@ def test_padding_rows_inert(case: tuple, pad_to: int) -> None:
     )
 
 
+@pytest.mark.slow
 @FAST
 @given(systems(), st.sampled_from((1, 3, 5, 8, 13)))
 def test_chunked_equals_unchunked(case: tuple, chunk: int) -> None:
@@ -346,6 +350,7 @@ def test_collective_density_matches_oracle(case: tuple) -> None:
     )
 
 
+@pytest.mark.slow
 @settings(deadline=None)
 @given(
     st.integers(0, 2**31),
