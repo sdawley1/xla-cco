@@ -23,6 +23,7 @@ needed for parity, reproduce the behaviour.
 | D-014 | fixed | `experiments/scripts/analyze_wasserstein.py` (`certified`) | Converged Sinkhorn plans with a colliding rounding were trusted; their greedy-repaired matching is often suboptimal. |
 | D-015 | fixed | `cli/relax.py` (`load_input`) | The CLI rejected its own output packs (basis scaled by N^(1/d)) as input. |
 | D-016 | fixed | `_device.py` (`classify_failure`) | GPU guard blamed `--gres=gpu` when `JAX_PLATFORMS=cpu` hid the GPU, and its fix hint synced CUDA JAX into the CPU env. |
+| D-017 | fixed | `tests/property/test_energy_tables_props.py` | Table-path gradient tolerance blind to pre-cancellation magnitude (sibling of D-011). |
 
 ## D-006 — `unit_ball_volume` is not bit-equal to the C++ hard-coded constants
 - **Found:** 2026-11-05, by the T4 auditor's preview parity
@@ -134,4 +135,14 @@ needed for parity, reproduce the behaviour.
 - **Impact:** misleading failure message; following the hint polluted the CPU environment
 - **Regression test:** tests/unit/test_gpu_assert.py::test_regression_D016_jax_platforms_hiding_gpu_is_named (also test_jax_platforms_allowing_gpu_falls_through, test_cli_gpu_guard)
 - **Fix:** `JAX_PLATFORMS` without cuda/gpu is reported first ("unset it, or pass --device cpu"); the hint now gives the full `UV_PROJECT_ENVIRONMENT=.venv-cuda uv sync ...` command
+
+## D-017 — Table-path gradient tolerance blind to pre-cancellation magnitude
+- **Found:** 2026-11-07, GitHub Actions (PR #13, derandomized `ci` profile), on both Python versions
+- **Status:** fixed
+- **Where:** tests/property/test_energy_tables_props.py (`test_tables_match_oracle_and_baseline`, `test_tables_gradient_matches_autodiff`)
+- **Symptom:** phase-table vs trig gradient differ by 1.05e-12 where the test allowed 1e-12 * max(1, max|grad|) = 1e-12
+- **Repro:** 16 coincident particles at s = (0.8125, 0.8125), 10 k-rows n = (1, 1) with weights summing to 12.26, 6 zero padding rows, V = 1, chunk = 1; the exact gradient is 0, so both values are pure round-off of terms of size (4 pi n_max / V) sum(w) N
+- **Impact:** test-only; spurious red CI. The energy code is correct
+- **Regression test:** tests/property/test_energy_tables_props.py::test_regression_D017_coincident_particles_gradient_tolerance
+- **Fix:** atol = max(1e-12 * max(1, max|grad|), GRAD_SUM_C eps (4 pi n_max / V) sum(w) N + GRAD_SUM_FLOOR), the D-011 bound per particle, in both gradient comparisons
 
