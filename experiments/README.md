@@ -63,3 +63,64 @@ positions_at_iteration_m = frames[arrays["frame_index"][m - 1]]  # m >= 1
 ```
 
 Rejected iterations leave positions unchanged, so storing frames only at accepted iterations is lossless. Every iteration is still recoverable through `frame_index`.
+
+## Wasserstein-2 distance along the trajectories
+
+This section compares the proximity metric with a label-free distance: the periodic Wasserstein-2 (optimal-transport) distance between N-particle configurations. It uses the uniform empirical measures on the torus and the minimum-image cost.
+
+**Definition.** W(a, b) = ρ^{1/2} [min over permutations σ of Σ_i |a_i − b_σ(i)|²]^{1/2}. It is scaled like p_0, so W ≤ p_0, because the identity labelling is one of the admissible matchings. Two quantities are tracked per trajectory:
+
+- W_0(t) = W(r(0), r(t)), the analogue of p_0(t). It is plotted as W_0(∞) − W_0(t).
+- W_∞(t) = W(r(t), r(∞)), the distance to the ground state actually reached. Its labelled counterpart is q_∞(t) = ρ^{1/2} |r(t) − r(∞)|.
+
+The library code is in `xla_cco.analysis.transport`:
+
+- the cost matrix;
+- log-domain Sinkhorn with eps annealing, warm starts and an optional stop on a bijective rounding;
+- rounding with greedy repair.
+
+### Two computations
+
+- **Exact** (`wasserstein_exact.py`, CPU): Hungarian assignment (`scipy.optimize.linear_sum_assignment`) on 201 frames per trajectory, at t = 0 and 200 times log-spaced in t/T ∈ [1e-6, 1]. The labelled p_0 and q_∞ are stored on the same frames.
+  - Output: `wasserstein/exact_<ENS>.npz`, with arrays of shape (trajectory, frame).
+- **Sinkhorn** (`wasserstein_sinkhorn.py`, GPU): runs at every stored frame of every trajectory.
+  - Parameters: eps = 1e-2 (Cartesian² units, ρ = 1).
+  - Lanes: each (trajectory, reference) pair is an independent lane that warm-starts from its previous frame.
+  - Stopping: a frame stops once the plan's row-argmax rounding is a bijection, once its marginal error is below tol = 1e-4, or after 100 iterations.
+  - Repair: a rounding that is still not a bijection is repaired greedily.
+  - Reported value: `w_round`, the cost of that matching. It is a feasible matching, so `w_round` ≥ exact W.
+  - Diagnostic only: `w_ent`, the entropic plan's own cost. It carries a bias of order eps, which swamps W near t → T.
+  - Output: `wasserstein/sinkhorn_<ENS>[_<start>].npz`, with per-frame arrays concatenated over trajectories and delimited by `offsets`. The last axis is (r(0), r(∞)). Slices from `--start/--limit` are merged by the analysis.
+
+### Accuracy of Sinkhorn against exact
+
+The comparison uses all exact frames: 2 × 201 per trajectory, 300 trajectories.
+
+- **Bijective rounding** (≈95% of POS r(0) frames and essentially all others): the matching was the exact optimum on every one of the 76k compared frames. The worst relative error is 3e-16.
+- **Converged plan with a colliding rounding:** a genuine near-tie (swapping the partners of a close particle pair costs less than ~eps), which the greedy repair resolves. The worst relative error is 4.3e-4 at χ = 0.1 and 2.8e-3 at χ = 0.4.
+- **Unconverged at the 100-iteration cap:** the plan's potentials are stale, which happens at t/T ≈ 0.7–0.9 where descent steps are largest. The greedy repair can then be badly wrong, by up to 100%.
+  - These frames are **rejected**: 1.3% of all POS Sinkhorn frames at each χ, and none for GAU.
+- `analyze_wasserstein.py` interpolates the Sinkhorn curves over certified frames only. A frame is certified if its rounding is bijective or its plan has converged, meaning marginal error < tol. `summary.npz` stores the per-class worst errors (`<ENS>/disc_*`) and the rejected fraction.
+- A 2000-iteration cap removes most rejections but stalls for hours on persistent near-ties, because the GPU lanes then wait on a few hard frames.
+
+### Results
+
+- **χ = 0.1:** the optimal matching is the identity at every frame, for both ensembles, so W ≡ p_0 and W_∞ ≡ q_∞ exactly.
+- **χ = 0.4, POS:** on average 30 of 1024 particles end up matched to a different initial particle. ⟨W_0(∞)⟩ = 25.540 against ⟨p_0(∞)⟩ = 25.605, a gap of ≤ 0.6%.
+- **χ = 0.4, GAU:** about 1 particle is re-matched. ⟨W_0(∞)⟩ = 11.646 against ⟨p_0(∞)⟩ = 11.648.
+- **Re-matching over time:** relative to r(∞), re-matching vanishes over the last decade of t/T. The labelled q_∞ therefore equals W_∞ there.
+
+### Running
+
+```bash
+sbatch --export=ALL,CHI=0.1 experiments/slurm/wasserstein_gpu.slurm      # exact (CPU cores) + Sinkhorn (GPU)
+# chi = 0.4 needs slices to fit gputest's 59 min:
+sbatch --export=ALL,CHI=0.4,ENSEMBLES=POS,START=0,LIMIT=20,EXACT=1 experiments/slurm/wasserstein_gpu.slurm
+JAX_PLATFORMS=cpu uv run --no-sync python -I experiments/scripts/analyze_wasserstein.py --traj experiments/trajectories/chi0.4
+/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/plot_wasserstein.py \
+    --summary experiments/trajectories/chi0.4/wasserstein/summary.npz --out experiments/figures/chi0.4
+```
+
+### Figures
+
+The figures are `figures/chi<χ>_w2.{png,pdf}` (the Wasserstein mirror of `chi<χ>_pos_gau`) and `figures/chi<χ>_w2_vs_p0.{png,pdf}` (exact W against labelled p on the same frames). The docstring of `plot_wasserstein.py` lists the panels.
