@@ -41,8 +41,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from batten2008_plot import (  # noqa: E402  (also applies the house rcParams)
     CHI_COLORS,
     CHI_TAGS,
+    NAMES,
     VIEW_LABELS,
     VIEW_TITLES,
+    add_common_arguments,
+    configure,
     finish,
     load,
     periodic_segments,
@@ -146,7 +149,7 @@ def figure_n3(root: Path, out: Path, dpi: int) -> None:
         bbox_to_anchor=(0.5, 0.0),
         frameon=False,
     )
-    finish(fig, out / "batten2008_w2_N3", dpi)
+    finish(fig, out / f"{NAMES['prefix']}_w2_N3", dpi)
 
 
 def figure_views(
@@ -200,7 +203,7 @@ def figure_views(
         bbox_to_anchor=(0.5, 0.0),
         frameon=False,
     )
-    finish(fig, out / f"batten2008_w2_N{n}_chi{tag}_{view}", dpi)
+    finish(fig, out / f"{NAMES['prefix']}_w2_N{n}_chi{tag}_{view}", dpi)
 
 
 def median_band(
@@ -264,7 +267,7 @@ def figure_offplane(root: Path, n: int, out: Path, dpi: int) -> None:
         bbox_to_anchor=(0.5, 0.0),
         frameon=False,
     )
-    finish(fig, out / f"batten2008_w2_N{n}_offplane", dpi)
+    finish(fig, out / f"{NAMES['prefix']}_w2_N{n}_offplane", dpi)
 
 
 def figure_geodesic_energy(roots: Dict[int, Path], out: Path, dpi: int) -> None:
@@ -304,7 +307,7 @@ def figure_geodesic_energy(roots: Dict[int, Path], out: Path, dpi: int) -> None:
         bbox_to_anchor=(0.5, 0.0),
         frameon=False,
     )
-    finish(fig, out / "batten2008_w2_geodesic_energy", dpi)
+    finish(fig, out / f"{NAMES['prefix']}_w2_geodesic_energy", dpi)
 
 
 # ============================================================
@@ -318,8 +321,10 @@ if __name__ == "__main__":
     )
     parser.add_argument("--out", type=Path, default=Path("experiments/figures"))
     parser.add_argument("--dpi", type=int, default=600)
+    add_common_arguments(parser)
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
+    configure(args.chi, args.prefix, args.dim)
 
     roots = {
         int(p.name[1:]): p

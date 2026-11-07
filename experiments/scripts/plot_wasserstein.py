@@ -71,8 +71,15 @@ COLORS = {
     "GAU": "#1f4e9c",
     "chi1-3": "black",  # Batten 2008 flows (batten2008_wasserstein.py)
     "chi2-3": "#1f4e9c",
+    "chi1-10": "black",  # 2D gradient flows (flows2d.py)
+    "chi2-5": "#1f4e9c",
 }
-LABELS = {"chi1-3": r"$\chi = 1/3$", "chi2-3": r"$\chi = 2/3$"}
+LABELS = {
+    "chi1-3": r"$\chi = 1/3$",
+    "chi2-3": r"$\chi = 2/3$",
+    "chi1-10": r"$\chi = 0.1$",
+    "chi2-5": r"$\chi = 0.4$",
+}
 TIME_LABEL = r"Dimensionless Time, $t/T$"
 FLOOR = 1e-12  # relative round-off floor for distances and gaps
 

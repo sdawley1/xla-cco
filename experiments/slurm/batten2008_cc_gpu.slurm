@@ -8,17 +8,18 @@
 #SBATCH --time=00:59:00
 #SBATCH --output=experiments/trajectories/slurm-%x-%j.out
 #
-# Collective-coordinate analyses of the N = 1000 flows (run after the flows
-# and slices). STEP picks the script: modes (|rho(k)|^2 per mode), hessian
-# (stiffness spectra and cross-sections) or floor (valley-floor contours);
-# STEP_ARGS is passed through. GPU job; guarded. From the repository root:
+# Landscape analyses of stored flows (1D Batten flows or 2D flows2d). STEP
+# picks experiments/scripts/batten2008_<STEP>.py: slices, mismatch,
+# wasserstein, modes, hessian or floor; STEP_ARGS is passed through (e.g.
+# --root experiments/trajectories/flows2d --sizes 1024 --chi 0.1 0.4).
+# GPU job; guarded. From the repository root:
 #   sbatch --export=ALL,STEP=modes experiments/slurm/batten2008_cc_gpu.slurm
 #   sbatch --export=ALL,STEP=floor,STEP_ARGS="--chi 1/3" experiments/slurm/batten2008_cc_gpu.slurm
 
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
-case "${STEP:?set STEP=modes, hessian or floor}" in
-  modes|hessian|floor) ;;
+case "${STEP:?set STEP (slices, mismatch, wasserstein, modes, hessian, floor)}" in
+  slices|mismatch|wasserstein|modes|hessian|floor) ;;
   *) echo "ERROR: unknown STEP '$STEP'" >&2; exit 1 ;;
 esac
 export UV_CACHE_DIR="${UV_CACHE_DIR:-/scratch/gpfs/TORQUATO/${USER}/.uv-cache}"

@@ -46,7 +46,7 @@ import jax.numpy as jnp
 import numpy as np
 
 # ----- project -----
-from xla_cco.box import cubic_box
+from xla_cco.box import Box, cubic_box
 from xla_cco.cli.relax import select_device
 from xla_cco.energy import StealthyEnergy, make_stealthy_energy
 from xla_cco.kvectors import chi_from_count, enumerate_kvectors
@@ -118,8 +118,16 @@ def save_atomic(path: Path, arrays: Dict[str, np.ndarray]) -> None:
 
 
 def init_state(n_traj: int, n: int, seed: int, dt_init: float) -> Dict[str, np.ndarray]:
-    """Poisson starts (i.i.d. uniform) and zeroed clocks and counters."""
-    s0 = np.random.default_rng(seed).uniform(size=(n_traj, n, 1))
+    """Poisson starts on the line (i.i.d. uniform) and zeroed clocks and counters."""
+    return init_state_from(
+        np.random.default_rng(seed).uniform(size=(n_traj, n, 1)), dt_init
+    )
+
+
+def init_state_from(s0: np.ndarray, dt_init: float) -> Dict[str, np.ndarray]:
+    """State for given fractional starts (B, N, d), with zeroed clocks and counters."""
+    assert s0.ndim == 3 and dt_init > 0.0, "starts must be (B, N, d)"
+    n_traj = s0.shape[0]
     return {
         "s0": s0,
         "s": s0.copy(),
@@ -191,7 +199,7 @@ def consolidate(
     usable = np.maximum(usable, 0)
     offsets = np.vstack([np.zeros((1, n_traj), dtype=np.int64), np.cumsum(usable, 0)])
     keys = ("s", "t", "length", "energy")
-    shapes = {"s": (n, 1), "t": (), "length": (), "energy": ()}
+    shapes = {"s": state["s0"].shape[1:], "t": (), "length": (), "energy": ()}
     out = {k: np.full((n_traj, max_records) + shapes[k], np.nan) for k in keys}
     picks = []
     for b in range(n_traj):
@@ -218,6 +226,60 @@ def consolidate(
         "traj_energy": out["energy"],
         "traj_count": np.array([p.size for p in picks], dtype=np.int64),
     }
+
+
+def integrate(
+    state: Dict[str, np.ndarray],
+    energy: StealthyEnergy,
+    basis: np.ndarray,
+    fs: FlowSettings,
+    run_dir: Path,
+    max_steps: int,
+    deadline: float,
+    label: str,
+) -> bool:
+    """Advance all running lanes chunk by chunk until done or ``deadline``.
+
+    Checkpoints after every chunk; returns True when no lane is running.
+    """
+    state_path = run_dir / "state.npz"
+    n_traj = state["s0"].shape[0]
+    while np.any(state["status"] == STATUS_RUNNING):
+        if time.time() > deadline:
+            print(f"{label}: wall budget reached; rerun to resume", flush=True)
+            return False
+        t0 = time.time()
+        dt = np.where(state["status"] == STATUS_RUNNING, state["dt"], 0.0)
+        res = run_chunk(energy, state["s"], dt, basis, fs)
+        advance(state, res, run_dir, max_steps)
+        state["wall"] = np.asarray(float(state["wall"]) + time.time() - t0)
+        save_atomic(state_path, state)
+        run = int(np.sum(state["status"] == STATUS_RUNNING))
+        print(
+            f"{label} chunk {int(state['next_chunk'])}: running {run}/{n_traj}; "
+            f"Phi median {np.nanmedian(state['energy']):.2e}; "
+            f"t median {np.median(state['t']):.2e}; {time.time() - t0:.0f} s",
+            flush=True,
+        )
+    return True
+
+
+def load_system(
+    root: Path, tag: str
+) -> Tuple[StealthyEnergy, np.ndarray, np.ndarray, np.ndarray]:
+    """Rebuild the energy of stored flows from their basis and K window.
+
+    Returns (energy, basis, n_vectors (M, d) integer, |k| (M,)), with the
+    k-set sorted by |k| (enumerate_kvectors order). Works for the 1D flows
+    (K = 2 pi (M + 1/2) / L) and the 2D ones (the PRE K) alike.
+    """
+    meta = json.loads((root / f"flows_chi{tag}.json").read_text())
+    with np.load(root / f"flows_chi{tag}.npz") as z:
+        basis = np.asarray(z["basis"], dtype=np.float64)
+    kset = enumerate_kvectors(basis, 0.0, float(meta["K"]))
+    assert kset.n.shape[0] == int(meta["M"]), "k-set does not reproduce M"
+    energy = make_stealthy_energy(Box(basis=jnp.asarray(basis)), kset)
+    return energy, basis, kset.n.astype(np.float64), np.sqrt(kset.k_sq)
 
 
 def summarize(
@@ -333,26 +395,9 @@ if __name__ == "__main__":
             record_every=1,
             max_records=args.chunk_steps + 2,
         )
-        while np.any(state["status"] == STATUS_RUNNING):
-            if time.time() - started > args.wall_budget:
-                print(
-                    f"chi={chi_str}: wall budget reached; rerun to resume", flush=True
-                )
-                break
-            t0 = time.time()
-            dt = np.where(state["status"] == STATUS_RUNNING, state["dt"], 0.0)
-            res = run_chunk(energy, state["s"], dt, basis, fs)
-            advance(state, res, run_dir, args.max_steps)
-            state["wall"] = np.asarray(float(state["wall"]) + time.time() - t0)
-            save_atomic(state_path, state)
-            run = int(np.sum(state["status"] == STATUS_RUNNING))
-            print(
-                f"chi={chi_str} chunk {int(state['next_chunk'])}: running {run}/"
-                f"{args.n_traj}; Phi median {np.nanmedian(state['energy']):.2e}; "
-                f"t median {np.median(state['t']):.2e}; {time.time() - t0:.0f} s",
-                flush=True,
-            )
-        if np.any(state["status"] == STATUS_RUNNING):
+        done = integrate(state, energy, basis, fs, run_dir, args.max_steps,
+                         started + args.wall_budget, f"chi={chi_str}")  # fmt: skip
+        if not done:
             continue
 
         # =====================================================

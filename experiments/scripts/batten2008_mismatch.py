@@ -41,7 +41,7 @@ import numpy as np
 from xla_cco.cli.relax import select_device
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from batten2008_flows import build_energy, chi_tag  # noqa: E402
+from batten2008_flows import chi_tag, load_system  # noqa: E402
 from batten2008_slices import (  # noqa: E402
     Evaluator,
     make_evaluator,
@@ -65,26 +65,29 @@ FLOOR = 1e-20  # Phi below this is ground-state round-off (same floor as the plo
 # ============================================================
 
 
-def plane_points(x: np.ndarray) -> Dict[str, np.ndarray]:
-    """For each view, the in-plane point under every frame of x (F, N)."""
+def plane_points(x: np.ndarray, d: int = 1) -> Dict[str, np.ndarray]:
+    """For each view, the in-plane point under every frame of x (F, N d)."""
     assert x.ndim == 2 and x.shape[0] >= 2, "need a recorded path"
     c, p1, p2, _ = pca_axes(x)
-    origin, _, _, i, j = pair_axes(x)
+    origin, ei, ej, _, _ = pair_axes(x, d)
     out: Dict[str, np.ndarray] = {}
-    for view, axes in (("se", start_end_axes(x)), ("pca", (c, p1, p2))):
+    planes = (
+        ("se", start_end_axes(x)),
+        ("pca", (c, p1, p2)),
+        ("pair", (origin, ei, ej)),
+    )
+    for view, axes in planes:
         ab, off = project(x, axes)
         out[view] = axes[0][None, :] + ab[:, :1] * axes[1] + ab[:, 1:] * axes[2]
         out[f"{view}_off"] = off
-    pts = np.repeat(origin[None, :], x.shape[0], axis=0)
-    pts[:, i], pts[:, j] = x[:, i], x[:, j]
-    out["pair"] = pts
-    out["pair_off"] = np.linalg.norm(x - pts, axis=1)
     return out
 
 
-def analyze(x: np.ndarray, to_s: object, ev: Evaluator) -> Dict[str, np.ndarray]:
+def analyze(
+    x: np.ndarray, to_s: object, ev: Evaluator, d: int = 1
+) -> Dict[str, np.ndarray]:
     """Phi at the projected points and the off-plane distance, per view."""
-    pts = plane_points(x)
+    pts = plane_points(x, d)
     out: Dict[str, np.ndarray] = {}
     for view in VIEWS:
         out[f"{view}_phi_plane"] = ev(to_s(pts[view]))  # type: ignore[operator]
@@ -121,14 +124,14 @@ if __name__ == "__main__":
             tag = chi_tag(Fraction(chi_str))
             with np.load(root / f"flows_chi{tag}.npz") as z:
                 flows = {k: z[k] for k in z.files}
-            energy, basis, _ = build_energy(n, Fraction(chi_str))
-            side = float(basis[0, 0])
-            to_s, ev = make_to_s(n, side), make_evaluator(energy, args.chunk)
+            energy, basis, _, _ = load_system(root, tag)
+            side, d = float(basis[0, 0]), basis.shape[0]
+            to_s, ev = make_to_s(n, side, d), make_evaluator(energy, args.chunk)
             per: Dict[str, List[np.ndarray]] = {}
             for b in range(flows["s0"].shape[0]):
                 cnt = int(flows["traj_count"][b])
-                x = flows["traj_s"][b, :cnt, :, 0] * side  # Cartesian, unwrapped
-                res = analyze(x, to_s, ev)
+                x = flows["traj_s"][b, :cnt].reshape(cnt, -1) * side  # Cartesian
+                res = analyze(x, to_s, ev, d)
                 res["t"] = flows["traj_t"][b, :cnt]
                 res["energy"] = flows["traj_energy"][b, :cnt]
                 for k, v in res.items():

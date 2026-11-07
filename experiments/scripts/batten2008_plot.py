@@ -33,8 +33,9 @@ Samuel J. Dawley
 # ----- standard library -----
 import argparse
 import json
+from fractions import Fraction
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Sequence, Tuple
 
 # ----- plotting -----
 import matplotlib
@@ -63,8 +64,11 @@ plt.rcParams.update(
     }
 )
 
-CHI_TAGS = (("1-3", r"$\chi = 1/3$"), ("2-3", r"$\chi = 2/3$"))
+# Mutable on purpose: configure() rewrites them in place for other chi sets
+# (the 2D flows), and the other plot scripts import these same objects.
+CHI_TAGS = [("1-3", r"$\chi = 1/3$"), ("2-3", r"$\chi = 2/3$")]
 CHI_COLORS = {"1-3": "black", "2-3": "#1f4e9c"}
+NAMES = {"prefix": "batten2008"}  # figure file prefix
 FLOW_COLOR = "#c0392b"
 FLOOR = 1e-20  # Phi below this is ground-state round-off (batten2008_mismatch.py)
 VIEW_LABELS = {
@@ -81,6 +85,33 @@ VIEW_TITLES = {
 # ============================================================
 # HELPERS
 # ============================================================
+
+
+def chi_tag(chi: Fraction) -> str:
+    """File-name tag, e.g. '1-3' (as batten2008_flows.chi_tag; no JAX import here)."""
+    return f"{chi.numerator}-{chi.denominator}"
+
+
+def configure(chis: Sequence[str], prefix: str, dim: int = 1) -> None:
+    """Set the chi tags, labels and colors, the file prefix and the pair labels."""
+    assert 1 <= len(chis) <= 3 and dim >= 1, "one to three chi values"
+    colors = ("black", "#1f4e9c", "#c0392b")
+    CHI_TAGS[:] = [(chi_tag(Fraction(c)), rf"$\chi = {c}$") for c in chis]
+    CHI_COLORS.clear()
+    CHI_COLORS.update({t: colors[i] for i, (t, _) in enumerate(CHI_TAGS)})
+    NAMES["prefix"] = prefix
+    if dim > 1:
+        VIEW_LABELS["pair"] = (
+            r"Particle $i$ Along Its Move, $a_i$",
+            r"Particle $j$ Along Its Move, $a_j$",
+        )
+
+
+def add_common_arguments(parser: argparse.ArgumentParser) -> None:
+    """--chi, --prefix and --dim, shared by the landscape plot scripts."""
+    parser.add_argument("--chi", nargs="+", default=["1/3", "2/3"])
+    parser.add_argument("--prefix", default="batten2008", help="figure file prefix")
+    parser.add_argument("--dim", type=int, default=1, help="space dimension d")
 
 
 def load(path: Path) -> Dict[str, np.ndarray]:
@@ -145,7 +176,7 @@ def figure_n3(root: Path, out: Path, dpi: int) -> None:
         bbox_to_anchor=(0.5, 0.0),
         frameon=False,
     )
-    finish(fig, out / "batten2008_N3", dpi)
+    finish(fig, out / f"{NAMES['prefix']}_N3", dpi)
 
 
 def figure_views(
@@ -186,7 +217,7 @@ def figure_views(
             ax.set_xlabel(VIEW_LABELS[view][0], fontsize=11)
     fig.colorbar(cf, ax=axes, label=r"$\log_{10}\Phi$", shrink=0.6)
     fig.suptitle(f"N = {n}, {label}: {VIEW_TITLES[view]}")
-    finish(fig, out / f"batten2008_N{n}_chi{tag}_{view}", dpi)
+    finish(fig, out / f"{NAMES['prefix']}_N{n}_chi{tag}_{view}", dpi)
 
 
 def figure_energy(roots: Dict[int, Path], out: Path, dpi: int) -> None:
@@ -220,7 +251,7 @@ def figure_energy(roots: Dict[int, Path], out: Path, dpi: int) -> None:
         bbox_to_anchor=(0.5, 0.0),
         frameon=False,
     )
-    finish(fig, out / "batten2008_energy", dpi)
+    finish(fig, out / f"{NAMES['prefix']}_energy", dpi)
 
 
 def log_ratio_band(
@@ -296,7 +327,7 @@ def figure_mismatch(root: Path, n: int, out: Path, dpi: int) -> None:
         bbox_to_anchor=(0.5, 0.0),
         frameon=False,
     )
-    finish(fig, out / f"batten2008_N{n}_mismatch", dpi)
+    finish(fig, out / f"{NAMES['prefix']}_N{n}_mismatch", dpi)
 
 
 # ============================================================
@@ -310,8 +341,10 @@ if __name__ == "__main__":
     )
     parser.add_argument("--out", type=Path, default=Path("experiments/figures"))
     parser.add_argument("--dpi", type=int, default=600)
+    add_common_arguments(parser)
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
+    configure(args.chi, args.prefix, args.dim)
 
     roots = {
         int(p.name[1:]): p

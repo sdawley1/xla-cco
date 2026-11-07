@@ -31,10 +31,16 @@ from xla_cco.minimize import relax
 from xla_cco.minimize.lbfgs import LBFGSSettings
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "experiments" / "scripts"))
-from batten2008_floor import FiberEnergy, grid_starts, plane_offsets  # noqa: E402
-from batten2008_flows import build_energy  # noqa: E402
+from batten2008_floor import (  # noqa: E402
+    FiberEnergy,
+    grid_starts,
+    plane_offsets,
+    relax_points,
+)
+from batten2008_flows import build_energy, load_system  # noqa: E402
 from batten2008_hessian import (  # noqa: E402
     density_wave_stiffness,
+    qvectors,
     sample_frames,
     section_axes,
     tenfold_distance,
@@ -46,6 +52,8 @@ from batten2008_modes import (  # noqa: E402
     relax_times,
     structure_factors,
 )
+from batten2008_slices import pair_axes  # noqa: E402
+from batten2008_wasserstein import frame_subset, torus_match  # noqa: E402
 
 # ============================================================
 # HELPERS
@@ -178,7 +186,8 @@ def test_relax_times_last_crossing_example() -> None:
 @pytest.mark.medium
 @given(m=st.integers(1, 700))
 def test_mode_indices_in_range_and_include_ends(m: int) -> None:
-    picks = mode_indices(m, (0.0, 0.5, 1.0))
+    kmag = 2.0 * np.pi * np.arange(1, m + 1) / 1000.0  # 1D: row n is k_n
+    picks = mode_indices(kmag, (0.0, 0.5, 1.0))
     assert picks[0] == 1 and picks[-1] == m
     assert np.all(np.diff(picks) > 0) and np.all((picks >= 1) & (picks <= m))
 
@@ -219,7 +228,8 @@ def test_density_wave_stiffness_is_k_squared_at_the_lattice() -> None:
     side = float(basis[0, 0])
     x = np.arange(N, dtype=float) + 0.3  # translated integer lattice: a ground state
     h = np.asarray(energy.hessian(jnp.asarray(x[:, None] / side))) / side**2
-    stiff = density_wave_stiffness(x, h, m)
+    kvec = (2.0 * np.pi * np.arange(1, m + 1) / N)[:, None]
+    stiff = density_wave_stiffness(x[:, None], h, kvec)
     k2 = (2.0 * np.pi * np.arange(1, m + 1) / N) ** 2
     assert np.allclose(stiff, k2[:, None], rtol=1e-10)
 
@@ -229,11 +239,12 @@ def test_wavelength_power_of_a_single_cosine() -> None:
     n, mode = 16, 3
     x = np.arange(n, dtype=float)
     v = np.cos(2.0 * np.pi * mode * x / n)
-    power = wavelength_power(x, (v / np.linalg.norm(v))[:, None])
+    q = qvectors(n, 1, float(n))
+    power = wavelength_power(x[:, None], (v / np.linalg.norm(v))[:, None], q)
     assert int(np.argmax(power)) + 1 == mode
     assert power[mode - 1] == pytest.approx(n / 2.0)
     assert np.allclose(np.delete(power[: n // 2 - 1], mode - 1), 0.0, atol=1e-20)
-    assert np.all(np.isnan(wavelength_power(x, np.zeros((n, 0)))))
+    assert np.all(np.isnan(wavelength_power(x[:, None], np.zeros((n, 0)), q)))
 
 
 @pytest.mark.medium
@@ -247,3 +258,106 @@ def test_phase_stats_radial_decay_and_one_turn() -> None:
     assert out["turns"][1] == pytest.approx(1.0, rel=1e-9)
     assert out["s_lock"][0] == pytest.approx(1e-4)  # locked from the start
     assert out["unresolved"].tolist() == [0.0, 0.0]
+
+
+# ============================================================
+# TESTS: ANY DIMENSION (2D flows)
+# ============================================================
+
+
+@pytest.mark.high
+def test_load_system_rebuilds_the_1d_energy(tmp_path: Path) -> None:
+    energy, basis, m = build_energy(N, CHI)
+    k_cut = 2.0 * np.pi / N * (m + 0.5)
+    (tmp_path / "flows_chi1-3.json").write_text(f'{{"K": {k_cut}, "M": {m}}}')
+    np.savez(tmp_path / "flows_chi1-3.npz", basis=basis)
+    rebuilt, b2, nvec, kmag = load_system(tmp_path, "1-3")
+    assert np.array_equal(np.asarray(rebuilt.n_vectors), np.asarray(energy.n_vectors))
+    assert np.allclose(kmag, 2.0 * np.pi * np.arange(1, m + 1) / N)
+    s = random_s(3)
+    assert float(rebuilt(s)) == pytest.approx(float(energy(s)), rel=1e-14)
+
+
+@pytest.mark.high
+@given(seed=st.integers(0, 2**31 - 1))
+@settings(max_examples=25, deadline=None)
+def test_torus_match_is_optimal_against_all_permutations(seed: int) -> None:
+    import itertools
+
+    rng = np.random.default_rng(seed)
+    side = 3.0
+    a, b = rng.uniform(0, side, (5, 2)), rng.uniform(-side, 2 * side, (5, 2))
+    w, disp, _ = torus_match(a, b, side)
+    best = np.inf
+    for perm in itertools.permutations(range(5)):
+        dd = b[list(perm)] - a
+        dd -= side * np.round(dd / side)
+        best = min(best, float(np.sum(dd * dd)))
+    assert w**2 == pytest.approx(best, rel=1e-12)
+    assert np.allclose(np.sum(disp**2), w**2) and np.all(np.abs(disp) <= side / 2)
+
+
+@pytest.mark.medium
+def test_pair_axes_2d_moves_each_particle_along_its_net_displacement() -> None:
+    rng = np.random.default_rng(6)
+    n, d = 7, 2
+    x0 = rng.normal(size=(n, d))
+    x1 = x0.copy()
+    x1[2] += [3.0, 4.0]  # largest move
+    x1[5] += [0.0, -2.0]
+    path = np.stack([x0, 0.5 * (x0 + x1), x1]).reshape(3, -1)
+    origin, ei, ej, i, j = pair_axes(path, d)
+    assert (i, j) == (2, 5)
+    assert np.allclose(ei.reshape(n, d)[2], [0.6, 0.8]) and np.allclose(
+        ej.reshape(n, d)[5], [0.0, -1.0]
+    )
+    back = origin + (path[-1] @ ei) * ei + (path[-1] @ ej) * ej
+    assert np.allclose(back, path[-1])  # the end state lies in the slice
+
+
+@pytest.mark.medium
+def test_qvectors_2d_half_space_sorted() -> None:
+    q = qvectors(16, 2, 4.0)
+    ints = np.round(q * 4.0 / (2.0 * np.pi)).astype(int)
+    keys = {tuple(r) for r in ints}
+    assert len(keys) == ints.shape[0] == (9 * 9 - 1) // 2
+    assert not any((-a, -b) in keys for a, b in keys)
+    assert np.all(np.diff(np.linalg.norm(q, axis=1)) >= -1e-12)
+
+
+@pytest.mark.medium
+@given(count=st.integers(2, 5000), size=st.integers(0, 400))
+def test_frame_subset_keeps_ends_sorted_unique(count: int, size: int) -> None:
+    sel = frame_subset(count, size)
+    assert sel[0] == 0 and sel[-1] == count - 1
+    assert np.all(np.diff(sel) > 0)
+    assert (
+        sel.shape[0] == count
+        if size <= 0 or size >= count
+        else sel.shape[0] <= size + 2
+    )
+
+
+@pytest.mark.high
+@pytest.mark.parametrize("d", [1, 2])
+def test_relax_points_runs_and_keeps_plane_coordinates(d: int) -> None:
+    n = 12
+    rng = np.random.default_rng(8)
+    if d == 1:
+        energy, _, _ = build_energy(n, CHI)
+        side = float(n)
+    else:
+        from xla_cco.box import Box
+        from xla_cco.energy import make_stealthy_energy
+        from xla_cco.kvectors import enumerate_kvectors
+
+        side = float(np.sqrt(n))
+        basis = side * np.eye(2)
+        kset = enumerate_kvectors(basis, 0.0, 2.0 * np.pi / side * 1.5)
+        energy = make_stealthy_energy(Box(basis=jnp.asarray(basis)), kset)
+    q, _ = np.linalg.qr(rng.normal(size=(n * d, 2)))
+    fib = FiberEnergy(base=energy, q=jnp.asarray(q.T.reshape(2, n, d)))
+    pts = rng.uniform(0.0, side, (3, n * d))
+    out = relax_points(fib, pts, side, LBFGSSettings(max_evals_per_pass=60), 2)
+    assert out["phi"].shape == (3,) and out["moved"].shape == (3,)
+    assert np.all(out["drift"] < 1e-8)

@@ -5,7 +5,9 @@ Collective coordinates along the 2008 flows: every constrained mode, exactly.
 
 The stealthy energy is a sum over the constrained modes,
 Phi = (1/V) sum_n |rho(k_n)|^2 = sum_n S(k_n) (V = N), with
-rho(k_n) = sum_j exp(i k_n x_j) and k_n = 2 pi n / L, n = 1..M. So, unlike a
+rho(k_n) = sum_j exp(i k_n . r_j) over the M half-space wavevectors of the
+k-set, sorted by |k| (in 1D, k_n = 2 pi n / L, n = 1..M; any dimension works,
+the energy is rebuilt from the flows' basis and K). So, unlike a
 2D slice, these coordinates give the energy along the path exactly, mode by
 mode. For every recorded frame of every flow (N > 3) this script stores:
 
@@ -13,8 +15,9 @@ mode. For every recorded frame of every flow (N > 3) this script stores:
   time), shape (flows, grid, M);
 - t_relax: for thresholds eps, the last t/T at which S(k_n) > eps (0 if never),
   shape (flows, M, len(eps));
-- rho(k_n, t) / sqrt(N) at every frame for n = 1-5, 10 and fractions of M
-  (phase planes);
+- rho(k_n, t) / sqrt(N) at every frame for rows n = 1-5, 10 and the rows with
+  |k| nearest K/4, K/2, 3K/4, K (phase planes; "picks", 1-based rows);
+- the k-set itself ("nvec", integer coefficients, and "kmag" = |k|);
 - per mode: phase turns, S at which the phase locks, unresolved-step
   fraction (phase_stats);
 - the largest relative gap between sum_n S(k_n) and the recorded energy.
@@ -47,7 +50,7 @@ from xla_cco.cli.relax import select_device
 from xla_cco.energy import collective_density
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from batten2008_flows import build_energy, chi_tag  # noqa: E402
+from batten2008_flows import chi_tag, load_system  # noqa: E402
 from batten2008_wasserstein import pad  # noqa: E402
 
 # ============================================================
@@ -65,11 +68,17 @@ FRAME_BATCH = 128  # frames per collective-density call
 # ============================================================
 
 
-def mode_indices(m: int, picks: Tuple[float, ...]) -> np.ndarray:
-    """Distinct modes: SMALL_N (up to m) and fractions ``picks`` of m, sorted."""
+def mode_indices(kmag: np.ndarray, picks: Tuple[float, ...]) -> np.ndarray:
+    """1-based rows of the |k|-sorted k-set: SMALL_N plus |k| nearest f K.
+
+    In 1D row n is k_n = 2 pi n / L, so this is n = 1-5, 10 and n = f M.
+    """
+    m = kmag.shape[0]
     assert m >= 1 and all(0.0 <= p <= 1.0 for p in picks), "bad picks"
-    out = sorted({min(m, max(1, round(p * m))) for p in picks} | set(SMALL_N))
-    return np.array([n for n in out if n <= m], dtype=np.int64)
+    assert np.all(np.diff(kmag) >= 0.0), "k-set must be sorted by |k|"
+    near = {int(np.argmin(np.abs(kmag - p * kmag[-1]))) + 1 for p in picks}
+    out = sorted(near | {n for n in SMALL_N if n <= m})
+    return np.array(out, dtype=np.int64)
 
 
 def structure_factors(
@@ -154,12 +163,11 @@ if __name__ == "__main__":
             tag = chi_tag(Fraction(chi_str))
             with np.load(root / f"flows_chi{tag}.npz") as z:
                 flows = {k: z[k] for k in z.files}
-            energy, _, m = build_energy(n, Fraction(chi_str))
-            nvec = np.asarray(energy.n_vectors)[:m]
-            assert np.array_equal(nvec[:, 0], np.arange(1, m + 1)), "k_n = 2 pi n/L"
+            _, _, nvec, kmag = load_system(root, tag)  # sorted by |k|
+            m = nvec.shape[0]
             nv = jnp.asarray(nvec)
             rho_fn = jax.jit(jax.vmap(lambda s, nv=nv: collective_density(s, nv)))
-            picks = mode_indices(m, (0.0, 0.25, 0.5, 0.75, 1.0))
+            picks = mode_indices(kmag, (0.0, 0.25, 0.5, 0.75, 1.0))
             n_flow = flows["s0"].shape[0]
             u_min = min(
                 float(flows["traj_t"][b, 1] / flows["traj_t"][b, int(c) - 1])
@@ -188,7 +196,8 @@ if __name__ == "__main__":
                     out.setdefault(key, []).append(val)
                 out.setdefault("energy", []).append(e)
             packed = {k: pad(v) for k, v in out.items()}
-            packed.update(grid=grid, eps=np.array(EPS), picks=picks, m=np.array(m))
+            packed.update(grid=grid, eps=np.array(EPS), picks=picks, m=np.array(m),
+                          nvec=nvec, kmag=kmag)  # fmt: skip
             np.savez(root / f"modes_chi{tag}.npz", **packed)
             print(
                 f"N={n} chi={chi_str}: M={m}, {n_flow} flows; "

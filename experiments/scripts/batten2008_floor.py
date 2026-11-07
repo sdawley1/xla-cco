@@ -48,7 +48,7 @@ from xla_cco.minimize import relax
 from xla_cco.minimize.lbfgs import LBFGSSettings
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from batten2008_flows import build_energy, chi_tag  # noqa: E402
+from batten2008_flows import chi_tag, load_system  # noqa: E402
 from batten2008_slices import (  # noqa: E402
     make_evaluator,
     pca_axes,
@@ -130,25 +130,27 @@ def relax_points(
     settings: LBFGSSettings,
     batch: int,
 ) -> Dict[str, np.ndarray]:
-    """L-BFGS on the fiber from Cartesian points (P, N), ``batch`` lanes per call."""
+    """L-BFGS on the fiber from Cartesian points (P, N d), ``batch`` lanes per call."""
     rows: Dict[str, list] = {"phi": [], "status": [], "evals": [], "s": []}
     assert batch >= 1, "batch must be positive"
+    n, d = fiber.q.shape[1], fiber.q.shape[2]
+    assert pts.shape[1] == n * d, "points must be (P, N d)"
     for a in range(0, pts.shape[0], batch):
         chunk = pts[a : a + batch]
-        s0 = np.zeros((batch, pts.shape[1], 1))  # fixed shape: one compile
-        s0[: chunk.shape[0], :, 0] = chunk / side
+        s0 = np.zeros((batch, n, d))  # fixed shape: one compile
+        s0[: chunk.shape[0]] = chunk.reshape(-1, n, d) / side
         s0[chunk.shape[0] :] = s0[:1]
         res = relax(fiber, jnp.asarray(s0), settings)
         k = chunk.shape[0]
         rows["phi"].append(np.asarray(res.energy)[:k])
         rows["status"].append(np.asarray(res.status)[:k])
         rows["evals"].append(np.asarray(res.n_evals)[:k])
-        rows["s"].append(np.asarray(res.s)[:k, :, 0])
+        rows["s"].append(np.asarray(res.s)[:k].reshape(k, n * d))
     out = {k: np.concatenate(v) for k, v in rows.items()}
-    d = out.pop("s") - pts / side
-    d -= np.round(d)  # minimum image (result is wrapped into [0, 1))
-    disp = d * side
-    q = np.asarray(fiber.q)[:, :, 0]
+    ds = out.pop("s") - pts / side
+    ds -= np.round(ds)  # minimum image (result is wrapped into [0, 1))
+    disp = ds * side
+    q = np.asarray(fiber.q).reshape(fiber.q.shape[0], n * d)
     out["drift"] = np.linalg.norm(disp @ q.T, axis=1)  # in-plane motion
     out["moved"] = np.linalg.norm(disp, axis=1)
     return out
@@ -184,14 +186,14 @@ if __name__ == "__main__":
         tag = chi_tag(Fraction(chi_str))
         with np.load(root / f"flows_chi{tag}.npz") as z:
             cnt = int(z["traj_count"][args.flow])
-            x = z["traj_s"][args.flow, :cnt, :, 0]
+            x = z["traj_s"][args.flow, :cnt].reshape(cnt, -1)
             t = z["traj_t"][args.flow, :cnt]
             e_true = z["traj_energy"][args.flow, :cnt]
         with np.load(root / f"views_chi{tag}.npz") as z:
             extent = {v: (z[f"{v}_a"][args.flow], z[f"{v}_b"][args.flow])
                       for v in ("se", "pca")}  # fmt: skip
-        energy, basis, _ = build_energy(args.n, Fraction(chi_str))
-        side = float(basis[0, 0])
+        energy, basis, _, _ = load_system(root, tag)
+        side, d = float(basis[0, 0]), basis.shape[0]
         evaluate = make_evaluator(energy, 256)
         x = x * side
         u = t / t[-1]
@@ -207,7 +209,7 @@ if __name__ == "__main__":
             out = dict(base)
             t0 = time.time()
             ab, off = plane_offsets(x, axes)
-            q = jnp.asarray(np.stack([axes[1], axes[2]])[:, :, None])
+            q = jnp.asarray(np.stack([axes[1], axes[2]]).reshape(2, args.n, d))
             fiber = FiberEnergy(base=energy, q=q)
             ra0, rb0 = extent[view]
             ra = np.linspace(ra0[0], ra0[-1], args.grid)
@@ -223,7 +225,7 @@ if __name__ == "__main__":
             flat_pts = (
                 axes[0] + aa.reshape(-1, 1) * axes[1] + bb.reshape(-1, 1) * axes[2]
             )
-            flat = evaluate(flat_pts[:, :, None] / side)
+            flat = evaluate(flat_pts.reshape(-1, args.n, d) / side)
             shape = (args.grid, args.grid)
             out.update({f"{view}_a": ra, f"{view}_b": rb,
                         f"{view}_flat": flat.reshape(shape),

@@ -7,8 +7,9 @@ N = 3 (the appendix setting): Phi(x2, x3) on the unit square of fractional
 positions with x1 = 0, exact by translation invariance; flows are drawn in
 the relative coordinates (x2 - x1, x3 - x1) mod 1.
 
-N > 3: for every flow, three planes through the Cartesian configuration
-space X in R^(N d), each with Phi on a grid and the flow projected onto it:
+N > 3 (any dimension d; the energy is rebuilt from the flows' basis and K):
+for every flow, three planes through the Cartesian configuration space
+X in R^(N d), each with Phi on a grid and the flow projected onto it:
 
 - start-end: through X(0), spanned by e1 = (X(inf) - X(0))/|.| and e2, the
   direction of the flow's largest excursion perpendicular to e1. Both ends
@@ -16,8 +17,9 @@ space X in R^(N d), each with Phi on a grid and the flow projected onto it:
 - pca: through the path mean, spanned by its first two principal components
   (`explained` = their variance fractions).
 - pair: all particles frozen at X(inf) except the two that moved most, whose
-  positions span the plane (as in the 3-particle figures). The flow overlay
-  is the projection (x_i(t), x_j(t)); the others are not frozen along it.
+  positions span the plane (as in the 3-particle figures; in d > 1 each moves
+  along its own net displacement). The flow overlay is the projection of the
+  pair's positions; the others are not frozen along it.
 
 Output: <dir>/landscape_chi<tag>.npz (N = 3) or views_chi<tag>.npz.
 
@@ -34,6 +36,7 @@ import argparse
 import sys
 import time
 from fractions import Fraction
+from functools import partial
 from pathlib import Path
 from typing import Callable, Dict, Tuple
 
@@ -46,7 +49,7 @@ import numpy as np
 from xla_cco.cli.relax import select_device
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from batten2008_flows import build_energy, chi_tag  # noqa: E402
+from batten2008_flows import build_energy, chi_tag, load_system  # noqa: E402
 
 # ============================================================
 # HELPERS
@@ -69,12 +72,12 @@ def make_evaluator(energy: object, chunk: int) -> Evaluator:
     return evaluate
 
 
-def make_to_s(n: int, side: float) -> Callable[[np.ndarray], np.ndarray]:
-    """Map flattened Cartesian points (P, N) of a 1D cell to (P, N, 1) fractional."""
-    assert n > 0 and side > 0.0, "positive size"
+def make_to_s(n: int, side: float, d: int = 1) -> Callable[[np.ndarray], np.ndarray]:
+    """Map Cartesian points (P, N d) of a cubic cell to fractional (P, N, d)."""
+    assert n > 0 and side > 0.0 and d >= 1, "positive size"
 
     def to_s(pts: np.ndarray) -> np.ndarray:
-        return pts.reshape(-1, n, 1) / side
+        return pts.reshape(-1, n, d) / side
 
     return to_s
 
@@ -129,14 +132,23 @@ def pca_axes(x: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndar
     return c, vt[0], vt[1], sv[:2] ** 2 / np.sum(sv**2)
 
 
-def pair_axes(x: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, int, int]:
-    """X(inf) with the two most-displaced particles i, j free (d = 1)."""
-    disp = np.abs(x[-1] - x[0])
-    i, j = (int(v) for v in np.argsort(disp)[::-1][:2])
+def pair_axes(
+    x: np.ndarray, d: int = 1
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, int, int]:
+    """X(inf) with the two most-displaced particles i, j free.
+
+    ``x`` is (F, N d), particle-major. Particle i moves along the unit vector
+    of its net displacement (along +x in 1D), so the plane coordinates are
+    x_i in 1D and the position along that direction in general.
+    """
+    assert x.shape[1] % d == 0, "x must be (F, N d)"
+    net = (x[-1] - x[0]).reshape(-1, d)
+    i, j = (int(v) for v in np.argsort(np.linalg.norm(net, axis=1))[::-1][:2])
     ei, ej = np.zeros_like(x[0]), np.zeros_like(x[0])
-    ei[i], ej[j] = 1.0, 1.0
-    origin = x[-1].copy()
-    origin[i], origin[j] = 0.0, 0.0
+    for e, p in ((ei, i), (ej, j)):
+        u = net[p] / np.linalg.norm(net[p]) if d > 1 else np.ones(1)
+        e[p * d : (p + 1) * d] = u
+    origin = x[-1] - (x[-1] @ ei) * ei - (x[-1] @ ej) * ej
     return origin, ei, ej, i, j
 
 
@@ -171,13 +183,13 @@ def pca_view(x: np.ndarray, to_s: Callable, ev: Evaluator, g: int) -> Dict:
     return {"a": ra, "b": rb, "phi": phi, "path": p, "explained": explained}
 
 
-def pair_view(x: np.ndarray, to_s: Callable, ev: Evaluator, g: int) -> Dict:
+def pair_view(x: np.ndarray, to_s: Callable, ev: Evaluator, g: int, d: int = 1) -> Dict:
     """Two-particle slice: Phi grid with the rest at X(inf), and the pair's path."""
-    origin, ei, ej, i, j = pair_axes(x)
-    ra = span(x[:, i].min(), x[:, i].max(), 0.3, 0.75, g)
-    rb = span(x[:, j].min(), x[:, j].max(), 0.3, 0.75, g)
+    origin, ei, ej, i, j = pair_axes(x, d)
+    path = np.stack([x @ ei, x @ ej], 1)
+    ra = span(path[:, 0].min(), path[:, 0].max(), 0.3, 0.75, g)
+    rb = span(path[:, 1].min(), path[:, 1].max(), 0.3, 0.75, g)
     phi = plane_grid(origin, ei, ej, ra, rb, to_s, ev)
-    path = np.stack([x[:, i], x[:, j]], 1)
     return {"a": ra, "b": rb, "phi": phi, "path": path, "pair": np.array([i, j])}
 
 
@@ -199,8 +211,11 @@ if __name__ == "__main__":
         tag = chi_tag(Fraction(chi_str))
         with np.load(args.dir / f"flows_chi{tag}.npz") as npz:
             data = {k: npz[k] for k in npz.files}
-        n = data["s0"].shape[1]
-        energy, basis, _ = build_energy(n, Fraction(chi_str))
+        n, d = data["s0"].shape[1], data["s0"].shape[2]
+        if n == 3:
+            energy, basis, _ = build_energy(n, Fraction(chi_str))
+        else:  # rebuilt from the stored basis and K (1D or 2D flows)
+            energy, basis, _, _ = load_system(args.dir, tag)
         ev = make_evaluator(energy, args.chunk)
         t0 = time.time()
         if n == 3:
@@ -217,7 +232,7 @@ if __name__ == "__main__":
             )
             continue
         side = float(basis[0, 0])
-        to_s = make_to_s(n, side)
+        to_s = make_to_s(n, side, d)
         out: Dict[str, list] = {}
         for b in range(data["s0"].shape[0]):
             cnt = int(data["traj_count"][b])
@@ -225,7 +240,7 @@ if __name__ == "__main__":
             for name, fn in (
                 ("se", start_end_view),
                 ("pca", pca_view),
-                ("pair", pair_view),
+                ("pair", partial(pair_view, d=d)),
             ):
                 view = fn(x, to_s, ev, args.grid)
                 for k, v in view.items():

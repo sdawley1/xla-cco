@@ -263,3 +263,44 @@ uv run --no-sync python -I experiments/scripts/batten2008_cc_plot.py
 **Data.** `trajectories/batten2008/N1000/{modes,hessian}_chi<a-b>.npz` and `floor_chi<a-b>_{se,pca}.npz`.
 
 **Figures.** `figures/batten2008_N1000_{modes,mode_planes,mode_planes_full,mode_phases,hessian,hessian_detail,sections,floor}`.
+
+### The same analyses in 2D: Poisson starts to stealthy ground states
+
+`flows2d.py` integrates the true gradient flow dr/dt = −∇Φ (ROS2 with the exact Hessian, as for the 1D flows) from the first 20 Poisson starts of `initial_conditions/POS-2D-N1024` (N = 1024, density 1, L = 32), at χ = 0.1 (M = 210) and χ = 0.4 (M = 820). The energies are the same as in `run_trajectories.py`. All 40 flows reach Φ < 10⁻²⁰: about 2,000 steps (530 s for 20 flows) at χ = 0.1 and 2,670–2,920 steps (790 s) at χ = 0.4. Every analysis script takes `--root experiments/trajectories/flows2d`. The energy is rebuilt from each run's stored basis and K, the Wasserstein matching runs on the torus (Hungarian assignment per frame), and the two-particle slice moves each particle along its own net displacement.
+
+**Results, compared with 1D.**
+
+- **The 2D flows are local.** Particles move 0.70 (χ = 0.1) and 0.81 (χ = 0.4) mean spacings RMS, at most 2.7. In 1D they moved up to 8.7. At χ = 0.1 the optimal matching to r(0) is the identity at every frame, so W₀ = p₀ to 7 × 10⁻¹⁵. At χ = 0.4, 51% of frames relabel some particles (at most 56 of 1024) and |W₀ − p₀| ≤ 0.18 out of 22–28 (`flows2d_N1024_w2`). The W₂ geodesic between the endpoints climbs to a median Φ of 207 (χ = 0.1) and 808 (χ = 0.4) (`flows2d_w2_geodesic_energy`).
+- **Mode relaxation follows the 1D picture** (`flows2d_N1024_modes`). The last time S(k) exceeds 10⁻² scales as |k|⁻² across all shells at both χ. The longest wavelength decays at 0.978 × 2k₁² (χ = 0.1) and 0.85 × 2k₁² (χ = 0.4), close to the linearized rate but less exact than in 1D (0.998), because in 2D the |k| = k₁ shell holds two independent waves.
+- **Phases** (`flows2d_N1024_mode_planes_full`, `flows2d_N1024_mode_phases`). The two k₁ waves, (0, 1) and (1, 0), turn by 0.006 (χ = 0.1) and 0.03–0.04 (χ = 0.4) turns, i.e. straight radial lines. Higher modes wind at most about 1 (χ = 0.1) or 2 (χ = 0.4) turns, far less than the 1–10 turns at 1D χ = 1/3. Phases lock at S ≈ 10⁻⁸ to 10⁻¹⁰. Late-time slaving gives p ≈ 1 for every sampled mode at both χ, as at 1D χ = 1/3: the final approach is linear relaxation along one Hessian direction. No harmonic (p = n) regime exists, because neither χ is crystalline.
+- **Ground-state manifold dimension** (`flows2d_N1024_hessian`). Every end state has exactly Nd − 2M zero eigenvalues: 1628 at χ = 0.1 and 408 at χ = 0.4, so both are disordered, locally (Nd − 2M)-dimensional manifolds, like 1D χ = 1/3. The zero count jumps to its final value between t/T = 10⁻² and 0.1. The stiffest eigenvalue settles at 6.4 (χ = 0.1) and 33 (χ = 0.4).
+- **Negative curvature lasts longer than in 1D** (`flows2d_N1024_hessian_detail`). About 1,160 (χ = 0.1) and 1,130 (χ = 0.4) of the 2048 eigenvalues are negative at the Poisson start. At χ = 0.1 about 820 remain at t/T = 10⁻², 83 at 0.1 and none at 0.3. At χ = 0.4 the count falls faster, to about 200 by 10⁻², and reaches zero at 0.3. Unlike 1D χ = 1/3 (>99% of the negative directions' motion at q > K), the 2D negative directions favor the unconstrained wavelengths only 2–3× (χ = 0.1) or 1.3× (χ = 0.4) per eigenvector.
+- **Harmonic stiffness.** End-state eigenvalues pair at |k_p|² less exactly than in 1D. λ/|k|² is 0.97–0.98 for the first pairs at χ = 0.1 (median 0.94), and 0.84–0.87 for the first pairs at χ = 0.4 (median 0.64). Along pure density waves the end state is stiffer than |k|²: 1.6–2.6× for the longest waves at χ = 0.1 and 9–15× at χ = 0.4.
+- **Flat slices misreport the energy as in 1D** (`flows2d_N1024_mismatch`). The median log₁₀(Φ_plane/Φ) is +0.34 (χ = 0.1) and +0.84 (χ = 0.4) on the start-end plane, +2.8 on the PCA plane over the second half of the flow (reaching 19–20 at the end), and −1.7 and −0.7 for the two-particle slice.
+- **The valley floor is zero everywhere** (`flows2d_N1024_floor`; flow 0, 21 × 21 grid on each plane plus 40 sampled frames). All 441 grid points per plane and every sampled frame relax to a ground state (Φ ≤ 10⁻²⁰, all with the energy-tolerance status) without leaving their fiber, at both χ. The in-plane drift is at most 7 × 10⁻¹¹. Reaching the floor takes a median 44–63 units of motion on the grid and 58–77 from r(t). On the grid that is 1.7–2.8× flow 0's net displacement, against 4.5× in 1D. In 2D, unlike 1D χ = 2/3, dense floors are cheap: a 21 × 21 plane takes 34–38 s at χ = 0.1 and about 250 s at χ = 0.4 on an A100.
+
+```bash
+sbatch --export=ALL,CHI=0.1 experiments/slurm/flows2d_gpu.slurm   # resubmit to resume
+sbatch --export=ALL,CHI=0.4 experiments/slurm/flows2d_gpu.slurm
+R=experiments/trajectories/flows2d
+sbatch --export=ALL,STEP=slices,STEP_ARGS="--dir $R/N1024 --chi 0.1 0.4" experiments/slurm/batten2008_cc_gpu.slurm
+for s in mismatch modes hessian; do
+  sbatch --export=ALL,STEP=$s,STEP_ARGS="--root $R --sizes 1024 --chi 0.1 0.4" experiments/slurm/batten2008_cc_gpu.slurm
+done
+sbatch --export=ALL,STEP=wasserstein,STEP_ARGS="--root $R --sizes 1024 --chi 0.1 0.4 --max-frames 300" \
+    experiments/slurm/batten2008_cc_gpu.slurm
+for c in 0.1 0.4; do for v in se pca; do       # one floor job per chi and plane
+  sbatch --export=ALL,STEP=floor,STEP_ARGS="--root $R --n 1024 --chi $c --views $v --grid 21 --path-points 40 --max-evals 100000 --batch 256" \
+      experiments/slurm/batten2008_cc_gpu.slurm
+done; done
+C="--root $R --chi 0.1 0.4 --prefix flows2d --dim 2"
+uv run --no-sync python -I experiments/scripts/batten2008_plot.py $C
+uv run --no-sync python -I experiments/scripts/batten2008_cc_plot.py $C --n 1024
+uv run --no-sync python -I experiments/scripts/batten2008_w2_plot.py $C
+uv run --no-sync python -I experiments/scripts/plot_wasserstein.py --exact --ensembles chi1-10 chi2-5 \
+    --summary $R/N1024/w2_summary.npz --out experiments/figures/flows2d_N1024
+```
+
+**Data.** `trajectories/flows2d/N1024/`: `flows_chi{1-10,2-5}.{npz,json}` and the same analysis files as in 1D.
+
+**Figures.** `figures/flows2d_N1024_*` and `figures/flows2d_w2_*`, with the same panels as the corresponding `batten2008_*` figures.
