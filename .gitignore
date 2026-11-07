@@ -2,7 +2,6 @@
 pdfs/
 .hypothesis/
 .venv/
-parity_reports/
 __pycache__/
 .coverage
 .mutmut-cache

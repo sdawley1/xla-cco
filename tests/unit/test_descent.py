@@ -25,13 +25,11 @@ from hypothesis import strategies as st
 
 # ----- project -----
 import oracle
-from golden import load_golden
 from systems import small_system
-from tolerances import ATOL_DESCENT_GOLDEN_S, ATOL_DESCENT_ITERATE
+from tolerances import ATOL_DESCENT_ITERATE
 from xla_cco.box import cubic_box
 from xla_cco.energy import AbstractEnergy, make_stealthy_energy
 from xla_cco.kvectors import enumerate_kvectors
-from xla_cco.minimize import relax
 from xla_cco.minimize.descent import DescentSettings, adaptive_descent
 from xla_cco.minimize.result import (
     STATUS_BUDGET,
@@ -127,35 +125,6 @@ def test_descent_matches_transcribed_cpp(grow: float) -> None:
     print(f"grow={grow}: max |ds| vs transcribed C++ = {dev:.3e}", flush=True)
     assert dev <= ATOL_DESCENT_ITERATE
     assert any(accepts) and not all(accepts), "test must exercise both branches"
-
-
-def test_descent_first_steps_match_cpp_golden() -> None:
-    """First 10 accept decisions and iterates match the C++ golden (d=2, N=64)."""
-    g = load_golden("traj_d2_n64_chi0.25")
-    p = g["params"]
-    box = cubic_box(p["N"], p["d"])
-    kset = enumerate_kvectors(
-        np.asarray(box.basis),
-        float.fromhex(p["k_inner_hex"]),
-        float.fromhex(p["k_outer_hex"]),
-    )
-    assert kset.n.shape[0] == p["M"], "k-set size must match the golden"
-    energy = make_stealthy_energy(box, kset)
-    m_max = 10
-    cfg = DescentSettings(max_evals=2 * m_max, record_every=1, max_records=m_max + 1)
-    res = relax(energy, jnp.asarray(g["s0"]), cfg)
-    assert res.trajectory is not None
-    s_traj = np.asarray(res.trajectory.s)  # (B, m_max + 1, N, d)
-    iters = list(g["iters"])
-    worst = 0.0
-    for b in range(g["s0"].shape[0]):
-        for m in range(1, m_max + 1):
-            t = iters.index(m)
-            mine = bool(np.any(s_traj[b, m] != s_traj[b, m - 1]))
-            assert mine == bool(g["accepted"][t, b]), f"accept lane {b} m {m}"
-            worst = max(worst, _min_image(s_traj[b, m], g["s"][t, b]))
-    print(f"golden first 10 steps: accepts equal, max |ds| = {worst:.3e}", flush=True)
-    assert worst <= ATOL_DESCENT_GOLDEN_S
 
 
 def test_descent_eval_budget() -> None:

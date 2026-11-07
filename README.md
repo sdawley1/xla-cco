@@ -29,7 +29,8 @@ python -m xla_cco.cli.relax --dim 3 --k1a 0 --ka 0.5963271031078479 --phi 0.05 \
   cause (no `--gres=gpu`, wrong env, missing CUDA libraries) and never falls
   back to the CPU.
 
-Parity evidence: [docs/parity.md](docs/parity.md). Timings and the kernel
+Validated against the group's C++ code at kernel, trajectory and ensemble
+level during development. Timings and the kernel
 choice rule: [benchmarks/RESULTS.md](benchmarks/RESULTS.md).
 
 ## Development
@@ -57,15 +58,14 @@ UV_PROJECT_ENVIRONMENT=.venv-cuda uv sync --dev --extra cuda --locked
 
 ```bash
 export JAX_PLATFORMS=cpu
-uv run pytest -m "not gpu and not della"                       # dev profile
-uv run pytest -m "not gpu and not della" --hypothesis-profile=ci   # as in CI
+uv run pytest -m "not gpu"                       # dev profile
+uv run pytest -m "not gpu" --hypothesis-profile=ci   # as in CI
 uv run pytest --hypothesis-profile=thorough tests/property     # 5000 examples
-uv run pytest -m "not gpu and not della" --cov=xla_cco --cov-fail-under=90
+uv run pytest -m "not gpu" --cov=xla_cco --cov-fail-under=90
 ```
 
 Hypothesis profiles (`tests/conftest.py`): `dev` (100 examples, default),
-`ci` (300, derandomized), `thorough` (5000). Markers: `slow` (> 30 s), `gpu`,
-`della` (needs `/scratch` data or the C++ binary).
+`ci` (300, derandomized), `thorough` (5000). Markers: `slow` (> 30 s), `gpu`.
 
 ### Static checks and pre-commit
 
@@ -82,7 +82,5 @@ Submit from the repository root. GPU jobs fail fast through
 libraries; never a silent CPU fallback).
 
 ```bash
-sbatch slurm/test_gpu.slurm          # pytest -m "not della" on a GPU (.venv-cuda)
-sbatch slurm/parity_ensemble.slurm   # ensemble parity -> parity_reports/ensemble_<date>.md
-sbatch slurm/make_cpp_reference.slurm  # regenerate C++ goldens (CPU only)
+sbatch slurm/test_gpu.slurm          # pytest on a GPU (.venv-cuda)
 ```

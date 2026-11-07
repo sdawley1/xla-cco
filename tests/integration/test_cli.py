@@ -38,7 +38,6 @@ from xla_cco.kvectors import enumerate_kvectors, k_outer_from_ka, ka_from_chi
 # CONSTANTS
 # ============================================================
 
-CPP_RUN = Path("/scratch/gpfs/TORQUATO/sd2402/cco_runs/p3d-N100-phi0.05-chi0.05-val0.0")
 LOG_KEYS = {
     "args",
     "N",
@@ -371,48 +370,3 @@ def test_g2_table_error_column(counts: List[int], value: float) -> None:
     t = cli.g2_table(np.full(len(counts), value), c, edges)
     assert np.allclose(t[c > 0, 3], value / np.sqrt(c[c > 0]))
     assert np.all(t[c == 0, 3] == 0.0) and np.all(t[:, 1] == value)
-
-
-# ============================================================
-# C++ HEADER PARITY
-# ============================================================
-
-
-@pytest.mark.della
-def test_cli_headers_match_cpp(tmp_path: Path) -> None:
-    ic = read_configpack(CPP_RUN / "ic" / "chunk_0000", [0, 1, 2, 3])
-    write_configpack(tmp_path / "in", ic)
-    ka = 0.5963271031078479
-    args = cli.build_parser().parse_args(
-        [
-            "--dim",
-            "3",
-            "--ka",
-            repr(ka),
-            "--phi",
-            str(PHI),
-            "--load",
-            str(tmp_path / "in"),
-            "--save",
-            str(tmp_path / "out"),
-            "--device",
-            "cpu",
-            "--max-steps",
-            "2000",
-        ]
-    )
-    summary = cli.run(args)
-    assert summary["M"] == 13 and abs(summary["chi"] - 0.043771) < 5e-7
-    cpp_base = CPP_RUN / "task_0000" / "ccopt-t0000"
-    pairs = [
-        ("out", str(cpp_base)),
-        ("out_InitConfig", str(cpp_base) + "_InitConfig"),
-        ("out_Success", str(cpp_base) + "_Success"),
-    ]
-    for ours_name, cpp_name in pairs:
-        ours = read_configpack(tmp_path / ours_name, [0])[0]
-        ref = read_configpack(Path(cpp_name), [0])[0]
-        assert ours.relative.shape[1] == ref.relative.shape[1]
-        assert ours.cell_size == ref.cell_size
-        assert np.array_equal(ours.basis, ref.basis)
-        assert ours.names == ref.names

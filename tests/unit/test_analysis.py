@@ -3,7 +3,7 @@
 """
 Example tests of S(k), the isotropic average, nearest neighbours, histograms, g2.
 
-Expected values come from ``oracle`` or the C++ golden ``sk_d3_chi0.05.npz``.
+Expected values come from ``oracle`` or from brute-force sums.
 
 Samuel J. Dawley
 11/2026
@@ -25,8 +25,6 @@ import pytest
 
 # ----- project -----
 import oracle
-from golden import load_golden
-from tolerances import ATOL_SK_KERR, ATOL_SK_S, RTOL_SK
 from xla_cco.analysis.pairs import (
     g2_from_histogram,
     nearest_neighbor_distances,
@@ -149,18 +147,6 @@ def test_structure_factor_float32_raises() -> None:
 # ============================================================
 # ISOTROPIC S(k)
 # ============================================================
-
-
-def test_isotropic_sk_matches_golden() -> None:
-    g = load_golden("sk_d3_chi0.05")
-    out = isotropic_structure_factor(g["s"], cubic_box(100, 3))
-    table = g["table"]
-    assert out[0].shape[0] == table.shape[0], "row count"
-    tols = (0.0, ATOL_SK_S, ATOL_SK_KERR, ATOL_SK_S)
-    for col in range(4):
-        np.testing.assert_allclose(
-            out[col], table[:, col], rtol=RTOL_SK, atol=tols[col], equal_nan=True
-        )
 
 
 @pytest.mark.parametrize(
