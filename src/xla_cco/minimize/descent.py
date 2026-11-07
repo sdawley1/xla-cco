@@ -31,6 +31,7 @@ from xla_cco.minimize import _loop
 from xla_cco.minimize.result import (
     STATUS_BUDGET,
     STATUS_ENERGY_TOL,
+    STATUS_GRAD_TOL,
     STATUS_RUNNING,
     STATUS_STEP_FLOOR,
     RelaxResult,
@@ -88,10 +89,18 @@ def _max_iters(settings: DescentSettings) -> int:
     return settings.max_evals // 2
 
 
-def _status(f: Array, step: Array, it: Array, settings: DescentSettings) -> Array:
-    """Return the status code after an iteration (tol > floor > budget)."""
+def _status(
+    f: Array, g: Array, step: Array, it: Array, settings: DescentSettings
+) -> Array:
+    """Return the status code after an iteration.
+
+    Precedence: energy tol > zero gradient > step floor > budget. An exactly
+    zero gradient is a stationary point; the C++ rule would keep accepting
+    (0/0 is NaN), and with grow > 1 the step would overflow to NaN (D-012).
+    """
     code = jnp.where(it >= _max_iters(settings), STATUS_BUDGET, STATUS_RUNNING)
     code = jnp.where(step <= settings.step_min, STATUS_STEP_FLOOR, code)
+    code = jnp.where(jnp.all(g == 0.0), STATUS_GRAD_TOL, code)
     return jnp.where(f < settings.energy_tol, STATUS_ENERGY_TOL, code)
 
 
@@ -125,7 +134,7 @@ def init_one(
         step=step,
         it=it,
         n_evals=jnp.asarray(0, jnp.int64),
-        status=_status(f, step, it, settings).astype(jnp.int64),
+        status=_status(f, g, step, it, settings).astype(jnp.int64),
         traj=_loop.init_trajectory(
             s0, f, step, settings.record_every, settings.max_records
         ),
@@ -161,7 +170,7 @@ def chunk_one(
             step=step,
             it=it,
             n_evals=st.n_evals + 2,
-            status=_status(f, step, it, settings).astype(jnp.int64),
+            status=_status(f, g, step, it, settings).astype(jnp.int64),
             traj=st.traj,
         )
 
