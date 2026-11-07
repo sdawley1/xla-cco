@@ -58,6 +58,7 @@ def _write(tmp: Path, cfgs: List[PackedConfig], name: str = "p") -> Path:
 # ============================================================
 
 
+@pytest.mark.critical
 def test_round_trip_example(tmp_path: Path) -> None:
     """Fields survive write -> read exactly."""
     cfgs = [_cfg(5, 2, 1), _cfg(3, 3, 2)]
@@ -70,6 +71,7 @@ def test_round_trip_example(tmp_path: Path) -> None:
         assert a.names == b.names
 
 
+@pytest.mark.medium
 def test_names_keep_trailing_nulls(tmp_path: Path) -> None:
     """Names are returned verbatim, not null-stripped."""
     cfg = _cfg(2, 1)
@@ -77,6 +79,7 @@ def test_names_keep_trailing_nulls(tmp_path: Path) -> None:
     assert got.names[0] == b"a\x00\x00\x00"
 
 
+@pytest.mark.high
 def test_index_offsets_consistent(tmp_path: Path) -> None:
     """Index = NConfig then offsets; 3D N=10 record is 14+72+10*28 bytes."""
     cfgs = [_cfg(10, 3, 1), _cfg(4, 2, 2), _cfg(1, 1, 3)]
@@ -91,6 +94,7 @@ def test_index_offsets_consistent(tmp_path: Path) -> None:
     assert 14 + 72 + 100 * 28 == 2886
 
 
+@pytest.mark.high
 @pytest.mark.parametrize("sel", [[2, 0], [1], [1, 1, 0], []])
 def test_indices_subset_order(tmp_path: Path, sel: List[int]) -> None:
     """Requested order and duplicates are honoured."""
@@ -101,6 +105,7 @@ def test_indices_subset_order(tmp_path: Path, sel: List[int]) -> None:
         np.testing.assert_array_equal(g.relative, cfgs[i].relative)
 
 
+@pytest.mark.medium
 @pytest.mark.parametrize("bad", [[3], [-1]])
 def test_index_out_of_range_raises(tmp_path: Path, bad: List[int]) -> None:
     prefix = _write(tmp_path, [_cfg(2, 2)] * 3)
@@ -108,6 +113,7 @@ def test_index_out_of_range_raises(tmp_path: Path, bad: List[int]) -> None:
         read_configpack(prefix, bad)
 
 
+@pytest.mark.medium
 def test_missing_files_raise_with_both_names(tmp_path: Path) -> None:
     prefix = _write(tmp_path, [_cfg(2, 2)])
     Path(str(prefix) + ".ConfigPackIndex").unlink()
@@ -117,6 +123,7 @@ def test_missing_files_raise_with_both_names(tmp_path: Path) -> None:
     assert prefix.name + ".ConfigPack" in str(exc.value)
 
 
+@pytest.mark.medium
 @pytest.mark.parametrize("cut", [1, 5, 40, 200])
 def test_truncated_file_raises(tmp_path: Path, cut: int) -> None:
     """A pack cut anywhere inside a record raises ValueError."""
@@ -128,6 +135,7 @@ def test_truncated_file_raises(tmp_path: Path, cut: int) -> None:
         read_configpack(prefix)
 
 
+@pytest.mark.medium
 def test_truncated_pack_header_and_empty(tmp_path: Path) -> None:
     prefix = _write(tmp_path, [_cfg(3, 3)])
     pack = Path(str(prefix) + ".ConfigPack")
@@ -138,6 +146,7 @@ def test_truncated_pack_header_and_empty(tmp_path: Path) -> None:
         prefix = _write(tmp_path, [_cfg(3, 3)])
 
 
+@pytest.mark.medium
 def test_truncated_index_raises(tmp_path: Path) -> None:
     prefix = _write(tmp_path, [_cfg(3, 2), _cfg(3, 2)])
     idx = Path(str(prefix) + ".ConfigPackIndex")
@@ -148,6 +157,7 @@ def test_truncated_index_raises(tmp_path: Path) -> None:
             read_configpack(prefix)
 
 
+@pytest.mark.medium
 def test_offset_beyond_eof_raises(tmp_path: Path) -> None:
     prefix = _write(tmp_path, [_cfg(3, 2)])
     np.array([1, 10_000], dtype="<i8").tofile(str(prefix) + ".ConfigPackIndex")
@@ -155,6 +165,7 @@ def test_offset_beyond_eof_raises(tmp_path: Path) -> None:
         read_configpack(prefix)
 
 
+@pytest.mark.medium
 def test_bad_dimension_and_negative_n_raise(tmp_path: Path) -> None:
     prefix = _write(tmp_path, [_cfg(3, 2)])
     pack = Path(str(prefix) + ".ConfigPack")
@@ -171,6 +182,7 @@ def test_bad_dimension_and_negative_n_raise(tmp_path: Path) -> None:
         read_configpack(prefix)
 
 
+@pytest.mark.medium
 def test_write_validates_shapes(tmp_path: Path) -> None:
     good = _cfg(3, 2)
     with pytest.raises(ValueError):  # basis shape
@@ -203,6 +215,7 @@ def test_write_validates_shapes(tmp_path: Path) -> None:
         )
 
 
+@pytest.mark.low
 def test_write_requires_existing_parent(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         write_configpack(tmp_path / "nope" / "p", [_cfg(2, 2)])
@@ -214,6 +227,7 @@ def test_write_requires_existing_parent(tmp_path: Path) -> None:
 # ============================================================
 
 
+@pytest.mark.critical
 def test_stack_fractional_unit_basis() -> None:
     """Scaled basis is normalized to unit volume; s unchanged."""
     n, d = 100, 3
@@ -226,6 +240,7 @@ def test_stack_fractional_unit_basis() -> None:
     assert abs(np.linalg.det(ub)) == pytest.approx(1.0, rel=1e-14)
 
 
+@pytest.mark.medium
 def test_stack_fractional_rejects_mixed_shapes() -> None:
     with pytest.raises(ValueError):
         stack_fractional([_cfg(4, 2), _cfg(5, 2)])
@@ -233,6 +248,7 @@ def test_stack_fractional_rejects_mixed_shapes() -> None:
         stack_fractional([_cfg(4, 2), _cfg(4, 3)])
 
 
+@pytest.mark.medium
 def test_stack_fractional_rejects_bad_bases() -> None:
     with pytest.raises(ValueError):
         stack_fractional([])
@@ -248,6 +264,7 @@ def test_stack_fractional_rejects_bad_bases() -> None:
         stack_fractional([neg])  # non-positive determinant
 
 
+@pytest.mark.medium
 def test_stack_fractional_rejects_float32() -> None:
     a = _cfg(4, 2)
     f32 = PackedConfig(a.basis, a.relative.astype(np.float32), 1.0, a.names)
@@ -255,6 +272,7 @@ def test_stack_fractional_rejects_float32() -> None:
         stack_fractional([f32])
 
 
+@pytest.mark.medium
 def test_write_rejects_wrong_length_names_total_multiple_of_four(
     tmp_path: Path,
 ) -> None:
@@ -265,6 +283,7 @@ def test_write_rejects_wrong_length_names_total_multiple_of_four(
         write_configpack(tmp_path / "w", [cfg])
 
 
+@pytest.mark.medium
 def test_write_rejects_empty_sequence(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="empty"):
         write_configpack(tmp_path / "e", [])

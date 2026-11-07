@@ -66,12 +66,14 @@ def _walk_jaxpr_sizes(jaxpr: Any) -> Iterator[int]:
 # ============================================================
 
 
+@pytest.mark.critical
 def test_energy_matches_oracle_example() -> None:
     s, box, kset, en = _small_case()
     ref = oracle.energy(s, kset.n, kset.weights, float(box.volume))
     np.testing.assert_allclose(float(en(jnp.asarray(s))), ref, rtol=RTOL_KERNEL_E)
 
 
+@pytest.mark.critical
 def test_forces_match_cpp_closed_form() -> None:
     s, box, kset, en = _small_case(seed=3)
     _, grad = en.value_and_grad(jnp.asarray(s))
@@ -84,6 +86,7 @@ def test_forces_match_cpp_closed_form() -> None:
     )
 
 
+@pytest.mark.critical
 def test_gradient_matches_central_difference() -> None:
     s, _, _, en = _small_case(seed=5, n=6)
     _, grad = en.value_and_grad(jnp.asarray(s))
@@ -101,6 +104,7 @@ def test_gradient_matches_central_difference() -> None:
     np.testing.assert_allclose(np.asarray(grad), fd, atol=ATOL_FD * scale)
 
 
+@pytest.mark.high
 def test_single_particle_energy() -> None:
     box = cubic_box(1, 2)
     kset = enumerate_kvectors(np.asarray(box.basis), 0.0, 9.0)
@@ -109,6 +113,7 @@ def test_single_particle_energy() -> None:
     np.testing.assert_allclose(val, kset.weights.sum() / 1.0, rtol=RTOL_KERNEL_E)
 
 
+@pytest.mark.critical
 @pytest.mark.parametrize("dim,m", [(1, 6), (2, 4), (3, 3)])
 def test_lattice_ground_state(dim: int, m: int) -> None:
     n = m**dim
@@ -122,6 +127,7 @@ def test_lattice_ground_state(dim: int, m: int) -> None:
     assert float(en(jnp.asarray(s))) <= 1e-26
 
 
+@pytest.mark.high
 def test_padding_rows_inert_example() -> None:
     s, box, kset, _ = _small_case(seed=2)
     ref = make_stealthy_energy(box, kset, pad_to=1)
@@ -137,6 +143,7 @@ def test_padding_rows_inert_example() -> None:
     )
 
 
+@pytest.mark.medium
 def test_factory_pads_and_types() -> None:
     _, box, kset, _ = _small_case()
     en = make_stealthy_energy(box, kset, chunk_size=7, pad_to=64)
@@ -147,6 +154,7 @@ def test_factory_pads_and_types() -> None:
     assert en.chunk_size == 7
 
 
+@pytest.mark.medium
 def test_factory_rejects_empty_kset() -> None:
     box = cubic_box(4, 2)
     kset = enumerate_kvectors(np.asarray(box.basis), 0.0, 1e-3)
@@ -155,6 +163,7 @@ def test_factory_rejects_empty_kset() -> None:
         make_stealthy_energy(box, kset)
 
 
+@pytest.mark.high
 @pytest.mark.parametrize("chunk", [1, 5, 16, 40, 200, 1000])
 def test_chunked_equals_unchunked_example(chunk: int) -> None:
     s, box, kset, _ = _small_case(seed=7, n=20)
@@ -171,6 +180,7 @@ def test_chunked_equals_unchunked_example(chunk: int) -> None:
     np.testing.assert_allclose(np.asarray(im1), np.asarray(im0), atol=1e-12)
 
 
+@pytest.mark.high
 def test_value_and_grad_chunked_no_full_matrix() -> None:
     n, chunk = 50, 16
     box = cubic_box(n, 2)
@@ -188,6 +198,7 @@ def test_value_and_grad_chunked_no_full_matrix() -> None:
     assert max(_walk_jaxpr_sizes(big.jaxpr)) >= n * m  # the check can fail
 
 
+@pytest.mark.high
 def test_vmap_jit_hessian_compatible() -> None:
     s, _, _, en = _small_case(seed=11, n=5)
     batch = jnp.stack([jnp.asarray(s), jnp.asarray(s) + 0.1])
@@ -204,12 +215,14 @@ def test_vmap_jit_hessian_compatible() -> None:
     )
 
 
+@pytest.mark.medium
 def test_energy_is_pytree_with_static_chunk() -> None:
     _, _, _, en = _small_case()
     leaves = jax.tree_util.tree_leaves(en)
     assert len(leaves) == 3
 
 
+@pytest.mark.medium
 @pytest.mark.parametrize("which", ["call", "vag", "density", "factory"])
 def test_rejects_float32(which: str) -> None:
     s, box, kset, en = _small_case(n=4)
@@ -225,6 +238,7 @@ def test_rejects_float32(which: str) -> None:
             make_stealthy_energy(Box(jnp.asarray(box.basis, dtype=jnp.float32)), kset)
 
 
+@pytest.mark.medium
 def test_abstract_energy_default_value_and_grad() -> None:
     class Quad(AbstractEnergy):
         def __call__(self, s: Any) -> Any:
@@ -237,6 +251,7 @@ def test_abstract_energy_default_value_and_grad() -> None:
         AbstractEnergy()  # type: ignore[abstract]
 
 
+@pytest.mark.critical
 @pytest.mark.parametrize("pad_to", [1, 64])
 def test_factory_matches_oracle_large_m(pad_to: int) -> None:
     """Factory Phi and forces equal the oracle for M > pad_to (non-divisor chunk)."""

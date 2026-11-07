@@ -14,6 +14,7 @@ Samuel J. Dawley
 # ----- numerics -----
 import jax
 import jax.numpy as jnp
+import pytest
 
 # ----- package -----
 import xla_cco
@@ -61,12 +62,14 @@ EXPECTED_API = [
 # ============================================================
 
 
+@pytest.mark.critical
 def test_x64_enabled_on_import() -> None:
     """Importing the package enables float64 arrays."""
     assert jax.config.jax_enable_x64
     assert jnp.zeros(1).dtype == jnp.float64
 
 
+@pytest.mark.low
 def test_public_api_names() -> None:
     """The package exports exactly the frozen public names."""
     assert sorted(xla_cco.__all__) == sorted(EXPECTED_API)

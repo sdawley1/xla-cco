@@ -126,6 +126,7 @@ def main() -> None:
     print("GPU-OK")
 
 
+@pytest.mark.high
 def test_gpu_matches_cpu() -> None:
     here = Path(__file__).resolve().parent
     env = dict(os.environ)

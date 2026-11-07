@@ -67,6 +67,7 @@ def _stealthy(n: int, d: int, shells: int) -> Tuple[AbstractEnergy, np.ndarray]:
 # ============================================================
 
 
+@pytest.mark.high
 @settings(deadline=None, max_examples=15)
 @given(
     side=st.floats(0.5, 3.0),
@@ -92,6 +93,7 @@ def test_linear_flow_matches_closed_form(side: float, c: float, t_end: float) ->
     np.testing.assert_allclose(np.asarray(res.s), expected, rtol=0, atol=1e-9)
 
 
+@pytest.mark.high
 def test_energy_monotone_along_recorded_flow() -> None:
     """Phi never increases along an accepted gradient-flow trajectory."""
     energy, basis = _stealthy(16, 1, 5)
@@ -105,6 +107,7 @@ def test_energy_monotone_along_recorded_flow() -> None:
     assert np.all(np.diff(e) <= 1e-12 * e[:-1] + 1e-30)
 
 
+@pytest.mark.high
 def test_flow_reaches_stealthy_ground_state() -> None:
     """Low chi (well below 1/2): the flow ends below the energy tolerance."""
     energy, basis = _stealthy(32, 1, 4)
@@ -115,6 +118,7 @@ def test_flow_reaches_stealthy_ground_state() -> None:
     assert float(res.energy) < 1e-20
 
 
+@pytest.mark.medium
 def test_zero_gradient_stops_immediately() -> None:
     """A single particle has grad Phi = 0 at s = 0: stop with STATUS_GRAD_TOL."""
     energy, basis = _stealthy(1, 1, 3)
@@ -124,6 +128,7 @@ def test_zero_gradient_stops_immediately() -> None:
     np.testing.assert_array_equal(np.asarray(res.s), np.asarray(s0))
 
 
+@pytest.mark.medium
 def test_recording_first_last_and_capacity() -> None:
     """Row 0 is s0, the last valid row is the final state, count <= capacity."""
     energy, basis = _stealthy(16, 1, 3)
@@ -138,6 +143,7 @@ def test_recording_first_last_and_capacity() -> None:
     assert float(tr.t[n - 1]) == float(res.t) and float(tr.t[0]) == 0.0
 
 
+@pytest.mark.high
 def test_vmap_matches_loop() -> None:
     """Batched flows equal per-configuration flows."""
     energy, basis = _stealthy(8, 1, 2)
@@ -152,6 +158,7 @@ def test_vmap_matches_loop() -> None:
         assert int(batched.n_steps[i]) == int(one.n_steps)
 
 
+@pytest.mark.medium
 def test_rejects_float32_and_bad_settings() -> None:
     """float32 positions and non-positive tolerances are refused."""
     energy, basis = _stealthy(4, 1, 1)
@@ -170,6 +177,7 @@ def test_rejects_float32_and_bad_settings() -> None:
 # ============================================================
 
 
+@pytest.mark.high
 def test_arclength_traces_the_same_streamline() -> None:
     """Time and arclength modes: same curve, same flow time, same length."""
     energy, basis = _stealthy(16, 1, 4)
@@ -204,6 +212,7 @@ def test_arclength_traces_the_same_streamline() -> None:
         np.testing.assert_allclose(xb[inside, col], on_a, atol=1e-4)  # interp.
 
 
+@pytest.mark.high
 def test_arclength_recovers_linear_flow_time() -> None:
     """Quadratic Phi: t_end = (L^2 / c) ln|s0 - a| / |s_end - a|; length = |dx|."""
     a, c, side = 0.3, 2.0, 1.7
@@ -217,6 +226,7 @@ def test_arclength_recovers_linear_flow_time() -> None:
     assert float(res.length) == pytest.approx(side * abs(0.9 - s_end), rel=1e-10)
 
 
+@pytest.mark.medium
 def test_arclength_rejects_t_max() -> None:
     """t_max is defined on the physical clock, which arclength mode does not step."""
     energy, basis = _stealthy(4, 1, 1)
@@ -230,6 +240,7 @@ def test_arclength_rejects_t_max() -> None:
 # ============================================================
 
 
+@pytest.mark.high
 def test_rosenbrock_linear_flow_matches_closed_form() -> None:
     """ROS2 on a quadratic energy follows s(t) = a + (s0 - a) exp(-c t / L^2)."""
     a = jnp.asarray([[0.3, 0.6]])
@@ -241,6 +252,7 @@ def test_rosenbrock_linear_flow_matches_closed_form() -> None:
     np.testing.assert_allclose(np.asarray(res.s), expected, atol=1e-5)
 
 
+@pytest.mark.high
 @pytest.mark.parametrize("frac", [0.1, 0.5, 0.9])
 def test_rosenbrock_agrees_with_dopri(frac: float) -> None:
     """Both methods integrate the same flow: equal positions at equal times."""
@@ -260,6 +272,7 @@ def test_rosenbrock_agrees_with_dopri(frac: float) -> None:
     np.testing.assert_allclose(np.asarray(ros.s), np.asarray(ref.s), atol=1e-5)
 
 
+@pytest.mark.medium
 def test_rosenbrock_needs_fewer_steps_when_stiff() -> None:
     """Curvatures 1e4 and 1: explicit steps are capped near 3e-4 by stability,
     while the L-stable ROS2 step is limited only by accuracy on the slow mode."""
@@ -273,6 +286,7 @@ def test_rosenbrock_needs_fewer_steps_when_stiff() -> None:
     assert int(ros.n_steps) < int(dop.n_steps) / 5
 
 
+@pytest.mark.medium
 def test_rosenbrock_rejects_arclength() -> None:
     """ROS2 integrates the physical-time parametrization only."""
     energy, basis = _stealthy(4, 1, 1)
@@ -281,6 +295,7 @@ def test_rosenbrock_rejects_arclength() -> None:
         gradient_flow(energy, jnp.zeros((4, 1)), jnp.asarray(basis), fs)
 
 
+@pytest.mark.high
 def test_resume_continues_the_same_flow() -> None:
     """Two chunks restarted from (s, dt) match one uninterrupted run."""
     energy, basis = _stealthy(16, 1, 4)
@@ -300,6 +315,7 @@ def test_resume_continues_the_same_flow() -> None:
     assert total_t == pytest.approx(float(whole.t), rel=1e-3)
 
 
+@pytest.mark.medium
 def test_dt0_below_floor_stops_immediately() -> None:
     """A resume with dt0 = 0 (a frozen lane) does not move."""
     from xla_cco.minimize.result import STATUS_STEP_FLOOR

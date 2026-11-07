@@ -31,6 +31,7 @@ from xla_cco.io.tables import write_function_table
 # ============================================================
 
 
+@pytest.mark.high
 def test_write_function_table_format(tmp_path: Path) -> None:
     """Exact bytes: 4 tab-terminated %1.10e fields, zero-padded columns."""
     out = tmp_path / "f.txt"
@@ -43,6 +44,7 @@ def test_write_function_table_format(tmp_path: Path) -> None:
     assert out.read_bytes() == expected.encode("ascii")
 
 
+@pytest.mark.medium
 def test_write_function_table_four_columns(tmp_path: Path) -> None:
     """Four columns reproduce a real C++ line."""
     out = tmp_path / "f.txt"
@@ -52,6 +54,7 @@ def test_write_function_table_four_columns(tmp_path: Path) -> None:
     assert out.read_text() == line
 
 
+@pytest.mark.medium
 def test_write_function_table_rejects_bad_input(tmp_path: Path) -> None:
     """Ragged, too many, empty-column-list and infinite inputs raise."""
     out = tmp_path / "f.txt"
@@ -69,6 +72,7 @@ def test_write_function_table_rejects_bad_input(tmp_path: Path) -> None:
         write_function_table(out, [np.zeros((2, 2))])
 
 
+@pytest.mark.medium
 @given(
     st.lists(
         st.lists(
@@ -102,6 +106,7 @@ def test_write_function_table_property(cols: List[List[float]], n_cols: int) -> 
             assert f == "%1.10e" % (float(arrays[j][i]) if j < len(arrays) else 0.0)
 
 
+@pytest.mark.medium
 def test_regression_D009_function_table_writes_nan_like_cpp(tmp_path: Path) -> None:
     """NaN is written as glibc printf %1.10e does ("nan"/"-nan"); inf raises."""
     out = tmp_path / "f.txt"

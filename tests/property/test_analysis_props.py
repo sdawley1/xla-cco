@@ -17,6 +17,7 @@ from typing import Tuple
 # ----- numerics -----
 import jax.numpy as jnp
 import numpy as np
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -63,6 +64,7 @@ def cells(draw: st.DrawFn) -> Tuple[np.ndarray, np.ndarray]:
 # ============================================================
 
 
+@pytest.mark.high
 @FAST
 @given(sk_inputs())
 def test_structure_factor_oracle(case: Tuple[np.ndarray, np.ndarray, int]) -> None:
@@ -72,6 +74,7 @@ def test_structure_factor_oracle(case: Tuple[np.ndarray, np.ndarray, int]) -> No
     np.testing.assert_allclose(got, want, rtol=1e-10, atol=1e-12)
 
 
+@pytest.mark.high
 @FAST
 @given(sk_inputs())
 def test_structure_factor_bounds(case: Tuple[np.ndarray, np.ndarray, int]) -> None:
@@ -84,6 +87,7 @@ def test_structure_factor_bounds(case: Tuple[np.ndarray, np.ndarray, int]) -> No
     np.testing.assert_allclose(full, n_part, rtol=1e-12)
 
 
+@pytest.mark.high
 @FAST
 @given(cells())
 def test_nn_distance_oracle(case: Tuple[np.ndarray, np.ndarray]) -> None:
@@ -96,6 +100,7 @@ def test_nn_distance_oracle(case: Tuple[np.ndarray, np.ndarray]) -> None:
     )
 
 
+@pytest.mark.high
 @FAST
 @given(cells(), st.integers(0, 2**31))
 def test_nn_translation_invariant(
@@ -109,6 +114,7 @@ def test_nn_translation_invariant(
     np.testing.assert_allclose(np.asarray(a), np.asarray(b), rtol=1e-9, atol=1e-12)
 
 
+@pytest.mark.high
 @FAST
 @given(cells())
 def test_pair_histogram_matches_oracle(case: Tuple[np.ndarray, np.ndarray]) -> None:
@@ -120,6 +126,7 @@ def test_pair_histogram_matches_oracle(case: Tuple[np.ndarray, np.ndarray]) -> N
     np.testing.assert_array_equal(got, want)
 
 
+@pytest.mark.medium
 @FAST
 @given(cells())
 def test_pair_histogram_total_count(case: Tuple[np.ndarray, np.ndarray]) -> None:
@@ -133,6 +140,7 @@ def test_pair_histogram_total_count(case: Tuple[np.ndarray, np.ndarray]) -> None
     assert int(got.sum()) == 2 * n * (n - 1) // 2
 
 
+@pytest.mark.high
 @FAST
 @given(
     st.lists(st.integers(0, 500), min_size=3, max_size=3),
@@ -157,6 +165,7 @@ def test_g2_inverts_shell_normalization(
     assert np.all(g >= 0.0)
 
 
+@pytest.mark.high
 @FAST
 @given(st.sampled_from((1, 2, 3)), st.integers(0, 2**31))
 def test_isotropic_sk_translation_invariant(dim: int, seed: int) -> None:

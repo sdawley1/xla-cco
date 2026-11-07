@@ -121,6 +121,7 @@ def _box(basis: np.ndarray) -> Box:
 # ============================================================
 
 
+@pytest.mark.high
 def test_structure_factor_oracle_example() -> None:
     rng = np.random.default_rng(1)
     s = rng.uniform(size=(9, 3))
@@ -131,6 +132,7 @@ def test_structure_factor_oracle_example() -> None:
     )
 
 
+@pytest.mark.high
 def test_structure_factor_coincident_particles_equal_n() -> None:
     s = np.tile(np.array([[0.2, 0.7]]), (6, 1))
     n = np.array([[1.0, 0.0], [2.0, 3.0], [-1.0, 4.0]])
@@ -138,6 +140,7 @@ def test_structure_factor_coincident_particles_equal_n() -> None:
     np.testing.assert_allclose(got, 6.0, rtol=1e-12)
 
 
+@pytest.mark.medium
 def test_structure_factor_float32_raises() -> None:
     s32 = jnp.zeros((3, 2), dtype=jnp.float32)
     with pytest.raises(TypeError):
@@ -149,6 +152,7 @@ def test_structure_factor_float32_raises() -> None:
 # ============================================================
 
 
+@pytest.mark.high
 @pytest.mark.parametrize(
     "basis, k_dir, k_max",
     [
@@ -169,6 +173,7 @@ def test_isotropic_sk_kset_rule(basis: np.ndarray, k_dir: float, k_max: float) -
         )
 
 
+@pytest.mark.high
 @pytest.mark.parametrize("width", [0.5, 1.0])
 @pytest.mark.parametrize(
     "basis, k_dir, k_max",
@@ -194,6 +199,7 @@ def test_isotropic_sk_wide_bins_all_columns(
         )
 
 
+@pytest.mark.high
 @pytest.mark.parametrize("dim, k_dir", [(1, 3.0), (2, 3.0), (3, 3.0)])
 def test_isotropic_sk_cutoff_equality_included(dim: int, k_dir: float) -> None:
     """Side 2 pi gives reciprocal spacing 1: |k| = k_max = 5 exactly is kept."""
@@ -206,6 +212,7 @@ def test_isotropic_sk_cutoff_equality_included(dim: int, k_dir: float) -> None:
     np.testing.assert_allclose(got[1], want[1], rtol=1e-8, atol=1e-10)
 
 
+@pytest.mark.medium
 def test_bin_moments_col3_unclamped_col2_clamped() -> None:
     """Negative variances: col3 is NaN (C++), col2 is clamped to 0."""
     k = np.full(3, 0.1)  # equal |k|: float rounding makes the variance < 0
@@ -217,6 +224,7 @@ def test_bin_moments_col3_unclamped_col2_clamped() -> None:
     assert out[2][0] == 0.0
 
 
+@pytest.mark.medium
 def test_isotropic_sk_error_contracts() -> None:
     box = cubic_box(7, 2)
     with pytest.raises(TypeError):
@@ -232,6 +240,7 @@ def test_isotropic_sk_error_contracts() -> None:
 # ============================================================
 
 
+@pytest.mark.high
 def test_nn_distance_oracle_sheared_example() -> None:
     s = np.random.default_rng(5).uniform(size=(16, 2))
     got = np.asarray(nearest_neighbor_distances(jnp.asarray(s), _box(SHEARED_2D)))
@@ -240,11 +249,13 @@ def test_nn_distance_oracle_sheared_example() -> None:
     )
 
 
+@pytest.mark.medium
 def test_nn_single_particle_sees_own_image() -> None:
     got = nearest_neighbor_distances(jnp.array([[0.3, 0.3]]), _box(np.eye(2) * 2.0))
     assert math.isclose(float(got[0]), 2.0, rel_tol=1e-14)
 
 
+@pytest.mark.high
 def test_nn_translation_invariant() -> None:
     s = np.random.default_rng(6).uniform(size=(40, 3))
     box = _box(np.eye(3) * 1.5)
@@ -253,6 +264,7 @@ def test_nn_translation_invariant() -> None:
     np.testing.assert_allclose(np.asarray(a), np.asarray(b), rtol=1e-12)
 
 
+@pytest.mark.medium
 def test_nn_float32_raises() -> None:
     with pytest.raises(TypeError):
         nearest_neighbor_distances(
@@ -265,6 +277,7 @@ def test_nn_float32_raises() -> None:
 # ============================================================
 
 
+@pytest.mark.high
 def test_pair_histogram_matches_oracle_example() -> None:
     s = np.random.default_rng(7).uniform(size=(2, 16, 2))
     edges = np.linspace(0.0, 1.2, 9)
@@ -273,6 +286,7 @@ def test_pair_histogram_matches_oracle_example() -> None:
     np.testing.assert_array_equal(got, want)
 
 
+@pytest.mark.high
 def test_pair_histogram_total_count() -> None:
     b, n = 3, 16
     s = np.random.default_rng(8).uniform(size=(b, n, 3))
@@ -282,6 +296,7 @@ def test_pair_histogram_total_count() -> None:
     assert int(got.sum()) == b * n * (n - 1) // 2
 
 
+@pytest.mark.medium
 def test_pair_histogram_last_bin_closed_left_closed() -> None:
     box = _box(np.eye(1) * 8.0)
     s = jnp.asarray([[[0.0], [0.125], [0.375]]])  # exact distances 1, 3, 2
@@ -291,6 +306,7 @@ def test_pair_histogram_last_bin_closed_left_closed() -> None:
     np.testing.assert_array_equal(outside, [1])
 
 
+@pytest.mark.medium
 @pytest.mark.parametrize(
     "edges",
     [
@@ -308,6 +324,7 @@ def test_bad_edges_raise(edges: np.ndarray) -> None:
         g2_from_histogram(np.zeros(max(edges.size - 1, 1)), edges, 3, 1, 3.0, 2)
 
 
+@pytest.mark.medium
 def test_histogram_float32_raises() -> None:
     with pytest.raises(TypeError):
         pair_distance_histogram(
@@ -317,6 +334,7 @@ def test_histogram_float32_raises() -> None:
         )
 
 
+@pytest.mark.high
 def test_g2_from_histogram_hand_value() -> None:
     edges = np.array([1.0, 2.0])
     got = g2_from_histogram(np.array([30.0]), edges, 10, 2, 20.0, 2)
@@ -324,11 +342,13 @@ def test_g2_from_histogram_hand_value() -> None:
     assert math.isclose(got[0], 30.0 / (shell * 0.5 * 0.5 * 10 * 2), rel_tol=1e-14)
 
 
+@pytest.mark.medium
 def test_g2_counts_length_mismatch_raises() -> None:
     with pytest.raises(ValueError):
         g2_from_histogram(np.zeros(3), np.array([0.0, 1.0, 2.0]), 5, 1, 5.0, 2)
 
 
+@pytest.mark.high
 def test_g2_ideal_gas_unity() -> None:
     """Poisson gas: E[g2] = (N-1)/N exactly (fixed-N pairs); |g2 - E| < 5 SEM."""
     b, n, d = 200, 50, 2

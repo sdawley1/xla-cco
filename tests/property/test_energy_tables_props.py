@@ -96,6 +96,7 @@ def _check_tables(case: tuple, chunk: int | None) -> None:
 # ============================================================
 
 
+@pytest.mark.high
 @pytest.mark.slow
 @FAST
 @given(systems(), chunk_sizes())
@@ -103,6 +104,7 @@ def test_tables_match_oracle_and_baseline(case: tuple, chunk: int | None) -> Non
     _check_tables(case, chunk)
 
 
+@pytest.mark.medium
 def test_regression_D017_coincident_particles_gradient_tolerance() -> None:
     """16 coincident particles: grad = 0 exactly; paths differ by ~1e-12 round-off.
 
@@ -129,6 +131,7 @@ def test_regression_D017_coincident_particles_gradient_tolerance() -> None:
     _check_tables((s, n, w, 1.0), 1)
 
 
+@pytest.mark.high
 @pytest.mark.slow
 @FAST
 @given(systems(), chunk_sizes())
@@ -143,6 +146,7 @@ def test_tables_gradient_matches_autodiff(case: tuple, chunk: int | None) -> Non
     )
 
 
+@pytest.mark.medium
 @given(
     st.integers(1, 20_000),
     st.integers(1, 20_000),

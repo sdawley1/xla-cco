@@ -42,6 +42,7 @@ def _paths(draw: st.DrawFn) -> np.ndarray:
 # ============================================================
 
 
+@pytest.mark.high
 @settings(deadline=None)
 @given(_paths())
 def test_unwrap_recovers_continuous_path(path: np.ndarray) -> None:
@@ -55,11 +56,13 @@ def test_unwrap_recovers_continuous_path(path: np.ndarray) -> None:
     np.testing.assert_allclose(out + shift, path, atol=1e-12)
 
 
+@pytest.mark.high
 def test_unwrap_crossing_boundary_example() -> None:
     frames = np.array([[[0.95]], [[0.05]], [[0.15]]])
     np.testing.assert_allclose(unwrap_fractional(frames)[:, 0, 0], [0.95, 1.05, 1.15])
 
 
+@pytest.mark.medium
 def test_unwrap_rejects_bad_input() -> None:
     with pytest.raises(TypeError):
         unwrap_fractional(np.zeros((2, 3, 2), np.float32))
@@ -74,6 +77,7 @@ def test_unwrap_rejects_bad_input() -> None:
 # ============================================================
 
 
+@pytest.mark.high
 @settings(deadline=None)
 @given(_paths(), st.floats(0.5, 4.0), st.floats(0.1, 3.0))
 def test_proximity_matches_double_loop(
@@ -93,6 +97,7 @@ def test_proximity_matches_double_loop(
     assert got[0] == 0.0 and np.all(got >= 0.0)
 
 
+@pytest.mark.high
 def test_proximity_uniform_translation_example() -> None:
     # All N particles shifted by c: p = sqrt(rho) * sqrt(N) * |c|.
     path = np.zeros((2, 4, 2))
@@ -102,6 +107,7 @@ def test_proximity_uniform_translation_example() -> None:
     np.testing.assert_allclose(got, [0.0, 2.0 * 2.0 * 1.0])
 
 
+@pytest.mark.medium
 def test_proximity_rejects_bad_input() -> None:
     path = np.zeros((2, 4, 2))
     with pytest.raises(ValueError):

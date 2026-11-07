@@ -20,6 +20,7 @@ from hypothesis import settings
 # ============================================================
 
 
+@pytest.mark.low
 @pytest.mark.parametrize("name", ["dev", "ci", "thorough"])
 def test_regression_D007_profiles_have_no_deadline(name: str) -> None:
     assert settings.get_profile(name).deadline is None

@@ -15,6 +15,7 @@ Samuel J. Dawley
 import math
 
 import numpy as np
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -52,6 +53,7 @@ def _rows(n: np.ndarray) -> set:
     return {tuple(int(c) for c in row) for row in n}
 
 
+@pytest.mark.critical
 @settings(deadline=None)
 @given(kset_cases())
 def test_halfspace_rules(case: tuple[np.ndarray, float, float]) -> None:
@@ -66,6 +68,7 @@ def test_halfspace_rules(case: tuple[np.ndarray, float, float]) -> None:
     assert np.all(k1 * k1 < kset.k_sq) and np.all(kset.k_sq < k2 * k2)
 
 
+@pytest.mark.critical
 @settings(deadline=None)
 @given(kset_cases())
 def test_kset_complete_vs_oracle(case: tuple[np.ndarray, float, float]) -> None:
@@ -77,6 +80,7 @@ def test_kset_complete_vs_oracle(case: tuple[np.ndarray, float, float]) -> None:
     np.testing.assert_allclose(np.sort(kset.k_sq), np.sort(ksq_ref), rtol=1e-13)
 
 
+@pytest.mark.medium
 @settings(deadline=None)
 @given(kset_cases())
 def test_sorted_by_k_sq(case: tuple[np.ndarray, float, float]) -> None:
@@ -88,6 +92,7 @@ def test_sorted_by_k_sq(case: tuple[np.ndarray, float, float]) -> None:
     assert keys == sorted(keys)
 
 
+@pytest.mark.high
 @settings(deadline=None)
 @given(boxes(), st.integers(1, 20), st.floats(1.0, 3.0, allow_nan=False))
 def test_kset_vs_oracle_scaled_boxes(
@@ -110,6 +115,7 @@ _CHI = st.floats(0.001, 0.5, allow_nan=False)
 _DIM = st.sampled_from((1, 2, 3))
 
 
+@pytest.mark.medium
 @given(_DIM, st.floats(0.1, 10.0, allow_nan=False))
 def test_unit_ball_volume_scaling_and_recursion(dim: int, r: float) -> None:
     ball = {1: 2.0 * r, 2: math.pi * r**2, 3: 4.0 * math.pi * r**3 / 3.0}
@@ -121,12 +127,14 @@ def test_unit_ball_volume_scaling_and_recursion(dim: int, r: float) -> None:
     )
 
 
+@pytest.mark.high
 @given(st.floats(0.05, 5.0, allow_nan=False), _PHI, _DIM)
 def test_k_outer_from_ka_inverts_a(ka: float, phi: float, dim: int) -> None:
     a = (phi * math.gamma(dim / 2.0 + 1.0) / math.pi ** (dim / 2.0)) ** (1.0 / dim)
     np.testing.assert_allclose(k_outer_from_ka(ka, phi, dim) * a, ka, rtol=1e-12)
 
 
+@pytest.mark.high
 @given(_CHI, _PHI, _DIM)
 def test_ka_from_chi_formula_and_monotone(chi: float, phi: float, dim: int) -> None:
     ka = ka_from_chi(chi, phi, dim)
@@ -136,6 +144,7 @@ def test_ka_from_chi_formula_and_monotone(chi: float, phi: float, dim: int) -> N
     assert ka_from_chi(chi, phi * 1.5, dim) > ka
 
 
+@pytest.mark.medium
 @given(st.integers(0, 5000), st.integers(2, 10000), _DIM, st.integers(1, 7))
 def test_chi_from_count_linear(m: int, n: int, dim: int, factor: int) -> None:
     chi = chi_from_count(m, n, dim)
@@ -148,6 +157,7 @@ def test_chi_from_count_linear(m: int, n: int, dim: int, factor: int) -> None:
 _CPP_BALL = {1: 2.0, 2: math.pi, 3: 4.1887902047863909846, 4: 4.9348022005446793094}
 
 
+@pytest.mark.high
 @given(st.integers(1, 8))
 def test_unit_ball_volume_closed_form_and_cpp_constants(dim: int) -> None:
     closed = math.pi ** (dim / 2.0) / math.gamma(dim / 2.0 + 1.0)

@@ -1,8 +1,24 @@
 name: CI
 
+# Test tiers (tests/tiers.py): --priority=<tier> runs that tier and all higher
+# ones (critical > high > medium > low). Which tiers run:
+#   workflow_dispatch          the "priority" input
+#   pull_request               a "ci:<tier>" label if present, else low (all)
+#   push to main               low (all)
+#   push to any other branch   repo variable CI_PRIORITY if set, else critical
+# The coverage gate applies only when every tier runs.
+
 on:
   push:
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  workflow_dispatch:
+    inputs:
+      priority:
+        description: "Lowest tier to run (cumulative); low runs every test"
+        type: choice
+        options: [critical, high, medium, low]
+        default: low
 
 permissions:
   contents: read
@@ -36,7 +52,35 @@ jobs:
         run: uv run --no-sync ruff format --check .
       - name: Mypy
         run: uv run --no-sync mypy --strict src
+      - name: Choose test tiers
+        id: tiers
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          INPUT: ${{ inputs.priority }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+          BRANCH_DEFAULT: ${{ vars.CI_PRIORITY }}
+        run: |
+          case "$EVENT" in
+            workflow_dispatch) p="$INPUT" ;;
+            pull_request)
+              p=low
+              for t in critical high medium low; do
+                case " $LABELS " in *" ci:$t "*) p="$t"; break ;; esac
+              done ;;
+            *) if [ "$REF" = "refs/heads/main" ]; then p=low; else p="${BRANCH_DEFAULT:-critical}"; fi ;;
+          esac
+          case "$p" in critical|high|medium|low) ;; *) echo "unknown tier '$p'" >&2; exit 1 ;; esac
+          cov=""
+          if [ "$p" = low ]; then cov="--cov=xla_cco --cov-fail-under=90"; fi
+          echo "priority=$p" >> "$GITHUB_OUTPUT"
+          echo "cov=$cov" >> "$GITHUB_OUTPUT"
+          echo "Test tiers: --priority=$p ($EVENT, $REF)" >> "$GITHUB_STEP_SUMMARY"
       - name: Pytest
+        env:
+          PRIORITY: ${{ steps.tiers.outputs.priority }}
+          COV: ${{ steps.tiers.outputs.cov }}
+        # $COV is unquoted on purpose: it is empty or two separate flags
         run: >
-          uv run --no-sync pytest -m "not gpu"
-          --hypothesis-profile=ci --cov=xla_cco --cov-fail-under=90
+          uv run --no-sync pytest -m "not gpu" --priority "$PRIORITY"
+          --hypothesis-profile=ci $COV

@@ -44,6 +44,7 @@ def _tables(en: StealthyEnergy) -> StealthyEnergy:
     return dataclasses.replace(en, n_max=int(np.abs(np.asarray(en.n_vectors)).max()))
 
 
+@pytest.mark.high
 def test_factory_always_selects_trig_and_tables_stay_reachable() -> None:
     """R32: the factory never picks tables, at any M; direct construction can."""
     _, small_k, small = small_system(12, 2, 4.0)
@@ -57,6 +58,7 @@ def test_factory_always_selects_trig_and_tables_stay_reachable() -> None:
     assert forced.n_max == int(np.abs(kset.n).max())
 
 
+@pytest.mark.high
 @pytest.mark.parametrize("dim,n,k_out", [(1, 9, 5.0), (2, 12, 4.0), (3, 10, 3.5)])
 @pytest.mark.parametrize("chunk", [None, 1, 7, 64])
 def test_tables_match_oracle_and_trig_baseline(
@@ -78,6 +80,7 @@ def test_tables_match_oracle_and_trig_baseline(
     )
 
 
+@pytest.mark.high
 def test_tables_near_ordered_configuration() -> None:
     """A lattice (E ~ 0, cancellation-dominated) matches the trig path."""
     s = square_lattice(8) + 1e-9 * np.random.default_rng(0).normal(size=(64, 2))
@@ -93,6 +96,7 @@ def test_tables_near_ordered_configuration() -> None:
     np.testing.assert_allclose(np.asarray(g), np.asarray(bg), atol=1e-12)
 
 
+@pytest.mark.high
 def test_power_table_equals_exponential() -> None:
     s = jnp.asarray(np.random.default_rng(1).uniform(size=(6, 3)))
     table = np.asarray(_power_table(s, 5))
@@ -103,6 +107,7 @@ def test_power_table_equals_exponential() -> None:
         )
 
 
+@pytest.mark.high
 def test_phase_block_handles_negative_indices() -> None:
     s = jnp.asarray(np.random.default_rng(2).uniform(size=(5, 2)))
     n = jnp.asarray([[2.0, -3.0], [-1.0, 0.0], [0.0, 0.0]])
@@ -111,6 +116,7 @@ def test_phase_block_handles_negative_indices() -> None:
     np.testing.assert_allclose(ph, want, atol=1e-14)
 
 
+@pytest.mark.high
 def test_regression_D010_undersized_n_max_raises_at_construction() -> None:
     en = _tables(small_system(12, 2, 4.0)[2])
     assert en.n_max is not None and en.n_max >= 2
@@ -122,6 +128,7 @@ def test_regression_D010_undersized_n_max_raises_at_construction() -> None:
     assert ok.n_max == en.n_max + 3
 
 
+@pytest.mark.medium
 def test_non_integer_n_vectors_raise_at_construction() -> None:
     n = jnp.asarray([[1.0, 0.0], [0.5, 1.0]])
     w, v = jnp.ones(2), jnp.asarray(4.0)
@@ -131,6 +138,7 @@ def test_non_integer_n_vectors_raise_at_construction() -> None:
         StealthyEnergy(n, w, v)  # the trig path is checked too
 
 
+@pytest.mark.medium
 def test_traced_n_vectors_skip_checks_and_nan_guards_the_table() -> None:
     """Under jit ``n_vectors`` is a tracer: no check runs, NaN fill guards."""
     en = _tables(small_system(12, 2, 4.0)[2])
@@ -146,6 +154,7 @@ def test_traced_n_vectors_skip_checks_and_nan_guards_the_table() -> None:
     assert np.isnan(float(run(en.n_vectors)))
 
 
+@pytest.mark.medium
 def test_auto_chunk_size_examples() -> None:
     assert auto_chunk_size(100, 128, budget_bytes=1 << 30) is None
     assert auto_chunk_size(10_000, 9_024, budget_bytes=1 << 30) == 1118
