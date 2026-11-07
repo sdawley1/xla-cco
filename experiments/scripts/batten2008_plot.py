@@ -10,6 +10,10 @@ Figures for the Batten, Stillinger and Torquato (2008) appendix landscapes.
   flow on the start-end, PCA or two-particle slice (batten2008_slices.py),
   with log10 Phi contours and the projected flow.
 - <out>/batten2008_energy.{png,pdf}: Phi along every flow vs t/T.
+- <out>/batten2008_N<N>_mismatch.{png,pdf}: for N > 3, the energy the contour
+  panels show under the drawn path, Phi at the projected point (from
+  batten2008_mismatch.py), against the true Phi(r(t)): (a-c) flow 0 per view;
+  (d-f) median and 10-90 % band of log10(Phi_plane / Phi) over all flows.
 
 Phi is xla_cco's stealthy energy (1/V) sum_k |rho(k)|^2; the paper's Eq.
 (A1) with D = 0 is (|rho|^2 / 2)^2, a monotone function of it, so contours
@@ -30,7 +34,7 @@ Samuel J. Dawley
 import argparse
 import json
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 # ----- plotting -----
 import matplotlib
@@ -62,6 +66,7 @@ plt.rcParams.update(
 CHI_TAGS = (("1-3", r"$\chi = 1/3$"), ("2-3", r"$\chi = 2/3$"))
 CHI_COLORS = {"1-3": "black", "2-3": "#1f4e9c"}
 FLOW_COLOR = "#c0392b"
+FLOOR = 1e-20  # Phi below this is ground-state round-off (batten2008_mismatch.py)
 VIEW_LABELS = {
     "se": (r"Net Displacement, $a$", r"Largest Excursion, $b$"),
     "pca": (r"First Principal Axis, $p_1$", r"Second Principal Axis, $p_2$"),
@@ -218,6 +223,82 @@ def figure_energy(roots: Dict[int, Path], out: Path, dpi: int) -> None:
     finish(fig, out / "batten2008_energy", dpi)
 
 
+def log_ratio_band(
+    m: Dict[str, np.ndarray], view: str, grid: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Median and 10/90 % of log10(Phi_plane / Phi) over flows on a t/T grid."""
+    rows = []
+    for b in range(m["t"].shape[0]):
+        ok = np.isfinite(m["t"][b])
+        t, e = m["t"][b, ok], m["energy"][b, ok]
+        p = m[f"{view}_phi_plane"][b, ok]
+        lr = np.log10(np.maximum(p, FLOOR)) - np.log10(np.maximum(e, FLOOR))
+        rows.append(np.interp(grid, t[1:] / t[-1], lr[1:]))
+    q10, q50, q90 = np.percentile(np.array(rows), [10.0, 50.0, 90.0], axis=0)
+    return q50, q10, q90
+
+
+def figure_mismatch(root: Path, n: int, out: Path, dpi: int) -> None:
+    """Contour energy under the drawn path vs the true Phi(r(t)), per view."""
+    data = {
+        tag: load(root / f"mismatch_chi{tag}.npz")
+        for tag, _ in CHI_TAGS
+        if (root / f"mismatch_chi{tag}.npz").exists()
+    }
+    fig, axes = plt.subplots(
+        2, 3, figsize=(13.0, 7.0), sharex=True, constrained_layout=True
+    )
+    for col, view in enumerate(("se", "pca", "pair")):
+        top, bot = axes[0, col], axes[1, col]
+        for tag, m in data.items():
+            ok = np.isfinite(m["t"][0])
+            t = m["t"][0, ok]
+            u = t[1:] / t[-1]
+            top.loglog(
+                u,
+                np.maximum(m["energy"][0, ok][1:], FLOOR),
+                color=CHI_COLORS[tag],
+                lw=1.5,
+            )
+            top.loglog(
+                u,
+                np.maximum(m[f"{view}_phi_plane"][0, ok][1:], FLOOR),
+                color=CHI_COLORS[tag],
+                lw=1.5,
+                ls="--",
+            )
+            u_min = max(
+                float(np.nanmin(m["t"][:, 1] / np.nanmax(m["t"], axis=1))), 1e-12
+            )
+            grid = np.logspace(np.log10(u_min), 0.0, 300)
+            q50, q10, q90 = log_ratio_band(m, view, grid)
+            bot.fill_between(grid, q10, q90, color=CHI_COLORS[tag], alpha=0.2, lw=0)
+            bot.plot(grid, q50, color=CHI_COLORS[tag], lw=2.0)
+        bot.axhline(0.0, color="0.6", lw=0.8, zorder=0)
+        bot.set_xscale("log")
+        top.set_title(f"({'abc'[col]}) {VIEW_TITLES[view]}, flow 0", loc="left")
+        bot.set_title(f"({'def'[col]}) {VIEW_TITLES[view]}, all flows", loc="left")
+        bot.set_xlabel(r"Dimensionless Time, $t/T$")
+    axes[0, 0].set_ylabel(r"Energy, $\Phi$")
+    axes[1, 0].set_ylabel(r"Mismatch, $\log_{10}(\Phi_{\rm plane}/\Phi)$")
+    handles = [Line2D([], [], color=CHI_COLORS[t], lw=2.0) for t in data]
+    handles += [
+        Line2D([], [], color="0.3", lw=1.5),
+        Line2D([], [], color="0.3", lw=1.5, ls="--"),
+    ]
+    labels = [lab for t, lab in CHI_TAGS if t in data]
+    labels += [r"True $\Phi(r(t))$", "Contour value under the drawn path"]
+    fig.legend(
+        handles,
+        labels,
+        loc="upper center",
+        ncol=len(labels),
+        bbox_to_anchor=(0.5, 0.0),
+        frameon=False,
+    )
+    finish(fig, out / f"batten2008_N{n}_mismatch", dpi)
+
+
 # ============================================================
 # __main__
 # ============================================================
@@ -248,5 +329,7 @@ if __name__ == "__main__":
                 full = rf"{label} (M = {meta['M']})"
                 for view in ("se", "pca", "pair"):
                     figure_views(root, n, tag, full, view, args.out, args.dpi)
+        if any((root / f"mismatch_chi{t}.npz").exists() for t, _ in CHI_TAGS):
+            figure_mismatch(root, n, args.out, args.dpi)
     figure_energy(roots, args.out, args.dpi)
     print("Done.", flush=True)
