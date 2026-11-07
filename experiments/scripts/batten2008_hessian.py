@@ -5,8 +5,11 @@ Hessian of Phi along the 2008 flows: stiffness spectra and valley cross-sections
 
 At sample times t/T along every flow (N > 3) the exact Cartesian Hessian
 H = d^2 Phi / dx dx (closed form, StealthyEnergy.hessian / L^2) is
-diagonalized. Stored per flow and sample: the sorted eigenvalues, Phi and
-|grad Phi|.
+diagonalized. Stored per flow and sample: the sorted eigenvalues, Phi,
+|grad Phi|, the curvature of Phi along each density wave n = 1..M
+(density_wave_stiffness; k_n^2 at a decoupled ground state), and the mean
+wavelength power of the negative-curvature eigenvectors and of as many of
+the stiffest ones (wavelength_power).
 
 For flow 0 at a few of those samples, Phi is also evaluated on the plane
 through r(t) spanned by
@@ -54,7 +57,9 @@ from batten2008_slices import make_evaluator  # noqa: E402
 # CONSTANTS
 # ============================================================
 
-SAMPLES = (0.0, 1e-5, 1e-3, 1e-2, 1e-1, 1.0)  # t/T (nearest frame at or after)
+# t/T samples (nearest frame at or after): about three per decade
+SAMPLES = (0.0, 1e-8, 1e-7, 1e-6, 1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3,
+           1e-2, 3e-2, 1e-1, 3e-1, 1.0)  # fmt: skip
 SECTIONS = (1e-5, 1e-2, 1e-1)  # t/T of the flow-0 cross-sections
 GROWTH = 100.0  # cross-section half-width along v: Phi grows by this factor
 ZERO_REL = (1e-9, 1e-6)  # |lambda| < z * lambda_max counts as a zero mode
@@ -62,6 +67,41 @@ ZERO_REL = (1e-9, 1e-6)  # |lambda| < z * lambda_max counts as a zero mode
 # ============================================================
 # HELPERS
 # ============================================================
+
+
+def density_wave_stiffness(x: np.ndarray, h: np.ndarray, m: int) -> np.ndarray:
+    """Rayleigh quotients of H along the density-wave directions, (m, 2).
+
+    For mode n the directions are the gradients of Re rho(k_n) and
+    Im rho(k_n) with respect to x: -k_n sin(k_n x_j) and k_n cos(k_n x_j),
+    normalized. At a ground state they are eigenvectors with eigenvalue
+    k_n^2 when the modes decouple; elsewhere the quotient is the curvature
+    of Phi along that density wave.
+    """
+    n = x.shape[0]
+    assert h.shape == (n, n) and 1 <= m < n, "shapes"
+    k = 2.0 * np.pi * np.arange(1, m + 1) / n  # density 1: L = N
+    phase = np.outer(x, k)  # (N, m)
+    out = np.empty((m, 2))
+    for c, g in enumerate((-np.sin(phase), np.cos(phase))):
+        g = g / np.linalg.norm(g, axis=0, keepdims=True)
+        out[:, c] = np.einsum("im,im->m", g, h @ g)
+    return out
+
+
+def wavelength_power(x: np.ndarray, vecs: np.ndarray) -> np.ndarray:
+    """Mean Fourier power |sum_j v_j exp(i q_m x_j)|^2 of unit vectors v, m = 1..N/2.
+
+    Averages over the columns of ``vecs`` (N, K); the mean over m of the
+    result is about 2 for a vector spread evenly over wavelengths.
+    """
+    n = x.shape[0]
+    if vecs.shape[1] == 0:
+        return np.full(n // 2, np.nan)
+    q = 2.0 * np.pi * np.arange(1, n // 2 + 1) / n
+    amp = np.exp(1j * np.outer(q, x)) @ vecs  # (N/2, K)
+    out: np.ndarray = np.mean(np.abs(amp) ** 2, axis=1)
+    return out
 
 
 def sample_frames(u: np.ndarray, times: Tuple[float, ...]) -> np.ndarray:
@@ -131,7 +171,7 @@ if __name__ == "__main__":
             tag = chi_tag(Fraction(chi_str))
             with np.load(root / f"flows_chi{tag}.npz") as z:
                 flows = {k: z[k] for k in z.files}
-            energy, basis, _ = build_energy(n, Fraction(chi_str))
+            energy, basis, m = build_energy(n, Fraction(chi_str))
             side = float(basis[0, 0])
             hess = jax.jit(lambda s: energy.hessian(s))  # noqa: B023
             vag = jax.jit(lambda s: energy.value_and_grad(s))  # noqa: B023
@@ -143,7 +183,10 @@ if __name__ == "__main__":
                 t = flows["traj_t"][b, :cnt]
                 u, x = t / t[-1], flows["traj_s"][b, :cnt, :, 0] * side
                 e = flows["traj_energy"][b, :cnt]
-                rows = {"lam": [], "phi": [], "gnorm": [], "u": []}
+                rows: Dict[str, list] = {
+                    "lam": [], "phi": [], "gnorm": [], "u": [],
+                    "dw_stiff": [], "neg_power": [], "pos_power": [],
+                }  # fmt: skip
                 for i, k in enumerate(sample_frames(u, SAMPLES)):
                     s = jnp.asarray(x[k][:, None] / side)
                     h = np.asarray(hess(s)) / side**2  # Cartesian Hessian
@@ -154,6 +197,11 @@ if __name__ == "__main__":
                     rows["phi"].append(np.array(float(phi)))
                     rows["gnorm"].append(np.array(np.linalg.norm(grad)))
                     rows["u"].append(np.array(u[k]))
+                    rows["dw_stiff"].append(density_wave_stiffness(x[k], h, m))
+                    neg = lam < -ZERO_REL[1] * lam[-1]
+                    rows["neg_power"].append(wavelength_power(x[k], vecs[:, neg]))
+                    stiff = vecs[:, -max(1, int(neg.sum())) :]  # as many, stiffest
+                    rows["pos_power"].append(wavelength_power(x[k], stiff))
                     if b == 0 and SAMPLES[i] in SECTIONS:
                         j = SECTIONS.index(SAMPLES[i])
                         sec = cross_section(

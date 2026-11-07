@@ -34,11 +34,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "experiments" / "sc
 from batten2008_floor import FiberEnergy, grid_starts, plane_offsets  # noqa: E402
 from batten2008_flows import build_energy  # noqa: E402
 from batten2008_hessian import (  # noqa: E402
+    density_wave_stiffness,
     sample_frames,
     section_axes,
     tenfold_distance,
+    wavelength_power,
 )
-from batten2008_modes import mode_indices, relax_times, structure_factors  # noqa: E402
+from batten2008_modes import (  # noqa: E402
+    mode_indices,
+    phase_stats,
+    relax_times,
+    structure_factors,
+)
 
 # ============================================================
 # HELPERS
@@ -204,3 +211,39 @@ def test_tenfold_distance_example() -> None:
     assert tenfold_distance(x, e, 0) == pytest.approx(2.0 * np.sqrt(2.0))
     assert tenfold_distance(x, e, 2) == pytest.approx(2.0 * np.sqrt(2.0))  # 0.5 <= 0.9
     assert tenfold_distance(x, e, 3) == pytest.approx(np.sqrt(2.0))  # last frame
+
+
+@pytest.mark.high
+def test_density_wave_stiffness_is_k_squared_at_the_lattice() -> None:
+    energy, basis, m = build_energy(N, CHI)  # N = 12, M = 4 < N - M: no aliasing
+    side = float(basis[0, 0])
+    x = np.arange(N, dtype=float) + 0.3  # translated integer lattice: a ground state
+    h = np.asarray(energy.hessian(jnp.asarray(x[:, None] / side))) / side**2
+    stiff = density_wave_stiffness(x, h, m)
+    k2 = (2.0 * np.pi * np.arange(1, m + 1) / N) ** 2
+    assert np.allclose(stiff, k2[:, None], rtol=1e-10)
+
+
+@pytest.mark.medium
+def test_wavelength_power_of_a_single_cosine() -> None:
+    n, mode = 16, 3
+    x = np.arange(n, dtype=float)
+    v = np.cos(2.0 * np.pi * mode * x / n)
+    power = wavelength_power(x, (v / np.linalg.norm(v))[:, None])
+    assert int(np.argmax(power)) + 1 == mode
+    assert power[mode - 1] == pytest.approx(n / 2.0)
+    assert np.allclose(np.delete(power[: n // 2 - 1], mode - 1), 0.0, atol=1e-20)
+    assert np.all(np.isnan(wavelength_power(x, np.zeros((n, 0)))))
+
+
+@pytest.mark.medium
+def test_phase_stats_radial_decay_and_one_turn() -> None:
+    t = np.linspace(0.0, 1.0, 401)
+    radial = 1e-2 * np.exp(-20.0 * t) * np.exp(1j * 0.7)  # fixed phase
+    turning = 1e-2 * np.exp(1j * 2.0 * np.pi * t)  # one full turn, constant S
+    rho = np.stack([radial, turning], axis=1)
+    out = phase_stats(rho.real, rho.imag)
+    assert out["turns"][0] == pytest.approx(0.0, abs=1e-12)
+    assert out["turns"][1] == pytest.approx(1.0, rel=1e-9)
+    assert out["s_lock"][0] == pytest.approx(1e-4)  # locked from the start
+    assert out["unresolved"].tolist() == [0.0, 0.0]
