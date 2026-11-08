@@ -773,6 +773,51 @@ The spectrum is therefore narrower than MP at every χ: λ_max is 0.76 → 0.57 
 
 **What this means for the landscape.** At a ground state the waves are less coupled than random gradients would make them, because S vanishes inside the exclusion region. This is why χ = 0.1 behaves like nearly independent wells. As χ → 1/2 the coupling, and with it the soft tail and the slow valley, returns through the waves just outside K.
 
+#### The shoulder at λ(C) = 1 is physical
+
+At χ = 0.4 and 0.45 the ground-state cumulative curves of `coupling_mp_compare` (c, d) have a shoulder at λ(C) ≈ 1, and the F − F_MP curves of panel (e) have a matching kink. `batten2008_mp_shoulder_plot.py` (`figures/coupling_mp_shoulder`) shows that this is a physical feature of stealthy ground states, not a numerical artifact.
+
+**Mechanism: the long waves cannot couple to one another.** The coupling is fixed exactly by the density at the pair wave vectors:
+- K(Re q, Re p) = (q·p)/V Re[ρ(q−p) − ρ(q+p)];
+- K(Re q, Im p) = −(q·p)/V Im[ρ(q+p) + ρ(q−p)];
+- K(Im q, Im p) = (q·p)/V Re[ρ(q−p) + ρ(q+p)].
+
+Rebuilding C this way from ρ on the 2K lattice reproduces the spectrum from the gradients to ≤ 7·10⁻¹⁴.
+
+Consequences at a ground state, where ρ = 0 inside K:
+- Every pair with |q ± p| < K is uncoupled. In particular, all waves with |q| < K/2 are uncoupled from one another (panel b): they make up 24–26% of the coordinates at every χ, and |C| inside their block is ≤ 5·10⁻¹³.
+- They couple only to the outer waves, through ρ just beyond K. Their eigenvalues therefore stay near 1. Every eigenvector within 0.02 of 1 is a long wave: median |q|/K = 0.51, 0.48, 0.38 and 0.31 at χ = 0.1, 0.25, 0.4 and 0.45, against about 0.70 for all eigenvectors (panel c).
+- At large χ the outer waves are strongly coupled and split into a soft pile near 0 and a stiff hump near 2 (panel a). The long-wave cluster stays behind at 1 as a sharp peak.
+
+**Peak ratio** ρ(1)/½[ρ(0.8) + ρ(1.2)] (panel f):
+
+| | χ = 0.1 | 0.25 | 0.4 | 0.45 |
+|---|---|---|---|---|
+| ground states | 1.18 | 1.30 | 2.54 | 3.91 |
+| outer waves only (\|q\| ≥ K/2) | 0.86 | 1.00 | 0.83 | 1.01 |
+| ideal-gas surrogate (S = 1) | 1.04 | 1.00 | 0.98 | 1.01 |
+| step-S surrogate, N = 1024 | 1.30 | 1.20 | 1.13 | 1.21 |
+| step-S surrogate, N = 4096 | 1.28 | 1.25 | 1.30 | 1.21 |
+| phases randomized, \|ρ\| kept | 1.27 | 1.26 | 1.40 | 1.45 |
+
+**Why it is not a numerical artifact:**
+- the identity holds to machine precision;
+- no eigenvalue is exactly 1, so it is not a degeneracy;
+- removing the long waves removes the peak and the kink in F − F_MP (panel e, dotted);
+- an ideal gas has no peak;
+- a stealthy random-phase surrogate shows the same peak at N = 1024 and 4096, so it is not a finite-size effect.
+
+**Why the random-phase surrogates fall short at large χ.** A real C is the Gram matrix of 2M vectors in Nd dimensions, so it is positive.
+- The surrogates violate this at χ ≥ 0.25: 0.1–9% of their eigenvalues are negative at χ = 0.25–0.45, and 0.5–17% for the ideal gas.
+- The ρ(k) in the coupling annulus K < |k| < 2K carry about 3·2M real numbers: 5580 at χ = 0.45, set by only Nd = 2048 coordinates. They cannot be independent.
+- At χ = 0.1 (1260 < 2048) the surrogates are valid and match the ground state (1.27–1.30 against 1.18).
+- The surrogates' long-to-outer coupling block has the same singular values as the ground state's (median 0.47 at χ = 0.45). The sharper ground-state peak therefore comes from how the outer waves are organized (positivity), not from weaker long-wave coupling.
+
+**Why panel (e) shows a shoulder only at large χ.** The cluster adds a near-step of about 4% to F at λ = 1, while F_MP rises smoothly; F − F_MP inherits the step as the kink.
+- At χ = 0.1 the whole ground-state spectrum lies in 0.4–1.6, around 1. The cluster raises the local density by only 18%, so it merges into the bulk.
+- At χ = 0.45 the bulk has moved away from 1, toward 0 and 2, and the cluster stands out 3.9× above its surroundings.
+- A comparison with MP free of this feature uses the outer block alone (panel e, dotted).
+
 #### All four χ for 2D Poisson
 
 `hessian_sign_mechanism`, `hessian_negative_compare` and `hessian_plateau_mechanism` now include 2D Poisson flows at χ = 0.25 (tag 1-4) and χ = 0.45 (tag 9-20), with 100 flows each. Pass the extra tags with `--extra-chi 1-4 9-20`; the other starts have χ = 0.1 and 0.4 only.
@@ -995,6 +1040,7 @@ uv run --no-sync python -I experiments/scripts/batten2008_planes_mean_plot.py --
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_hessian_sign_plot.py --roots experiments/trajectories/{flows2d/N1024,...} --labels ...   # hessian_sign_compare, hessian_sign_mechanism, hessian_sign_starts
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_sign_universal_plot.py --roots experiments/trajectories/{flows2d/N1024,...} --labels ...   # hessian_sign_universal
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_mp_plot.py   # coupling_mp_compare (computes and caches mp_chi<tag>.npz; ~10 CPU-min, use a SLURM CPU job)
+/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_mp_shoulder_plot.py   # coupling_mp_shoulder (caches mp_shoulder_chi<tag>.npz; ~2 CPU-min)
 # new chi for 2D Poisson (flows, tail, hessian, plateau, landscape, modes, winding, offplane): pass --chi 0.25 0.45 to each step; plots take --extra-chi 1-4 9-20
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_windcv_explain_plot.py --roots ... --labels ...   # winding_cv_explained (needs landscape_chi*.npz)
 uv run --no-sync python -I experiments/scripts/batten2008_exclusion.py --roots experiments/trajectories/{flows2d/N1024,...} --flows 5   # exclusion_chi*.npz
@@ -1010,7 +1056,7 @@ uv run --no-sync python -I experiments/scripts/batten2008_windcv_plot.py --total
 
 **Data.** `trajectories/{gau2d/N1000,url2d/N1024,rsa2d/N999,hip2d/N1000}/` with the same files as `flows2d/N1024`, plus `winding_chi<tag>.npz`, `plateau_chi<tag>.npz` and `landscape_chi<tag>.npz` everywhere. The 20-flow runs are kept in `trajectories/<start>/N<N>_n20/`. The tolerance checks are in `trajectories/{batten2008_tight/N1000,flows2d_tight/N1024}/` (flow 0, atol 10⁻¹¹, rtol 10⁻³).
 
-**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `hessian_sign_compare`, `hessian_sign_mechanism`, `hessian_sign_starts`, `hessian_sign_universal`, `coupling_mp_compare`, `winding_cv_explained`, `exclusion_mode_control`, `exclusion_mode_spectra`, `exclusion_drive`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
+**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `hessian_sign_compare`, `hessian_sign_mechanism`, `hessian_sign_starts`, `hessian_sign_universal`, `coupling_mp_compare`, `coupling_mp_shoulder`, `winding_cv_explained`, `exclusion_mode_control`, `exclusion_mode_spectra`, `exclusion_drive`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
 
 ### The 1D landscape against χ, in 3D
 
