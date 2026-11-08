@@ -58,6 +58,9 @@ TAGS = (("1-10", r"$\chi = 0.1$", "-", "o"), ("2-5", r"$\chi = 0.4$", "--", "s")
 ZERO_REL = 1e-9  # the eigenvalue cut of batten2008_hessian.py
 LAM_FLOOR = 1e-14  # |lambda| below this is drawn at 0 in the signed map
 GUIDE = "0.6"
+CHI_NAMES = {"1-10": "0.1", "1-4": "0.25", "2-5": "0.4", "9-20": "0.45"}
+CHI_LS = {"1-10": "-", "1-4": "-.", "2-5": "--", "9-20": ":"}
+PART_COLORS = ("#1f4e9c", "#2e7d32", "0.55", "#c0392b")  # stiff +, soft +, 0, soft -
 
 # ============================================================
 # HELPERS
@@ -116,12 +119,16 @@ def prp_counts(p: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
     }
 
 
-def load_all(roots: List[Path]) -> List[Dict]:
-    """Per root, per chi tag: sign counts of H and of P R P."""
+def load_all(roots: List[Path], extra: List[str]) -> List[Dict]:
+    """Per root, per chi tag: sign counts of H and of P R P.
+
+    ``extra`` chi tags are loaded for the first root (2D Poisson) only.
+    """
     out = []
-    for root in roots:
+    for i, root in enumerate(roots):
         sys_d = {}
-        for tag, *_ in TAGS:
+        tags = [t for t, *_ in TAGS] + (list(extra) if i == 0 else [])
+        for tag in tags:
             sys_d[tag] = {
                 "h": sign_counts(load(root / f"hessian_chi{tag}.npz")),
                 "p": prp_counts(load(root / f"plateau_chi{tag}.npz")),
@@ -223,83 +230,135 @@ def panel_split(ax: plt.Axes, h: Dict[str, np.ndarray], ls: str) -> None:
     nd, m2 = float(h["nd"]), float(h["m2"])
     stiff = np.minimum(h["pos"], m2)
     soft_pos = np.maximum(h["pos"] - m2, 0.0)
-    parts = (("stiff +", stiff, "#1f4e9c"), ("soft +", soft_pos, "#2e7d32"),
-             ("near zero", h["zero"], "0.55"),
-             ("soft $-$", h["neg"], "#c0392b"))  # fmt: skip
-    for _, rows, color in parts:
+    parts = (stiff, soft_pos, h["zero"], h["neg"])
+    for rows, color in zip(parts, PART_COLORS, strict=True):
         ax.plot(h["phi"], np.median(rows, axis=0) / nd, color=color, lw=2.0, ls=ls)
+
+
+def split_axes(ax: plt.Axes, title: str, tags: List[str]) -> None:
+    """Axis styling and legend of a direction-split panel."""
+    phi_axis(ax)
+    ax.set_ylim(0.0, 1.08)
+    ax.set_ylabel("Fraction of the $Nd$ Directions")
+    ax.set_title(title, loc="left", fontsize=13)
+    handles = [Line2D([], [], color=c, lw=2.0) for c in PART_COLORS]
+    handles += [Line2D([], [], color="0.3", lw=1.6, ls=CHI_LS[t]) for t in tags]
+    names = [r"stiff $+$ ($2M$)", r"soft $+$", r"$|\lambda| \leq c$", r"soft $-$"]
+    names += [rf"$\chi = {CHI_NAMES[t]}$" for t in tags]
+    ax.legend(handles, names, frameon=False, fontsize=9, loc="upper left", ncol=3)
+
+
+def poisson_tags(sys_d: Dict) -> List[str]:
+    """Chi tags present for 2D Poisson, in increasing chi."""
+    tags = [t for t in CHI_NAMES if t in sys_d]
+    assert tags, "no Poisson chi tags loaded"
+    return tags
 
 
 def figure_mechanism(data: List, labels: List[str], out: Path, dpi: int) -> None:
     """Where the positive and negative eigenvalues sit, and how they move with Phi."""
-    fig, axes = plt.subplots(2, 3, figsize=(20.0, 11.5), constrained_layout=True)
     pois = data[0]
-    mesh = panel_signed_map(axes[0, 0], pois["1-10"]["h"],
-                            f"(a) {labels[0]}, {TAGS[0][1]}: signed spectrum",
-                            )  # fmt: skip
-    panel_signed_map(axes[0, 1], pois["2-5"]["h"],
-                     rf"(b) {labels[0]}, {TAGS[1][1]}: signed spectrum")  # fmt: skip
-    fig.colorbar(mesh, ax=axes[0, :2], label="Fraction of the $Nd$ Eigenvalues",
+    tags = poisson_tags(pois)
+    fig, axes = plt.subplots(2, 4, figsize=(25.0, 11.5), constrained_layout=True)
+    letters = iter("abcdefgh")
+    mesh = None
+    for col in range(4):
+        if col < len(tags):
+            chi = CHI_NAMES[tags[col]]
+            title = (f"({next(letters)}) {labels[0]}, $\\chi = {chi}$: "
+                     "signed spectrum")  # fmt: skip
+            mesh = panel_signed_map(axes[0, col], pois[tags[col]]["h"], title)
+        else:
+            axes[0, col].set_axis_off()
+    fig.colorbar(mesh, ax=axes[0, :], label="Fraction of the $Nd$ Eigenvalues",
                  shrink=0.85)  # fmt: skip
-    for tag, _, ls, _ in TAGS:
-        panel_split(axes[0, 2], pois[tag]["h"], ls)
+    for tag in tags:
+        panel_split(axes[1, 0], pois[tag]["h"], CHI_LS[tag])
+    split_axes(axes[1, 0], f"({next(letters)}) {labels[0]}: how the $Nd$ directions "
+               "split", tags)  # fmt: skip
     for i, sys_d in enumerate(data):
-        color = COLORS[i % len(COLORS)]
-        for tag, _, ls, _ in TAGS:
-            p, h = sys_d[tag]["p"], sys_d[tag]["h"]
-            axes[1, 0].plot(p["phi"], np.nanmedian(p["med_neg"], axis=0), color=color,
-                            ls=ls, lw=2.0)  # fmt: skip
-            axes[1, 0].plot(p["phi"], np.nanmedian(p["med_pos"], axis=0), color=color,
-                            ls=ls, lw=1.0, marker="^", ms=4)  # fmt: skip
-            axes[1, 1].plot(p["phi"], np.median(p["fneg"], axis=0), color=color, ls=ls,
-                            lw=2.0)  # fmt: skip
-            axes[1, 1].plot(p["phi"], np.median(p["fpos"], axis=0), color=color, ls=ls,
-                            lw=1.0, marker="^", ms=4)  # fmt: skip
-            m2 = int(h["m2"])
-            k1sq = float(h["k1"]) ** 2
-            stiff = h["lam"][..., -m2] / k1sq
-            band(axes[1, 2], h["phi"], np.where(stiff > 0.0, stiff, np.nan), color, ls)
-            axes[1, 2].plot(h["phi"], np.median(h["lam"][..., -1], axis=0) / k1sq,
-                            color=color, ls=ls, lw=1.0)  # fmt: skip
-    ax = axes[0, 2]
-    phi_axis(ax)
-    ax.set_ylim(0.0, 1.08)
-    ax.set_ylabel("Fraction of the $Nd$ Directions")
-    ax.set_title(f"(c) {labels[0]}: how the $Nd$ directions split", loc="left",
-                 fontsize=13)  # fmt: skip
-    ax.legend([Line2D([], [], color=c, lw=2.0) for c in
-               ("#1f4e9c", "#2e7d32", "0.55", "#c0392b")],
-              [r"stiff $+$ (the $2M$ waves)", r"soft $+$", r"$|\lambda| \leq c$",
-               r"soft $-$"], frameon=False, fontsize=10, loc="upper left",
-              ncol=2)  # fmt: skip
-    ax = axes[1, 0]
+        for tag in [t for t, *_ in TAGS] if i else tags:
+            summary_lines(axes[1, 1:], sys_d[tag], COLORS[i % len(COLORS)],
+                          CHI_LS[tag])  # fmt: skip
+    summary_axes(axes[1, 1:], letters)
+    extra = [Line2D([], [], color="0.3", lw=2.0, ls=CHI_LS[t]) for t in tags]
+    extra += [Line2D([], [], color="0.3", lw=1.0, marker="^", ms=4),
+              Line2D([], [], color=GUIDE, lw=1.0, ls="-.")]  # fmt: skip
+    names = [rf"$\chi = {CHI_NAMES[t]}$" for t in tags]
+    names += [r"(f, g) positive branch; (h) $\lambda_{\max}$", r"$\propto\sqrt{\Phi}$"]
+    legend(fig, labels, extra, names)
+    finish(fig, out / "hessian_sign_mechanism", dpi)
+
+
+def summary_lines(axes: np.ndarray, d: Dict, color: str, ls: str) -> None:
+    """Soft magnitudes, cut-free sign fractions and the stiff band of one system."""
+    p, h = d["p"], d["h"]
+    axes[0].plot(p["phi"], np.nanmedian(p["med_neg"], axis=0), color=color, ls=ls,
+                 lw=2.0)  # fmt: skip
+    axes[0].plot(p["phi"], np.nanmedian(p["med_pos"], axis=0), color=color, ls=ls,
+                 lw=1.0, marker="^", ms=4)  # fmt: skip
+    axes[1].plot(p["phi"], np.median(p["fneg"], axis=0), color=color, ls=ls, lw=2.0)
+    axes[1].plot(p["phi"], np.median(p["fpos"], axis=0), color=color, ls=ls, lw=1.0,
+                 marker="^", ms=4)  # fmt: skip
+    m2, k1sq = int(h["m2"]), float(h["k1"]) ** 2
+    stiff = h["lam"][..., -m2] / k1sq
+    band(axes[2], h["phi"], np.where(stiff > 0.0, stiff, np.nan), color, ls)
+    axes[2].plot(h["phi"], np.median(h["lam"][..., -1], axis=0) / k1sq, color=color,
+                 ls=ls, lw=1.0)  # fmt: skip
+
+
+def summary_axes(axes: np.ndarray, letters: object) -> None:
+    """Styling of the three summary panels."""
+    ax = axes[0]
     phi_axis(ax)
     ax.set_yscale("log")
     x = np.geomspace(1e-10, 1e2, 20)
     ax.plot(x, 3e-3 * np.sqrt(x / 1e-4), color=GUIDE, lw=1.0, ls="-.")
     ax.set_ylabel(r"Median Soft $|\lambda|$ ($PRP$)")
-    ax.set_title(r"(d) soft $-$ and soft $+$ shrink together as $\sqrt{\Phi}$",
+    lead = f"({next(letters)}) "
+    ax.set_title(lead + r"soft $-$ and soft $+$ shrink as $\sqrt{\Phi}$",
                  loc="left", fontsize=13)  # fmt: skip
-    ax = axes[1, 1]
+    ax = axes[1]
     phi_axis(ax)
     ax.axhline(0.5, color=GUIDE, lw=0.8, zorder=0)
     ax.set_ylim(0.3, 0.7)
     ax.set_ylabel(r"Fraction of the Soft Spectrum ($PRP$)")
-    ax.set_title("(e) negative and positive halves, no cut", loc="left", fontsize=13)
-    ax = axes[1, 2]
+    ax.set_title(f"({next(letters)}) negative and positive halves, no cut",
+                 loc="left", fontsize=13)  # fmt: skip
+    ax = axes[2]
     phi_axis(ax)
     ax.set_yscale("log")
     ax.set_ylim(1e-2, 3e3)
     ax.set_ylabel(r"Stiff Eigenvalue, $\lambda/k_1^2$")
-    ax.set_title(r"(f) the stiff band: $2M$-th largest and largest", loc="left",
-                 fontsize=13)  # fmt: skip
-    extra = [Line2D([], [], color="0.3", lw=2.0, ls=ls) for _, _, ls, _ in TAGS]
-    extra += [Line2D([], [], color="0.3", lw=1.0, marker="^", ms=4),
-              Line2D([], [], color=GUIDE, lw=1.0, ls="-.")]  # fmt: skip
-    names = [chi for _, chi, _, _ in TAGS]
-    names += [r"(d, e) positive branch; (f) $\lambda_{\max}$", r"$\propto\sqrt{\Phi}$"]
-    legend(fig, labels, extra, names)
-    finish(fig, out / "hessian_sign_mechanism", dpi)
+    ax.set_title(f"({next(letters)}) " + r"stiff band: $2M$-th largest and largest",
+                 loc="left", fontsize=13)  # fmt: skip
+
+
+# ============================================================
+# FIGURE 3: EVERY START
+# ============================================================
+
+
+def figure_starts(data: List, labels: List[str], out: Path, dpi: int) -> None:
+    """Signed spectra at both chi and the direction split, one row per start."""
+    n = len(data)
+    fig, axes = plt.subplots(n, 3, figsize=(19.0, 4.6 * n), constrained_layout=True,
+                             squeeze=False)  # fmt: skip
+    letters = iter("abcdefghijklmnopqrstuvwxyz")
+    mesh = None
+    for i, sys_d in enumerate(data):
+        for col, (tag, chi, _, _) in enumerate(TAGS):
+            title = f"({next(letters)}) {labels[i]}, {chi}: signed spectrum"
+            mesh = panel_signed_map(axes[i, col], sys_d[tag]["h"], title)
+        for tag, *_ in TAGS:
+            panel_split(axes[i, 2], sys_d[tag]["h"], CHI_LS[tag])
+        split_axes(axes[i, 2], f"({next(letters)}) {labels[i]}: how the $Nd$ "
+                   "directions split", [t for t, *_ in TAGS])  # fmt: skip
+        h = sys_d[TAGS[0][0]]["h"]
+        print(f"{labels[i]}: start Phi {np.median(h['phi'].max()):.3g}", flush=True)
+    fig.colorbar(mesh, ax=axes[:, :2], label="Fraction of the $Nd$ Eigenvalues",
+                 shrink=0.4, location="bottom")  # fmt: skip
+    finish(fig, out / "hessian_sign_starts", dpi)
 
 
 # ============================================================
@@ -312,10 +371,16 @@ if __name__ == "__main__":
     parser.add_argument("--labels", nargs="+", required=True)
     parser.add_argument("--out", type=Path, default=Path("experiments/figures"))
     parser.add_argument("--dpi", type=int, default=600)
+    parser.add_argument(
+        "--extra-chi",
+        nargs="*",
+        default=[],
+        help="further chi tags of the first root (e.g. 1-4 9-20)",
+    )
     args = parser.parse_args()
     assert len(args.roots) == len(args.labels) <= len(COLORS), "one label per root"
     args.out.mkdir(parents=True, exist_ok=True)
-    data = load_all(args.roots)
+    data = load_all(args.roots, args.extra_chi)
     for sys_d, lab in zip(data, args.labels, strict=True):
         for tag, *_ in TAGS:
             h = sys_d[tag]["h"]
@@ -326,4 +391,5 @@ if __name__ == "__main__":
                   f"(Nd-2M)/2 {int((h['nd'] - h['m2']) / 2)})", flush=True)  # fmt: skip
     figure_compare(data, args.labels, args.out, args.dpi)
     figure_mechanism(data, args.labels, args.out, args.dpi)
+    figure_starts(data, args.labels, args.out, args.dpi)
     print("Done.", flush=True)

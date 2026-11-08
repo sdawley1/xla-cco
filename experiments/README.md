@@ -620,6 +620,10 @@ A 2D hyperuniform start therefore behaves like a Poisson start in a higher dimen
   - (e) the cut-free sign fractions;
   - (f) the stiff band.
 
+`figures/hessian_sign_starts` shows, for every 2D start, the signed spectrum at χ = 0.1 and 0.4 and how the Nd directions split (one row per start). The structure is the same for every start. The soft ± branches are symmetric and shrink as √Φ, the stiff band of 2M stays fixed, and both branches cross the cut at Φ ≈ 10⁻¹¹. The starts differ only above Φ ≈ 1, where R is not yet small:
+- *HIP* starts with the largest negative excess (61% negative at χ = 0.1).
+- *RSA* χ = 0.4 starts with its stiff band already separated (0.74 of the Nd directions positive and stiff at the start, against 0.53–0.61 for the others).
+
 **The counts at Φ = 10⁻⁴** (median over 100 flows) are:
 
   | Start | χ = 0.1: n₊ / 2M / n₋ | χ = 0.4: n₊ / 2M / n₋ |
@@ -910,7 +914,7 @@ uv run --no-sync python -I experiments/scripts/batten2008_windcv_plot.py --total
 
 **Data.** `trajectories/{gau2d/N1000,url2d/N1024,rsa2d/N999,hip2d/N1000}/` with the same files as `flows2d/N1024`, plus `winding_chi<tag>.npz`, `plateau_chi<tag>.npz` and `landscape_chi<tag>.npz` everywhere. The 20-flow runs are kept in `trajectories/<start>/N<N>_n20/`. The tolerance checks are in `trajectories/{batten2008_tight/N1000,flows2d_tight/N1024}/` (flow 0, atol 10⁻¹¹, rtol 10⁻³).
 
-**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `hessian_sign_compare`, `hessian_sign_mechanism`, `winding_cv_explained`, `exclusion_mode_control`, `exclusion_mode_spectra`, `exclusion_drive`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
+**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `hessian_sign_compare`, `hessian_sign_mechanism`, `hessian_sign_starts`, `winding_cv_explained`, `exclusion_mode_control`, `exclusion_mode_spectra`, `exclusion_drive`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
 
 ### The 1D landscape against χ, in 3D
 
