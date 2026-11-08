@@ -183,6 +183,7 @@ def test_units_equipartition(ref: Dict[str, Any]) -> None:
     phi = np.concatenate([r["phi_cpp"] for r in ref["runs"]])
     ke = np.concatenate([r["ke_log"] for r in ref["runs"]])
     t, m, dof = ref["T"], ref["M"], ref["protocol"]["ke_dof"]
+    assert dof == ref["N"] * ref["d"], "KE dof must be N d (no COM removal)"
     phi_ratio = float(phi.mean()) / (m * t)
     ke_ratio = float(ke.mean()) / (dof * t / 2.0)
     assert abs(phi_ratio - 1.0) < MD_CXX_UNITS_TOL, f"<Phi>/(MT) = {phi_ratio}"
