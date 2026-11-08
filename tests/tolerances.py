@@ -221,3 +221,9 @@ ATOL_MD_SYN_ALPHA: float = 0.15
 # rate 0.39 (P(chi2_4 < 2.94) = 0.43) by > 15 sd.
 MD_H5_NULL_CELLS: int = 200
 MD_H5_NULL_PASS: tuple = (0.77, 0.92)
+# Amendment A2: H5 part 1 is the mean of eta^2_H over the 6 harmonic cells. Under
+# the null the mean has expectation ~0 and sd ~ sqrt(2 (k-1)) / (n-k) / sqrt(6) =
+# 0.026, so P(mean >= 0.06) ~ 0.01 per set; P(>= 18 of 20 sets pass) > 0.999. The
+# old rule (every cell below 0.06) passes only 0.85^6 = 0.37 of the sets.
+MD_H5_NULL_SETS: int = 20
+MD_H5_NULL_SET_MIN: int = 18

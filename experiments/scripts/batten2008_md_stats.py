@@ -6,7 +6,7 @@ Pre-registered verdicts H1-H8 of the MD winding experiment (plan E2).
 Reads every ``md_analysis_chi<tag>.npz`` (Andersen + NVE production) and
 ``md_analysis_langevin*_chi<tag>.npz`` (BAOAB, for H7) written by
 batten2008_md_analysis.py and evaluates experiments/md_winding/HYPOTHESES.md
-exactly as registered, with Amendment A1. The statistical unit is a ground
+exactly as registered, with Amendments A1 and A2. The statistical unit is a ground
 state; "within x %" refers to the median over ground states; z-tests use
 ground-state-level standard errors (sd / sqrt(n)). Every criterion is split
 into parts (one per cell, bin or segment); each part is
@@ -26,7 +26,8 @@ Deviation measures: |median - 1| for the ratios (H1-H3, H6 rates, H7);
 |beta - 0.5| / 0.5 and the collapse spread itself (H6); the largest
 pairwise difference of start medians relative to the pooled median (both
 H5 parts). H5 uses the bias-corrected Kruskal-Wallis effect size
-eta^2_H = (H - k + 1) / (n - k) (A1.1; null expectation 0), and H5 / H7 the
+eta^2_H = (H - k + 1) / (n - k) (A1.1; null expectation 0), averaged over
+the harmonic (chi, T) cells for H5 part 1 (A2), and H5 / H7 the
 per-ground-state nu = mean over constrained waves of rate / (|k| / 2 pi)
 (A1.3); H6 collapse and beta use the harmonic T only (A1.4).
 
@@ -430,22 +431,51 @@ def spearman_report(entries: List, key: str) -> Dict[str, Any]:
     return out
 
 
+def h5_mean_eta2(cells: List[Part]) -> Part:
+    """A2 H5 part 1: the mean of eta^2_H over the (chi, T) cells is < 0.06.
+
+    ``cells`` are the per-cell "KW eta2_H" parts of h5_cell (descriptive
+    under A2). Deviation (for a miss): the largest pairwise median
+    difference of any cell (A1.2); z = mean / (sd / sqrt(cells)).
+    """
+    assert cells and all(p["part"] == "KW eta2_H" for p in cells), "eta^2 cells"
+    eta = np.array([p["value"] for p in cells])
+    mean = float(np.mean(eta))
+    se = float(np.std(eta, ddof=1) / math.sqrt(eta.size)) if eta.size > 1 else 0.0
+    z = mean / se if se > 0.0 else float("nan")
+    dev = max(p["dev"] for p in cells)
+    assert np.all(np.isfinite(eta)), "finite eta^2_H per cell"
+    return make_part("mean KW eta2_H", f"{eta.size} cells", mean, z, dev,
+                     bool(mean < H5_ETA2),
+                     cells={p["cell"]: p["value"] for p in cells})  # fmt: skip
+
+
 def h5_parts(main: List[Data], harmonic: bool) -> Tuple[List[Part], Dict[str, Any]]:
-    """H5 parts per (chi, T) and the D_theta report (reported, not pass/fail)."""
+    """H5 parts (A2: mean eta^2_H over cells; median difference per cell) + report.
+
+    The per-cell eta^2_H parts are descriptive (report["eta2_H_per_cell"]);
+    the D_theta analysis is reported, not pass/fail.
+    """
     assert all("nu_c" in z for z in main), "analysis data"
     parts: List[Part] = []
+    eta_cells: List[Part] = []
     report: Dict[str, Any] = {}
     for (tag, t), entries in sorted(_by_chi_t(main, harmonic).items()):
         if len({s for s, _, _ in entries}) < 2:
             continue
         nu = {s: z["nu_c"][:, ti] for s, z, ti in entries}
         cell = f"chi={tag} T={t:g}"
-        parts += h5_cell(nu, cell)
+        eta_part, diff_part = h5_cell(nu, cell)
+        eta_cells.append(eta_part)
+        parts.append(diff_part)
         dth = {s: z["d_theta"][:, ti] for s, z, ti in entries}
         report[cell] = {"d_theta": d_theta_report(dth),
                         "spearman_d_theta": spearman_report(entries, "d_theta"),
                         "spearman_nu": spearman_report(entries, "nu_c")}  # fmt: skip
-    assert len(parts) % 2 == 0, "two parts per cell"
+    assert len(parts) == len(eta_cells), "one median-difference part per cell"
+    if eta_cells:
+        parts.insert(0, h5_mean_eta2(eta_cells))
+        report["eta2_H_per_cell"] = eta_cells
     return parts, report
 
 
@@ -671,8 +701,10 @@ def evaluate(main: List[Data], lang: List[Data]) -> Dict[str, Any]:
     notes = [
         "H5 uses eta^2_H = (H-k+1)/(n-k) (Amendment A1.1; null mean 0; starts "
         f"per cell {n_groups}, ground states per start {n_gs}); with k = 5, "
-        "n = 50 a start-independent cell still misses eta^2_H < 0.06 with "
-        "probability P(chi2_4 > 6.7) = 0.15.",
+        "n = 50 a start-independent cell misses eta^2_H < 0.06 with probability "
+        "P(chi2_4 > 6.7) = 0.15, so (Amendment A2) H5 part 1 is the mean of "
+        "eta^2_H over the harmonic (chi, T) cells; per-cell values are in "
+        "reports.H5_harmonic.eta2_H_per_cell.",
         "A1.2: interval / tolerance parts missing by < 10 % are INCONCLUSIVE "
         "whatever |z|; significance-test parts (H4 net rate, H8 part 2) FAIL "
         "on any miss.",

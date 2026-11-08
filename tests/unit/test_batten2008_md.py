@@ -35,6 +35,8 @@ from tests.tolerances import (
     ATOL_MD_SYN_ALPHA,
     MD_H5_NULL_CELLS,
     MD_H5_NULL_PASS,
+    MD_H5_NULL_SET_MIN,
+    MD_H5_NULL_SETS,
     RTOL_MD_D_RW,
     RTOL_MD_RATE_EXACT,
     RTOL_MD_SYN_EQUIPARTITION,
@@ -454,13 +456,56 @@ def test_kruskal_eta2_property(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> N
     assert -2.0 / (n - 3) - 1e-12 <= eta2 <= 1.0 + 1e-12
 
 
-@pytest.mark.critical
-def test_regression_D047_h5_null_pass_rate() -> None:
-    """D-047: with no start effect a cell passes H5 at ~P(chi2_4 < 6.7) = 0.85.
+def null_h5_set(seed: int, effect: float = 0.0) -> List[Dict[str, Any]]:
+    """Analysis dicts of 5 starts x 2 chi x 3 harmonic T, 10 iid ground states each.
 
-    200 seeded cells of 5 starts x 10 iid ground states: the A1 eta^2_H rule
-    passes 0.835 of them; the plain epsilon^2 rule passed only ~0.39.
+    nu ~ 1 + 0.003 N(0, 1) per ground state (hip2d scaled by 1 + effect).
     """
+    rng = np.random.default_rng(seed)
+    out = []
+    for tag, chi in (("1-10", 0.1), ("2-5", 0.4)):
+        for s in syn.STARTS:
+            nu = 1.0 + 0.003 * rng.standard_normal((10, 3))
+            nu *= 1.0 + (effect if s == "hip2d" else 0.0)
+            out.append({"system": s, "tag": tag, "chi": np.asarray(chi),
+                        "temps": np.array([1e-6, 1e-5, 1e-4]), "nu_c": nu,
+                        "d_theta": rng.uniform(0.1, 0.2, (10, 3))})  # fmt: skip
+    return out
+
+
+@pytest.mark.critical
+def test_regression_D047_h5_null_set_pass_rate() -> None:
+    """D-047 / A2: >= 18 of 20 start-independent sets pass H5 part 1 (mean eta^2_H).
+
+    Under the old per-cell rule (all 6 cells eta^2_H < 0.06) only ~0.37 of
+    the sets pass, under the plain epsilon^2 ~0.006.
+    """
+    passed = 0
+    for seed in range(MD_H5_NULL_SETS):
+        parts, report = mds.h5_parts(null_h5_set(seed), True)
+        assert parts[0]["part"] == "mean KW eta2_H"
+        assert len(report["eta2_H_per_cell"]) == 6
+        passed += parts[0]["outcome"] == mds.PASS
+    assert passed >= MD_H5_NULL_SET_MIN
+
+
+@pytest.mark.critical
+def test_a2_mean_eta2_part_and_per_cell_descriptive() -> None:
+    """A2: one cell above 0.06 does not fail H5 if the mean is below; an effect does."""
+    parts, report = mds.h5_parts(null_h5_set(4), True)
+    cells = [p["value"] for p in report["eta2_H_per_cell"]]
+    assert parts[0]["value"] == pytest.approx(np.mean(cells), rel=1e-12)
+    assert max(cells) > mds.H5_ETA2 > np.mean(cells)  # seed 4: one cell misses
+    assert parts[0]["outcome"] == mds.PASS
+    assert [p["part"] for p in parts[1:]] == ["max median diff"] * 6
+    assert mds.combine([p["outcome"] for p in parts]) == mds.PASS
+    parts, _ = mds.h5_parts(null_h5_set(4, effect=0.15), True)
+    assert parts[0]["value"] > mds.H5_ETA2 and parts[0]["outcome"] == mds.FAIL
+
+
+@pytest.mark.high
+def test_h5_cell_null_pass_rate() -> None:
+    """Per cell, eta^2_H < 0.06 holds at P(chi2_4 < 6.7) = 0.85 under the null."""
     passed = 0
     for seed in range(MD_H5_NULL_CELLS):
         rng = np.random.default_rng(seed)
@@ -644,7 +689,9 @@ def test_synthetic_verdicts_null_and_injected(
     assert res["hypotheses"]["H2"]["verdict"] == mds.FAIL
     worst = res["hypotheses"]["H5"]["worst"][0]
     assert worst["dev"] == pytest.approx(0.15, abs=0.03)
-    assert "hip2d" in worst.get("pair", []) or "hip2d" in worst.get("medians", {})
+    assert worst["part"] == "mean KW eta2_H" and worst["value"] > mds.H5_ETA2
+    pairs = [p["pair"] for p in res["hypotheses"]["H5"]["parts"] if "pair" in p]
+    assert pairs and all("hip2d" in pair for pair in pairs)
 
 
 @pytest.mark.slow

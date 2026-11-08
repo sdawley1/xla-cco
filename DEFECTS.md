@@ -238,10 +238,10 @@ needed for parity, reproduce the behaviour.
 
 ## D-047 — H5 epsilon^2 threshold lies below its null expectation
 - **Found:** 2026-11-08, while implementing E2 (batten2008_md_stats.py)
-- **Status:** fixed (resolved by Amendment A1 to HYPOTHESES.md, d7271b7, before any production job)
+- **Status:** fixed (resolved by Amendments A1, d7271b7, and A2, 2cc30a2, to HYPOTHESES.md, before any production job)
 - **Where:** experiments/md_winding/HYPOTHESES.md, H5 ("Kruskal-Wallis effect size eps^2 < 0.06"); experiments/scripts/batten2008_md_stats.py (`kruskal_epsilon2`)
 - **Symptom:** with eps^2 = H (n+1)/(n^2-1) and k = 5 starts of n_g = 10 ground states (n = 50), H ~ chi^2_4 under the null, so E[eps^2] = 4/49 = 0.082 and P(eps^2 < 0.06) = P(chi^2_4 < 2.94) = 0.43 per (chi, T) cell; over 6 harmonic cells a start-independent system passes all with probability ~0.006
 - **Repro:** the synthetic dry run with independent draws per start (batten2008_md_synthetic.py, no injected effect): H5 parts "KW eps2" missed in 3 of 6 cells (eps^2 0.07-0.10), so H5 was INCONCLUSIVE although nu is identical in law across starts
 - **Impact:** before A1, H5 could only be PASS or INCONCLUSIVE on data with no start dependence (no false FAIL: FAIL needs a >= 10 % median difference); no production data existed
-- **Regression test:** tests/unit/test_batten2008_md.py::test_regression_D047_h5_null_pass_rate (200 null cells pass at 0.835, inside [0.77, 0.92]; plain eps^2 gives 0.39) and the property test_h5_identical_starts_pass_property
-- **Fix:** A1.1: `kruskal_eta2` returns the bias-corrected eta^2_H = (H - k + 1)/(n - k) (null mean 0); H5 thresholds unchanged. Note: a start-independent cell still misses eta^2_H < 0.06 with probability P(chi^2_4 > 6.7) = 0.15, so all 6 harmonic cells pass with probability ~0.37; the remaining misses are INCONCLUSIVE, not FAIL
+- **Regression test:** tests/unit/test_batten2008_md.py::test_regression_D047_h5_null_set_pass_rate (>= 18 of 20 start-independent sets pass the A2 mean-eta^2_H part; 197 of 200 measured), plus test_h5_cell_null_pass_rate (per cell 0.835) and the property test_h5_identical_starts_pass_property
+- **Fix:** A1.1: `kruskal_eta2` returns the bias-corrected eta^2_H = (H - k + 1)/(n - k) (null mean 0). A1 alone still left a start-independent set passing all 6 cells with probability 0.85^6 = 0.37 (measured 6/20 full synthetic sets), so A2 (2cc30a2) evaluates H5 part 1 on the mean of eta^2_H over the harmonic cells (`h5_mean_eta2`; per-cell values descriptive): 20/20 full synthetic null sets pass (largest mean 0.053)
