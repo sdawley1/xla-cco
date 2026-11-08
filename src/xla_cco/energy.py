@@ -198,6 +198,8 @@ class StealthyEnergy(AbstractEnergy):
         dPhi/ds_j = (2/V) sum_k w_k (Im rho_k cos th_kj - Re rho_k sin th_kj)
         2 pi n_k, th_kj = 2 pi n_k . s_j; this equals -B F_j for the C++ force.
         """
+        assert s.ndim == 2, "s must have shape (n, d)"
+        assert s.shape[1] == self.n_vectors.shape[1], "dimension mismatch"
         value, grad, _, _ = self.value_grad_density(s)
         return value, grad
 

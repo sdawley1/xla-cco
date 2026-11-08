@@ -34,7 +34,10 @@ from hypothesis.extra import numpy as hnp
 # ----- project -----
 from strategies import boxes, chunk_sizes, fractional_configs, integer_kvectors
 from tolerances import (
+    ATOL_MD_COM_MEAN,
+    ATOL_MD_COM_RHO,
     ATOL_MD_COM_WIND,
+    ATOL_MD_ONE_STEP,
     ATOL_MD_WAVE_PER_PARTICLE,
     ATOL_MD_WINDING,
     MD_RICE_Z,
@@ -218,11 +221,13 @@ def test_center_of_mass_and_com_correct_example() -> None:
     r = rng.normal(size=(9, 3)) * 5.0
     kvec = rng.normal(size=(4, 3))
     r_cm = np.asarray(center_of_mass(jnp.asarray(r)))
-    np.testing.assert_allclose(r_cm, r.mean(axis=0), rtol=0, atol=1e-14)
+    np.testing.assert_allclose(r_cm, r.mean(axis=0), rtol=0, atol=ATOL_MD_COM_MEAN)
     rho = np.exp(1j * (r @ kvec.T)).sum(axis=0)
     out = np.asarray(com_correct(_to_pairs(rho), jnp.asarray(kvec), jnp.asarray(r_cm)))
     ref = rho * np.exp(-1j * (kvec @ r_cm))  # analytic: rho_k exp(-i k . R_cm)
-    np.testing.assert_allclose(out[:, 0] + 1j * out[:, 1], ref, rtol=0, atol=1e-12)
+    np.testing.assert_allclose(
+        out[:, 0] + 1j * out[:, 1], ref, rtol=0, atol=ATOL_MD_COM_RHO
+    )
 
 
 @pytest.mark.critical
@@ -236,7 +241,7 @@ def test_com_corrected_single_particle_never_winds() -> None:
         r = jnp.asarray(traj[t])
         out = np.asarray(com_correct(wave_densities(r, kvec), kvec, center_of_mass(r)))
         rho[t] = out[:, 0] + 1j * out[:, 1]
-    np.testing.assert_allclose(rho, 1.0 + 0.0j, rtol=0, atol=1e-12)
+    np.testing.assert_allclose(rho, 1.0 + 0.0j, rtol=0, atol=ATOL_MD_COM_RHO)
     wabs, wnet, n_valid, _ = _run_winding(rho, n_part=1, floor=PHASE_FLOOR)
     assert np.all(n_valid == 59)
     np.testing.assert_allclose(wabs[-1], 0.0, atol=ATOL_MD_WINDING)
@@ -358,7 +363,9 @@ def test_rice_formula_mean_phase_speed() -> None:
     speed = wabs[-1] / ((length - 1) * dt)  # <|theta'|> per realization
     z = (speed.mean() - ratio) / (speed.std(ddof=1) / math.sqrt(waves))
     assert abs(z) < MD_RICE_Z, f"z = {z:.2f}, mean {speed.mean():.4f} vs {ratio:.4f}"
-    assert abs(np.mean(wnet[-1])) < 0.1 * np.mean(wabs[-1])  # no net drift
+    # no net drift: the mean net winding is zero within the same z criterion
+    z_net = np.mean(wnet[-1]) / (np.std(wnet[-1], ddof=1) / math.sqrt(waves))
+    assert abs(z_net) < MD_RICE_Z, f"net winding z = {z_net:.2f}"
 
 
 @pytest.mark.critical
@@ -371,8 +378,12 @@ def test_winding_floor_uses_s_not_modulus() -> None:
     np.testing.assert_array_equal(n_valid, [3, 3, 4, 3, 4])
     np.testing.assert_array_equal(wabs[[0, 1, 3]], 0.25)
     np.testing.assert_array_equal(wnet[[0, 1, 3]], -0.25)
-    np.testing.assert_allclose(wabs[[2, 4]], 0.25 + np.pi / 2, rtol=0, atol=1e-15)
-    np.testing.assert_allclose(wnet[[2, 4]], -0.25 + np.pi / 2, rtol=0, atol=1e-15)
+    np.testing.assert_allclose(
+        wabs[[2, 4]], 0.25 + np.pi / 2, rtol=0, atol=ATOL_MD_ONE_STEP
+    )
+    np.testing.assert_allclose(
+        wnet[[2, 4]], -0.25 + np.pi / 2, rtol=0, atol=ATOL_MD_ONE_STEP
+    )
     np.testing.assert_array_equal(prev, np.stack([new.real, new.imag], axis=-1))
 
 
@@ -383,7 +394,10 @@ def test_winding_floor_counts_above_threshold() -> None:
     _, wabs, wnet, n_valid = _update(old, new, np.ones(1, bool), n_part=1)
     assert n_valid[0] == 4
     np.testing.assert_allclose(
-        [wabs[0], wnet[0]], [0.25 + np.pi / 2, -0.25 - np.pi / 2]
+        [wabs[0], wnet[0]],
+        [0.25 + np.pi / 2, -0.25 - np.pi / 2],
+        rtol=0,
+        atol=ATOL_MD_ONE_STEP,
     )
 
 
@@ -401,7 +415,7 @@ def test_winding_inactive_waves_keep_state() -> None:
     np.testing.assert_array_equal(wnet[~active], -0.25)
     np.testing.assert_array_equal(n_valid, np.where(active, 4, 3))
     dth = np.angle(new * np.conj(old))[active]
-    np.testing.assert_allclose(wnet[active], -0.25 + dth, rtol=0, atol=1e-15)
+    np.testing.assert_allclose(wnet[active], -0.25 + dth, rtol=0, atol=ATOL_MD_ONE_STEP)
 
 
 @pytest.mark.medium

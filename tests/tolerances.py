@@ -84,13 +84,25 @@ RTOL_MD_WINDING: float = 1e-13
 # bound by N (atol = ATOL_MD_WAVE_PER_PARTICLE * N), 5x headroom.
 ATOL_MD_WAVE_PER_PARTICLE: float = 1e-12
 # Phase-table rho vs trig rho: a table factor z^p (cumulative product) carries
-# ~p eps relative error and z itself eps 2 pi |s|, so one (k, j) term is off by
-# <= (1 + 2 pi) n_max d eps; N terms add: atol = C eps N (1 + 2 pi) n_max d with
-# C = 4 for the final sum and the trig path's own rounding.
+# ~p eps relative error and z itself eps 2 pi |s| (as does the trig phase), so one
+# (k, j) term is off by <= (1 + 2 pi |s|) n_max d eps; N terms add. The check uses
+# atol = C eps N (1 + 2 pi) n_max d, i.e. the |s| <= 1 form, with C = 4 covering
+# |s| <= 2 of the tests (measured error <= 1.83 such units even at |s| <= 20).
 TABLE_RHO_C: float = 4.0
-# Rice formula <|theta'|> = sigma_rho' / sigma_rho: the plan's 3 sigma criterion
-# for one fixed-seed comparison (false alarm 0.27% per seed, fixed seed).
+# Rice formula <|theta'|> = sigma_rho' / sigma_rho, and zero mean net winding of
+# the same paths: the plan's 3 sigma criterion per fixed-seed z-test (false alarm
+# 0.27% per seed; measured z SD 1.00 over 12 seeds).
 MD_RICE_Z: float = 3.0
+# center_of_mass vs np.mean: two summation orders of n = 9 values |r| <= 12 differ
+# by <= (n - 1) eps max|r| = 8 * 2.2e-16 * 12 = 2.1e-14 (measured 5.6e-17).
+ATOL_MD_COM_MEAN: float = 3e-14
+# com_correct vs NumPy rho exp(-i k . R_cm): rounding <= c eps |rho| (1 + |theta|),
+# |rho| <= N = 9, |theta| <= 60 in the tests, c = 4: 4 * 2.2e-16 * 9 * 61 = 4.8e-13.
+ATOL_MD_COM_RHO: float = 1e-12
+# One winding step from 0.25: atan2 (1 ulp) of a product whose angle rounds by
+# <= 2 eps, plus the addition (1 ulp), at magnitude <= pi + 0.25 (ulp 4.4e-16):
+# <= 4 * 4.4e-16 = 1.8e-15.
+ATOL_MD_ONE_STEP: float = 2e-15
 # COM-corrected winding of rigidly translated paths: the corrected rho differ by
 # roundoff N eps |theta| <= 40 * 2.2e-16 * 600 ~ 5e-12 (translations <= 8 add to
 # |theta|); with the test floor S > 1e-4 (|rho| >= 1e-2) each step's angle moves
