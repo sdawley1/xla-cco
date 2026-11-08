@@ -737,6 +737,59 @@ The x-axis of `hessian_sign_starts` is Φ, not time. Within one χ the starts ch
 - *End states (panel h):* they keep their origin outside the exclusion region. At 1.05–1.5 K and χ = 0.1, S(k) is 0.08 (RSA), 0.46–0.49 (URL, Gaussian), 1.02 (Poisson) and 1.80 (HIP). At χ = 0.4 these values are 0.96–1.22, and URL keeps a Bragg-like peak S ≈ 7 at |k| ≈ 1.5 K.
 - *Summary:* the flows reach different points of the ground-state manifold. Near any of them the Hessian looks statistically the same because it is a sum over many random-phase waves.
 
+#### The wave coupling against the Marchenko–Pastur law
+
+`batten2008_mp_plot.py` writes `figures/coupling_mp_compare`. It compares the coupling spectrum of the 2D Poisson flows at χ = 0.1, 0.25, 0.4 and 0.45 with the Marchenko–Pastur (MP) law.
+- **What is measured:** the spectrum of C = D^{-1/2} K D^{-1/2}, with K = (2/V) J Jᵀ and D = diag K, so that C has a unit diagonal.
+- **The MP prediction:** if the 2M wave gradients were independent random vectors in Nd dimensions, C would follow MP with ratio c = 2M/(Nd). The support would be [(1 − √c)², (1 + √c)²], with mean 1, variance c and ⟨1/λ⟩ = 1/(1 − c).
+- **Data:** the spectra come from the end states (ground states) and the Poisson starts of flows 0–19. They are cached in `<root>/mp_chi<tag>.npz`.
+
+**The Poisson starts follow MP in the bulk.**
+- Var λ/c = 0.99–1.00, and the Kolmogorov distance from MP is 0.03–0.08.
+- The soft edge is the exception at χ ≥ 0.25. λ_min is 0.07, 10⁻³ and 10⁻⁴ of the MP edge at χ = 0.25, 0.4 and 0.45.
+- The softest mode there is a void mode. Its field peaks 1.45–1.59 from the nearest particle, inside the largest hole of the configuration; the largest hole is 1.75, and 99.9% of points lie within 1.46 of a particle. A band-limited combination of waves can sit in a hole of a Poisson configuration and barely move any particle.
+
+**The ground states are not MP.** Every entry of C is set by the density at the pair wave vectors:
+
+  C(Re q, Re p) ∝ (q̂·p̂) Re[ρ(q − p) − ρ(q + p)].
+
+- At a ground state, ρ = 0 inside the exclusion region, so every pair with |q ± p| < K is exactly uncoupled.
+- With random phases elsewhere this gives
+
+  Var λ / c = ⟨(q̂·p̂)² [S(q − p) + S(q + p)]⟩ / ⟨2 (q̂·p̂)²⟩
+
+  averaged over pairs. With S = 1 everywhere this is MP. With S = 0 inside K and 1 outside, it is the geometric factor 0.407, close to the share 1 − (1 − 3√3/4π) = 0.414 of point pairs in a disc that lie more than its radius apart.
+- **Panel (f):** with the measured end-state S this pair prediction is 0.405, 0.429, 0.507 and 0.564. The measured values are 0.411, 0.425, 0.504 and 0.564.
+- The variance rises above 0.41 at large χ because S just beyond K grows with χ.
+
+The spectrum is therefore narrower than MP at every χ: λ_max is 0.76 → 0.57 of the MP edge. Its shape is closest to MP with the measured variance, c_eff = Var λ.
+- **χ = 0.1:** the Kolmogorov distance is 0.037.
+- **χ = 0.25 to 0.45:** the distance grows to 0.07, 0.12 and 0.15, as two features appear.
+  - **A soft tail.** λ_min is 0.010 and 0.001 at χ = 0.4 and 0.45, close to the MP(c) edge rather than the MP(c_eff) edge. These soft modes are collective, not void modes:
+    - each spans about 320–360 waves;
+    - each peaks within 0.1 of a particle;
+    - the ground states have no hole larger than 0.8.
+  - **A step at λ ≈ 1.** 3.5–4.5% of the eigenvalues lie within 0.02 of 1, about 5× the MP density. They are long waves (median |q|/K = 0.31–0.38 at χ = 0.4 and 0.45). A long wave couples only to waves near the rim of the exclusion region, so its row of C is half as strong (√Σ_p C²_qp = 0.36–0.40 for |q| < 0.3K, against 0.72–0.78 for |q| > 0.7K).
+
+**What this means for the landscape.** At a ground state the waves are less coupled than random gradients would make them, because S vanishes inside the exclusion region. This is why χ = 0.1 behaves like nearly independent wells. As χ → 1/2 the coupling, and with it the soft tail and the slow valley, returns through the waves just outside K.
+
+#### All four χ for 2D Poisson
+
+`hessian_sign_mechanism`, `hessian_negative_compare` and `hessian_plateau_mechanism` now include 2D Poisson flows at χ = 0.25 (tag 1-4) and χ = 0.45 (tag 9-20), with 100 flows each. Pass the extra tags with `--extra-chi 1-4 9-20`; the other starts have χ = 0.1 and 0.4 only.
+- **Same structure at every χ:**
+  - the stiff band holds 2M directions;
+  - the soft ± branches shrink as √Φ;
+  - the plateau is n₋ = (Nd − 2M)/2;
+  - the cut crossing is near Φ ≈ 10⁻¹¹.
+- **The stiff band's lower edge λ₂ₘ:** 0.95–1.0 k₁² at χ = 0.1, 0.25 and 0.4, but 0.22 k₁² at χ = 0.45. This is the soft edge of the coupling spectrum above.
+- **The first-order agreement H ≈ PRP** still holds and falls as √Φ at every χ. Its prefactor grows with χ as the stiff gap closes: the largest deviation at Φ = 10⁻³ is 10⁻⁵, 8·10⁻⁵, 2·10⁻³ and 5·10⁻² of max |λ| for χ = 0.1, 0.25, 0.4 and 0.45.
+- **Open: a small, systematic sign asymmetry at large χ.** The cut-free soft spectrum (P R P) has slightly more positive than negative eigenvalues in every flow, at every Φ:
+  - (neg, pos) ≈ (200, 208) of 408 at χ = 0.4;
+  - ≈ (88, 100) of 188 at χ = 0.45, where tr(PRP)/Σ|λ| = +0.13;
+  - balanced at χ = 0.1 and 0.25.
+
+  The Φ-independent bias suggests that the stiff part of R, tr((1 − P) R), is correlated with the residual. This has not been examined further.
+
 #### The triad identity in detail
 
 **Derivation.** With ρ_k = Σ_j exp(ik·r_j) and Φ = (1/N) Σ_{q∈C} |ρ_q|² (C the constrained set), the force on particle j is −∇_jΦ = −(1/N) Σ_q [iq ρ_q* e^{iq·r_j} − iq ρ_q e^{−iq·r_j}]. Along the flow, dρ_k/dt = Σ_j ik·ṙ_j e^{ik·r_j}. Substituting the force and using Σ_j e^{i(k±q)·r_j} = ρ_{k±q} gives
@@ -941,6 +994,8 @@ uv run --no-sync python -I experiments/scripts/batten2008_plateau_plot.py --root
 uv run --no-sync python -I experiments/scripts/batten2008_planes_mean_plot.py --root experiments/trajectories/flows2d/N1024 --prefix flows2d_N1024   # per start
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_hessian_sign_plot.py --roots experiments/trajectories/{flows2d/N1024,...} --labels ...   # hessian_sign_compare, hessian_sign_mechanism, hessian_sign_starts
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_sign_universal_plot.py --roots experiments/trajectories/{flows2d/N1024,...} --labels ...   # hessian_sign_universal
+/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_mp_plot.py   # coupling_mp_compare (computes and caches mp_chi<tag>.npz; ~10 CPU-min, use a SLURM CPU job)
+# new chi for 2D Poisson (flows, tail, hessian, plateau, landscape, modes, winding, offplane): pass --chi 0.25 0.45 to each step; plots take --extra-chi 1-4 9-20
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_windcv_explain_plot.py --roots ... --labels ...   # winding_cv_explained (needs landscape_chi*.npz)
 uv run --no-sync python -I experiments/scripts/batten2008_exclusion.py --roots experiments/trajectories/{flows2d/N1024,...} --flows 5   # exclusion_chi*.npz
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_exclusion_plot.py --roots ... --labels ...   # exclusion_mode_control
@@ -955,7 +1010,7 @@ uv run --no-sync python -I experiments/scripts/batten2008_windcv_plot.py --total
 
 **Data.** `trajectories/{gau2d/N1000,url2d/N1024,rsa2d/N999,hip2d/N1000}/` with the same files as `flows2d/N1024`, plus `winding_chi<tag>.npz`, `plateau_chi<tag>.npz` and `landscape_chi<tag>.npz` everywhere. The 20-flow runs are kept in `trajectories/<start>/N<N>_n20/`. The tolerance checks are in `trajectories/{batten2008_tight/N1000,flows2d_tight/N1024}/` (flow 0, atol 10⁻¹¹, rtol 10⁻³).
 
-**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `hessian_sign_compare`, `hessian_sign_mechanism`, `hessian_sign_starts`, `hessian_sign_universal`, `winding_cv_explained`, `exclusion_mode_control`, `exclusion_mode_spectra`, `exclusion_drive`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
+**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `hessian_sign_compare`, `hessian_sign_mechanism`, `hessian_sign_starts`, `hessian_sign_universal`, `coupling_mp_compare`, `winding_cv_explained`, `exclusion_mode_control`, `exclusion_mode_spectra`, `exclusion_drive`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
 
 ### The 1D landscape against χ, in 3D
 
