@@ -65,3 +65,65 @@ MD_ORDER_RATIO_TOL: float = 0.3
 MD_FAMILY_ALPHA: float = 1e-3
 # Smallest relative bias the statistical validations must detect with z >= 6.
 MD_BIAS_DETECT: float = 0.05
+# ----- molecular dynamics: T1 (integrators and thermal sampling) -----
+# Time reversal of Verlet (fixed-seed unit test only, |r| <= 10; for any |r| see
+# MD_REVERSE_ULPS_PER_STEP): forward and backward maps cancel up to ~1 ulp of
+# |r| <= 10 per step and coordinate (1e-15), grown at most linearly by the smooth
+# stealthy force over <= 200 steps: 200 * 2e-15 ~ 4e-13 < 1e-12.
+ATOL_MD_REVERSE: float = 1e-12
+# Verlet vs a NumPy Cartesian oracle in a 32 x 16 sqrt(3) cell: same products up to
+# summation order (~1 ulp of |r| <= 60, i.e. 7e-15 per step) on a stable linear map,
+# random-walk growth over 500 steps: sqrt(500) * 7e-15 ~ 2e-13 < 1e-12.
+ATOL_MD_CART_ORACLE: float = 1e-12
+# Verlet energy on a harmonic oscillator: the map conserves exactly
+# v^2 + (1 - (w h)^2 / 4) w^2 x^2, so E oscillates about its time mean <E> with
+# max |E - <E>| / <E> = (w h)^2 / (8 - (w h)^2) <= 1.1 (w h)^2 / 8 for w h <= 0.85.
+MD_VERLET_ENERGY_FACTOR: float = 1.1
+# COM removal: each v_i - mean rounds by <= eps |v_i| / 2 and the check's own sum
+# adds as much again, so |sum_i v_i| <= n eps max|v| (factor 1, both bounds summed).
+MD_COM_ROUNDOFF_C: float = 1.0
+# Spec form for the reference draws (n = 16, T = 1): the n eps max|v| bound is
+# 16 * 2.2e-16 * 5 ~ 1.8e-14 worst case, but the roundoff is a random walk of 16
+# terms (~4 * 2.2e-16 * 1 ~ 1e-15); measured max over 2000 draws is ~4e-15.
+ATOL_MD_COM: float = 1e-14
+# Blocked (Flyvbjerg-Petersen) z-score bound for BAOAB <x^2> = T / w^2: one
+# comparison per configuration, P(|z| > 4) = 6e-5 under the null (< MD_FAMILY_ALPHA).
+MD_BLOCK_Z: float = 4.0
+# Kolmogorov-Smirnov acceptance threshold (spec: p > 1e-3 per component; the draws
+# are seeded, so a pass is deterministic).
+MD_KS_PVALUE: float = 1e-3
+# Harmonic draws have no component along zero modes: the null-space projection is
+# the eigh rounding eps * lambda_max / lambda_min(nonzero) <~ 1e-12 (condition
+# <= 1e4 in the test systems) times |displacement|; 1e-9 leaves 1000x headroom.
+RTOL_MD_ZERO_MODE: float = 1e-9
+# Cartesian Hessian vs jax.hessian of r -> Phi(r inv(B)): the same sums in another
+# order, cancellation in the diagonal blocks costs ~3 digits (relative to max|H|).
+RTOL_MD_HESSIAN: float = 1e-12
+# Quadratic form dr K dr^T of a harmonic draw vs |xi|^2: eigh of K (condition
+# <= (40 / 0.5)^2 * cond(C) * (1 + |shear|)^2 ~ 7e4 in the property test) gives a
+# relative error ~ eps * cond ~ 1.5e-11; 1e-8 leaves ~1000x headroom.
+RTOL_MD_QUADFORM: float = 1e-8
+# Blocked-error self-test: the returned maximum over levels with >= 128 blocks has
+# per-level relative sd <= sqrt(2 / 127) = 0.125, so it stays within ~2.8 sd = 0.35
+# of the true standard error (one-sided upward bias by construction).
+MD_BLOCK_SE_RTOL: float = 0.35
+# One Verlet step on O(1) values (|x| <= 1.5): <= 4 roundings of eps/2 |x| each,
+# ~7e-16 < 1e-15 (the NumPy check repeats the same operations).
+ATOL_MD_ONE_STEP: float = 1e-15
+# Sums of n d <= 33 squares in different orders (JAX vs NumPy): <= n d eps ~ 7e-15.
+RTOL_MD_KE: float = 1e-14
+# sqrt(T) x vs sqrt(T) x from another (correctly rounded) sqrt: identical on CPU;
+# 4 ulps allow one extra rounding in sqrt and in the product on other backends.
+MD_SQRT_T_ULPS: float = 4.0
+# COM shift vs x - mean(x): mean summation order differs by <= eps max|x| and the
+# subtraction rounds by <= eps max|x|; factor 4 (times eps max|x|) leaves 2x room.
+MD_COM_SHIFT_C: float = 4.0
+# Free-particle drift r + dt/2 v + dt/2 v' vs r + dt/2 (v + v'): <= 4 roundings of
+# eps/2 times (|r| + dt |v|) each; factor 8 (times eps * scale) leaves 4x room.
+MD_DRIFT_IDENTITY_C: float = 8.0
+# Time reversal at any |r| (property test, D-020): roundoff of ~1 ulp of max(1, |r|)
+# per step, amplified by the chaotic flow over the 2 n forward/backward steps. The
+# bound C * 2 n * eps * max(1, |r|) with C = 16 (= 1280 eps |r| at n = 40) covers the
+# measured worst: 17 eps |r| over 8000 runs at dt <= 0.02 (the property domain) and
+# 538 eps |r| at the dt = 0.05 Hypothesis repro (the largest of 8000 dt = 0.05 runs).
+MD_REVERSE_ULPS_PER_STEP: float = 16.0
