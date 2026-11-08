@@ -3,7 +3,7 @@
 """
 Hessian of Phi along the 2008 flows: stiffness spectra and valley cross-sections.
 
-At sample times t/T along every flow (N > 3) the exact Cartesian Hessian
+At energy levels along every flow (N > 3) the exact Cartesian Hessian
 H = d^2 Phi / dx dx (closed form, StealthyEnergy.hessian / L^2) is
 diagonalized. Stored per flow and sample: the sorted eigenvalues, Phi,
 |grad Phi|, the curvature of Phi along each density wave n = 1..M
@@ -11,7 +11,16 @@ diagonalized. Stored per flow and sample: the sorted eigenvalues, Phi,
 wavelength power of the negative-curvature eigenvectors and of as many of
 the stiffest ones (wavelength_power).
 
-For flow 0 at a few of those samples, Phi is also evaluated on the plane
+The clock is the energy itself: Phi decreases monotonically along a gradient
+flow (dPhi/dt = -|grad Phi|^2), so the samples are the first frames with
+log10 Phi at or below LEVELS (every quarter decade from 1e3 to 1e-20), and
+every flow is compared at equal energy. (t/T is not used: the stored flows'
+last few Rosenbrock steps are huge, so T is set by round-off-level motion.)
+If tail_chi<tag>.npz exists (batten2008_tail.py), its capped-step frames
+replace the stored ones below its restart energy, which resolves the last
+decades; without it, deep levels fall on a few coarse frames.
+
+For flow 0 at a few of those levels, Phi is also evaluated on the plane
 through r(t) spanned by
 
 - tau = -grad Phi / |grad Phi|, the direction the flow is moving, and
@@ -52,15 +61,15 @@ from xla_cco.cli.relax import select_device
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from batten2008_flows import chi_tag, load_system  # noqa: E402
 from batten2008_slices import make_evaluator  # noqa: E402
+from batten2008_tail import tail_frames  # noqa: E402
 
 # ============================================================
 # CONSTANTS
 # ============================================================
 
-# t/T samples (nearest frame at or after): about three per decade
-SAMPLES = (0.0, 1e-8, 1e-7, 1e-6, 1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3,
-           1e-2, 3e-2, 1e-1, 3e-1, 1.0)  # fmt: skip
-SECTIONS = (1e-5, 1e-2, 1e-1)  # t/T of the flow-0 cross-sections
+# log10 Phi levels (first frame at or below each): every quarter decade
+LEVELS = tuple(round(3.0 - 0.25 * i, 2) for i in range(93))  # 3.0 ... -20.0
+SECTIONS = (1.0, -1.0, -8.0)  # log10 Phi of the flow-0 cross-sections
 GROWTH = 100.0  # cross-section half-width along v: Phi grows by this factor
 ZERO_REL = (1e-9, 1e-6)  # |lambda| < z * lambda_max counts as a zero mode
 
@@ -128,10 +137,17 @@ def wavelength_power(x: np.ndarray, vecs: np.ndarray, q: np.ndarray) -> np.ndarr
     return np.asarray(jnp.mean(power, axis=1))
 
 
-def sample_frames(u: np.ndarray, times: Tuple[float, ...]) -> np.ndarray:
-    """Index of the first frame with u >= each time (last frame for 1.0)."""
-    idx = np.searchsorted(u, np.array(times), side="left")
-    return np.minimum(idx, u.shape[0] - 1)
+def level_frames(energy: np.ndarray, levels: Tuple[float, ...]) -> np.ndarray:
+    """Index of the first frame with log10 Phi <= each level (else the last).
+
+    Levels above the start map to frame 0. Along a gradient flow ``energy``
+    decreases (up to round-off near the end), so this is a monotone clock.
+    """
+    assert energy.ndim == 1 and energy.shape[0] >= 1, "one energy per frame"
+    assert energy[-1] <= energy[0], "energy must decrease along the flow"
+    below = np.log10(np.maximum(energy, 1e-300))[None, :] <= np.array(levels)[:, None]
+    first = np.argmax(below, axis=1)
+    return np.where(below.any(axis=1), first, energy.shape[0] - 1)
 
 
 def section_axes(grad: np.ndarray, vecs: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -196,6 +212,11 @@ if __name__ == "__main__":
             tag = chi_tag(Fraction(chi_str))
             with np.load(root / f"flows_chi{tag}.npz") as z:
                 flows = {k: z[k] for k in z.files}
+            tail_path = root / f"tail_chi{tag}.npz"
+            tail: Dict[str, np.ndarray] = {}
+            if tail_path.exists():
+                with np.load(tail_path) as z:
+                    tail = {k: z[k] for k in z.files}
             energy, basis, nvec, kmag = load_system(root, tag)
             side, d = float(basis[0, 0]), basis.shape[0]
             kvec = nvec @ (2.0 * np.pi * np.linalg.inv(basis)).T  # Cartesian k
@@ -206,17 +227,28 @@ if __name__ == "__main__":
             ev = make_evaluator(energy, 512)
             out: Dict[str, List[np.ndarray]] = {}
             sections: Dict[str, np.ndarray] = {}
+            worst = 0.0  # largest |log10 Phi(frame) - level| inside a flow's range
             for b in range(flows["s0"].shape[0]):
-                cnt = int(flows["traj_count"][b])
-                t = flows["traj_t"][b, :cnt]
-                u, x3 = t / t[-1], flows["traj_s"][b, :cnt] * side  # (F, N, d)
+                t, s_fr, e = tail_frames(flows, tail, b)
+                cnt = t.shape[0]
+                u, x3 = t / t[-1], s_fr * side  # (F, N, d)
                 x = x3.reshape(cnt, -1)
-                e = flows["traj_energy"][b, :cnt]
                 rows: Dict[str, list] = {
-                    "lam": [], "phi": [], "gnorm": [], "u": [],
+                    "lam": [], "phi": [], "gnorm": [], "u": [], "t": [],
                     "dw_stiff": [], "neg_power": [], "pos_power": [],
                 }  # fmt: skip
-                for i, k in enumerate(sample_frames(u, SAMPLES)):
+                frames = level_frames(e, LEVELS)
+                inside = (np.array(LEVELS) <= np.log10(e[0])) & (
+                    np.array(LEVELS) >= np.log10(e[-1])
+                )
+                gap = np.abs(np.log10(e[frames]) - np.array(LEVELS))[inside]
+                worst = max(worst, float(gap.max(initial=0.0)))
+                cache: Dict[int, Dict[str, np.ndarray]] = {}
+                for i, k in enumerate(frames):
+                    if int(k) in cache:  # levels above the start share frame 0
+                        for key, val in cache[int(k)].items():
+                            rows[key].append(val)
+                        continue
                     s = jnp.asarray(x3[k] / side)
                     h = np.asarray(hess(s)) / side**2  # Cartesian Hessian
                     lam, vecs = (np.asarray(a) for a in eigh(0.5 * (h + h.T)))
@@ -226,41 +258,48 @@ if __name__ == "__main__":
                     rows["phi"].append(np.array(float(phi)))
                     rows["gnorm"].append(np.array(np.linalg.norm(grad)))
                     rows["u"].append(np.array(u[k]))
+                    rows["t"].append(np.array(t[k]))
                     rows["dw_stiff"].append(density_wave_stiffness(x3[k], h, kvec))
                     neg = lam < -ZERO_REL[1] * lam[-1]
                     rows["neg_power"].append(wavelength_power(x3[k], vecs[:, neg], q))
                     stiff = vecs[:, -max(1, int(neg.sum())) :]  # as many, stiffest
                     rows["pos_power"].append(wavelength_power(x3[k], stiff, q))
-                    if b == 0 and SAMPLES[i] in SECTIONS:
-                        j = SECTIONS.index(SAMPLES[i])
+                    cache[int(k)] = {key: val[-1] for key, val in rows.items()}
+                    if b == 0 and LEVELS[i] in SECTIONS:
+                        j = SECTIONS.index(LEVELS[i])
                         sec = cross_section(
                             x, e, k, grad, lam, vecs, ev, side, args.grid, n
                         )
                         for name, val in sec.items():
                             sections[f"sec{j}_{name}"] = val
                         sections[f"sec{j}_u"] = np.array(u[k])
+                        sections[f"sec{j}_phi0"] = np.array(e[k])
                         sections[f"sec{j}_lam_max"] = np.array(lam[-1])
                 for key, val in rows.items():
                     out.setdefault(key, []).append(np.stack(val))
+            missing = [x for j, x in enumerate(SECTIONS) if f"sec{j}_a" not in sections]
+            assert not missing, f"section levels {missing} share a frame with another"
             packed = {k: np.stack(v) for k, v in out.items()}
             lam = packed["lam"]
             for z_rel, name in zip(ZERO_REL, ("n_zero", "n_zero_loose"), strict=True):
                 packed[name] = (np.abs(lam) < z_rel * lam[..., -1:]).sum(axis=-1)
             zero = np.abs(lam) < ZERO_REL[0] * lam[..., -1:]
             packed["n_negative"] = ((lam < 0) & ~zero).sum(axis=-1)
-            np.savez(root / f"hessian_chi{tag}.npz", samples=np.array(SAMPLES),
+            np.savez(root / f"hessian_chi{tag}.npz", samples=np.array(LEVELS),
+                     clock=np.array("log10_phi"), tail=np.array(bool(tail)),
                      kmag=kmag, nvec=nvec, qmag=np.linalg.norm(q, axis=1),
                      dim=np.array(d),
                      **packed, **sections)  # fmt: skip
             nz, nl = packed["n_zero"][:, -1], packed["n_zero_loose"][:, -1]
             nn = packed["n_negative"]
             print(
-                f"N={n} chi={chi_str}: zero modes at the end {nz.min()}-{nz.max()} "
+                f"N={n} chi={chi_str}: tail {'yes' if tail else 'no'}; "
+                f"max |log10 Phi - level| {worst:.2f}; "
+                f"zero modes at the end {nz.min()}-{nz.max()} "
                 f"(dN - 2M = {n * d - 2 * nvec.shape[0]}) "
                 f"(loose {nl.min()}-{nl.max()}); "
-                f"negative modes per sample (median) {np.median(nn, axis=0)}; "
-                f"lambda_max per sample (median) "
-                f"{np.median(lam[..., -1], axis=0).round(2)}; "
+                f"negative modes every 2 decades (median) "
+                f"{np.median(nn, axis=0)[::8]}; "
                 f"sections {sorted({k.split('_')[0] for k in sections})}; "
                 f"{time.time() - t0:.0f} s",
                 flush=True,
