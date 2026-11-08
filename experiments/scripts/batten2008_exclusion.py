@@ -23,7 +23,9 @@ and Im coordinates):
   that is still in wave k at |k|^2 t = x (1 for independent wells);
 - soft_waves: the number of waves the softest collective mode of K spans
   (participation number over waves);
-- for flow 0: the frequency weights of three waves (|k|/K = 0.25, 0.5, 0.9).
+- for flow 0: the frequency weights of three waves (|k|/K = 0.25, 0.5, 0.9)
+  and the full eigensystem of K (eig_lam (2M,), eig_q (2M, 2M); rows are
+  the coordinates Re rho_1..M, Im rho_1..M).
 
 Output: <root>/exclusion_chi<tag>.npz. NumPy (one eigh of K per ground state).
 
@@ -88,7 +90,7 @@ def wave_stats(
     out["retention"] = retention(q, lam, k2, m)
     p_soft = q[:m, 0] ** 2 + q[m:, 0] ** 2  # softest collective mode over waves
     out["soft_waves"] = np.array(1.0 / np.sum(p_soft**2))
-    out["lam"], out["w"] = lam, w
+    out["lam"], out["w"], out["q"] = lam, w, q
     return out
 
 
@@ -128,6 +130,7 @@ def run_system(root: Path, tag: str, n_flows: int) -> Dict[str, np.ndarray]:
                 w_row = 0.5 * (st["w"][row] + st["w"][row + kmag.shape[0]])
                 rows.setdefault("ex_w", []).append(w_row)
             rows["ex_om"] = [np.sqrt(st["lam"])]
+            rows["eig_lam"], rows["eig_q"] = [st["lam"]], [st["q"]]
         keys = ("cost", "s_thermal", "modes", "om_mean", "om_std", "retention",
                 "soft_waves")  # fmt: skip
         for key in keys:
