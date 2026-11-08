@@ -60,3 +60,15 @@ These changes were made after a synthetic dry run of the analysis pipeline and b
 Under A1, a start-independent set still passes the η²_H part of H5 in all 6 harmonic cells with probability only ≈ 0.85⁶ ≈ 0.37. Each cell passes when H < 6.7, i.e. P(χ²₄ < 6.7) = 0.847; this was measured on synthetic null sets (E2 dry run). H5 part 1 is therefore evaluated on the mean of η²_H over the 6 harmonic (χ, T) cells: PASS if mean η²_H < 0.06. Under the null this mean has expectation 0 and standard error ≈ √(2(k−1))/(n−k)/√6 ≈ 0.026, so the null pass rate is ≈ 0.99. Per-cell η²_H values are reported descriptively.
 
 H5 part 2 is unchanged: in every harmonic cell, the largest pairwise difference of the per-start medians of ν must be below 3%.
+
+## Amendment A3 (2026-11-08, before any production MD job)
+
+H6 part 1 assumes that an unconstrained ρ_k stays near a fixed ρ0. In the N = 64 CPU dry run, drift along the flat ground-state manifold made |ρ_k|² vary within a segment (coefficient of variation 0.38–0.81). The measured unsigned rate was then 1.34–1.77 times |k|√(T/(πS_k))/2π (AUDIT-E2 §5).
+
+H6 stays exactly as registered; a FAIL of its part 1 is reported as evidence of manifold drift. A secondary hypothesis is added. It uses the conditional Rice formula, which holds for any slowly varying amplitude. Given ρ, θ̇ is Gaussian with variance N|k|²T/(2|ρ|²), so E|θ̇| = |k|·√(NT/π)·E[1/|ρ_k|].
+
+| ID | Statement | PASS if |
+|---|---|---|
+| H6b | Conditional Rice rate of the unconstrained waves | at each harmonic T, the per-bin median over ground states of the unsigned rate divided by \|k\|√(NT/π)·⟨1/\|ρ_k\|⟩_t/(2π) lies in [0.90, 1.10] for every unconstrained \|k\|/K bin |
+
+Here ⟨1/|ρ_k|⟩_t is estimated from the production-segment snapshots, which are log-spaced. That estimator is noted in the report. The A1 verdict mapping applies.
