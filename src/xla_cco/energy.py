@@ -198,14 +198,10 @@ class StealthyEnergy(AbstractEnergy):
         dPhi/ds_j = (2/V) sum_k w_k (Im rho_k cos th_kj - Re rho_k sin th_kj)
         2 pi n_k, th_kj = 2 pi n_k . s_j; this equals -B F_j for the C++ force.
         """
-        require_float64(s, "s")
         assert s.ndim == 2, "s must have shape (n, d)"
         assert s.shape[1] == self.n_vectors.shape[1], "dimension mismatch"
-        if self.n_max is not None:
-            return self._value_and_grad_tables(s, self.n_max)
-        re, im = collective_density(s, self.n_vectors, self.chunk_size)
-        value = jnp.sum(self.weights * (re * re + im * im)) / self.volume
-        return value, self._gradient(s, re, im)
+        value, grad, _, _ = self.value_grad_density(s)
+        return value, grad
 
     def value_grad_density(
         self, s: Positions
@@ -215,13 +211,27 @@ class StealthyEnergy(AbstractEnergy):
         Phi and the gradient equal ``value_and_grad`` (on both the trig and the
         phase-table paths); re/im equal ``collective_density(s, n_vectors,
         chunk_size)`` including padding rows (MD reuses them for winding).
+        ``value_and_grad`` is this pass with re/im dropped, so the two agree
+        bitwise. On the phase-table path re/im are the table rho the gradient
+        used, equal to ``collective_density`` up to table rounding.
         """
-        raise NotImplementedError
+        require_float64(s, "s")
+        assert s.ndim == 2, "s must have shape (n, d)"
+        assert s.shape[1] == self.n_vectors.shape[1], "dimension mismatch"
+        if self.n_max is not None:
+            return self._value_and_grad_tables(s, self.n_max)
+        re, im = collective_density(s, self.n_vectors, self.chunk_size)
+        value = jnp.sum(self.weights * (re * re + im * im)) / self.volume
+        return value, self._gradient(s, re, im), re, im
 
     def _value_and_grad_tables(
         self, s: Positions, n_max: int
-    ) -> Tuple[Float[Array, ""], Positions]:
-        """Phase-table fast path: one block (unchunked) or two scans (chunked)."""
+    ) -> Tuple[Float[Array, ""], Positions, Float[Array, " m"], Float[Array, " m"]]:
+        """Phase-table fast path: one block (unchunked) or two scans (chunked).
+
+        Returns (Phi, dPhi/ds, Re rho, Im rho), rho being the table density the
+        gradient used (padding chunk rows beyond m dropped).
+        """
         m = self.n_vectors.shape[0]
         size = m if self.chunk_size is None else min(self.chunk_size, m)
         n_chunks = -(-m // size)
@@ -240,7 +250,8 @@ class StealthyEnergy(AbstractEnergy):
             ph = _phase_block(table, n_blk[0])
             rho = jnp.sum(ph, axis=1)  # complex sum: fuses far better than re/im
             value = jnp.sum(w_blk[0] * (rho.real**2 + rho.imag**2)) / self.volume
-            return value, pref * (coef_of(ph, w_blk[0], rho).T @ n_blk[0])
+            grad = pref * (coef_of(ph, w_blk[0], rho).T @ n_blk[0])
+            return value, grad, rho.real, rho.imag
 
         def rho_body(_: None, n_c: Array) -> Tuple[None, Array]:
             return None, jnp.sum(_phase_block(table, n_c), axis=1)
@@ -256,7 +267,7 @@ class StealthyEnergy(AbstractEnergy):
 
         init = jnp.zeros_like(s)
         acc, _ = jax.lax.scan(grad_body, init, (n_blk, w_blk, rho_blk))
-        return value, pref * acc
+        return value, pref * acc, re_blk.reshape(-1)[:m], im_blk.reshape(-1)[:m]
 
     def hessian(self, s: Positions) -> Float[Array, "nd nd"]:
         """Closed-form Hessian, flattened row-major to (n d, n d).

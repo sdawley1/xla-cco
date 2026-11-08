@@ -127,3 +127,46 @@ MD_DRIFT_IDENTITY_C: float = 8.0
 # measured worst: 17 eps |r| over 8000 runs at dt <= 0.02 (the property domain) and
 # 538 eps |r| at the dt = 0.05 Hypothesis repro (the largest of 8000 dt = 0.05 runs).
 MD_REVERSE_ULPS_PER_STEP: float = 16.0
+
+# ----- MD observables and the energy extension (T2) -----
+# Winding vs batten2008_winding.cumulative_winding and vs analytic rotations: each
+# step is atan2 of the product rho_new conj(rho_old), rounded to <= ~2 ulp(pi)
+# ~ 1e-15 (the reference takes np.angle of the same product, the analytic path
+# rounds its phase by eps * omega t <= 1e-14); over the <= 400 steps of those
+# tests the sums drift by <= 4e-13, so 1e-12 leaves 2.5x headroom.
+ATOL_MD_WINDING: float = 1e-12
+# The accumulators also round each addition by <= eps W / 2 at magnitude W (and the
+# reference sums turns, then multiplies by 2 pi): over F <= 400 steps that is
+# <= F eps / 2 ~ 4.4e-14 relative (measured 3.8e-15 at W ~ 470 rad); 1e-13.
+RTOL_MD_WINDING: float = 1e-13
+# wave_densities (k . r) vs collective_density (2 pi n . s, s = r inv(B)): the two
+# phases differ by the rounding of r inv(B) and of n 2 pi inv(B)^T, a few eps
+# |theta| with |theta| <= 2 pi max|n| d max|s| <= 2 pi * 4 * 3 * 4 ~ 300 in the
+# tests (unwrapped s up to 4), i.e. <= ~2e-13 per particle; the check scales the
+# bound by N (atol = ATOL_MD_WAVE_PER_PARTICLE * N), 5x headroom.
+ATOL_MD_WAVE_PER_PARTICLE: float = 1e-12
+# Phase-table rho vs trig rho: a table factor z^p (cumulative product) carries
+# ~p eps relative error and z itself eps 2 pi |s| (as does the trig phase), so one
+# (k, j) term is off by <= (1 + 2 pi |s|) n_max d eps; N terms add. The check uses
+# atol = C eps N (1 + 2 pi) n_max d, i.e. the |s| <= 1 form, with C = 4 covering
+# |s| <= 2 of the tests (measured error <= 1.83 such units even at |s| <= 20).
+TABLE_RHO_C: float = 4.0
+# Rice formula <|theta'|> = sigma_rho' / sigma_rho, and zero mean net winding of
+# the same paths: the plan's 3 sigma criterion per fixed-seed z-test (false alarm
+# 0.27% per seed; measured z SD 1.00 over 12 seeds).
+MD_RICE_Z: float = 3.0
+# center_of_mass vs np.mean: two summation orders of n = 9 values |r| <= 12 differ
+# by <= (n - 1) eps max|r| = 8 * 2.2e-16 * 12 = 2.1e-14 (measured 5.6e-17).
+ATOL_MD_COM_MEAN: float = 3e-14
+# com_correct vs NumPy rho exp(-i k . R_cm): rounding <= c eps |rho| (1 + |theta|),
+# |rho| <= N = 9, |theta| <= 60 in the tests, c = 4: 4 * 2.2e-16 * 9 * 61 = 4.8e-13.
+ATOL_MD_COM_RHO: float = 1e-12
+# One winding step from 0.25: atan2 (1 ulp) of a product whose angle rounds by
+# <= 2 eps, plus the addition (1 ulp), at magnitude <= pi + 0.25 (ulp 4.4e-16):
+# <= 4 * 4.4e-16 = 1.8e-15.
+ATOL_MD_WIND_ONE_STEP: float = 2e-15
+# COM-corrected winding of rigidly translated paths: the corrected rho differ by
+# roundoff N eps |theta| <= 40 * 2.2e-16 * 600 ~ 5e-12 (translations <= 8 add to
+# |theta|); with the test floor S > 1e-4 (|rho| >= 1e-2) each step's angle moves
+# by <= 5e-10 and 8 steps by <= 4e-9; 1e-8 leaves 2.5x headroom.
+ATOL_MD_COM_WIND: float = 1e-8
