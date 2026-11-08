@@ -24,6 +24,13 @@ needed for parity, reproduce the behaviour.
 | D-015 | fixed | `cli/relax.py` (`load_input`) | The CLI rejected its own output packs (basis scaled by N^(1/d)) as input. |
 | D-016 | fixed | `_device.py` (`classify_failure`) | GPU guard blamed `--gres=gpu` when `JAX_PLATFORMS=cpu` hid the GPU, and its fix hint synced CUDA JAX into the CPU env. |
 | D-017 | fixed | `tests/property/test_energy_tables_props.py` | Table-path gradient tolerance blind to pre-cancellation magnitude (sibling of D-011). |
+| D-040 | fixed | `dynamics/checkpoint.py` (`load_state`) | Corrupt MD checkpoint escaped as BadZipFile instead of a ValueError. |
+| D-041 | fixed | `cli/md.py` (`main`) | MD CLI usage errors exited 2 instead of 1. |
+| D-042 | fixed | `cli/md.py` (`start_state`) | A crash in phase 0 discarded its in-phase progress. |
+| D-043 | fixed | `cli/md.py` (`fingerprint`) | Resume fingerprint missed k_chunk and the input content. |
+| D-044 | fixed | `cli/md.py` (`run_phases`) | Equilibration gate averaged over the transient and was never acted on. |
+| D-045 | fixed | `cli/md.py` (`record_schedule`) | Default 200 snapshots deduplicated to 184. |
+| D-046 | fixed | `cli/md.py` (`_run_phase`) | Stale in-phase checkpoint left at the path handed to simulate. |
 
 ## D-006 — `unit_ball_volume` is not bit-equal to the C++ hard-coded constants
 - **Found:** 2026-11-05, by the T4 auditor's preview parity
