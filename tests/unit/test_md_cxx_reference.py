@@ -59,6 +59,7 @@ def _load_script() -> ModuleType:
     assert spec is not None and spec.loader is not None, f"cannot load {SCRIPT}"
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
+    assert hasattr(mod, "andersen_reset_steps"), "md_reference.py API changed"
     return mod
 
 
@@ -70,6 +71,7 @@ def ref() -> Dict[str, Any]:
     """The reference JSON."""
     data: Dict[str, Any] = json.loads(JSON_PATH.read_text())
     assert data["runs"], "no runs in the reference JSON"
+    assert "protocol" in data and "unit_gate" in data, "incomplete reference JSON"
     return data
 
 
@@ -106,6 +108,7 @@ def _naive_resets(n_steps: int, prob: float) -> List[int]:
         while acc > 0:
             out.append(step)
             acc -= 1.0
+    assert len(out) <= n_steps * math.ceil(prob) + 1, "oracle overflow"
     return out
 
 
@@ -149,8 +152,9 @@ def test_regression_D052_log_is_six_digit_rounding_of_cpp_energy(
     rel = np.abs(phi - samples["phi_log"]) / samples["phi_log"]
     assert np.all(rel <= RTOL_CXX_LOG_6SIG), f"max rel diff {rel.max():.3e}"
     for run in ref["runs"]:
-        pairs = zip(run["phi_cpp"], run["phi_log"], strict=True)
+        pairs = list(zip(run["phi_cpp"], run["phi_log"], strict=True))
         assert all(f"{c:g}" == f"{g:g}" for c, g in pairs), f"seed {run['seed']}"
+        assert all(g == float(f"{c:g}") for c, g in pairs), f"seed {run['seed']}"
 
 
 # ============================================================
@@ -178,24 +182,56 @@ def test_units_equipartition(ref: Dict[str, Any]) -> None:
     """Pooled <Phi>/(M T) and <KE>/(N d T/2) are 1 (mass 1, kT = T, no COM removal)."""
     phi = np.concatenate([r["phi_cpp"] for r in ref["runs"]])
     ke = np.concatenate([r["ke_log"] for r in ref["runs"]])
-    t, m, n, d = ref["T"], ref["M"], ref["N"], ref["d"]
+    t, m, dof = ref["T"], ref["M"], ref["protocol"]["ke_dof"]
     phi_ratio = float(phi.mean()) / (m * t)
-    ke_ratio = float(ke.mean()) / (n * d * t / 2.0)
+    ke_ratio = float(ke.mean()) / (dof * t / 2.0)
     assert abs(phi_ratio - 1.0) < MD_CXX_UNITS_TOL, f"<Phi>/(MT) = {phi_ratio}"
     assert abs(ke_ratio - 1.0) < MD_CXX_UNITS_TOL, f"<KE>/(NdT/2) = {ke_ratio}"
 
 
 @pytest.mark.high
 def test_protocol_record(ref: Dict[str, Any]) -> None:
-    """The JSON carries the C++ dt and Andersen schedule V2 must replicate."""
+    """The JSON carries the C++ dt, stage counts and Andersen schedule for V2."""
     proto = ref["protocol"]
-    assert proto["dt"] == 0.01 and proto["step_per_sample"] == 100_000
+    assert proto["dt"] == 0.01 and proto["steps_per_sample"] == 100_000
+    assert proto["andersen_steps"] == proto["nve_steps"] == 50_000
+    assert proto["nve_steps_equi"] == 50_000
+    assert proto["velocity_redraws_per_equi_cycle"] == 2
+    assert proto["nc"] == ref["Nc"] == 200 and proto["nc_equi"] == ref["Nc_equi"] == 20
     for run in ref["runs"]:
         assert set(run["dt_log"]) == {proto["dt"]}, f"seed {run['seed']} dt"
-    sched = MDR.andersen_reset_steps(proto["steps_per_half"], proto["andersen"]["p"])
-    assert proto["andersen"]["resets_per_call"] == sched.size
+        assert run["n_samples"] == proto["nc"], f"seed {run['seed']} truncated"
+        assert len(run["equil_phi_log"]) == proto["nc_equi"]
+    sched = MDR.andersen_reset_steps(proto["andersen_steps"], proto["andersen_p"])
+    assert proto["andersen_p"] == proto["andersen"]["p"] == 0.01
+    assert proto["resets_per_call"] == proto["andersen"]["resets_per_call"] == 501
+    assert proto["resets_per_call"] == sched.size and proto["first_reset_step"] == 1
     assert proto["andersen"]["first_reset_steps"] == sched[:4].tolist()
-    assert proto["andersen"]["mode"] == "count" and proto["andersen"]["p"] == 0.01
+    assert proto["andersen"]["mode"] == "count" and proto["reset_counter_per_call"]
+
+
+@pytest.mark.high
+def test_ke_dof_counts_all_components(ref: Dict[str, Any]) -> None:
+    """No COM removal anywhere in C++ MD: KE has exactly N d degrees of freedom."""
+    proto = ref["protocol"]
+    assert proto["remove_com"] is False
+    assert proto["ke_dof"] == ref["N"] * ref["d"] == 512
+    assert proto["ke_dof"] != ref["d"] * (ref["N"] - 1)
+
+
+@pytest.mark.high
+def test_regression_D051_first_kick_zero_acceleration_recorded(
+    ref: Dict[str, Any],
+) -> None:
+    """D-051: the JSON tells V2 that the C++ run's first half-kick has a = 0.
+
+    The quirk acts once, on a relaxed start (|F| ~ 0), before 2.2e7 steps, so
+    no statistic can test it; the regression guard is that the protocol record
+    keeps stating it, with its pre-relaxation budget.
+    """
+    proto = ref["protocol"]
+    assert proto["first_kick_zero_acceleration"] is True
+    assert "D-051" in proto["prerelax"] and proto["prerelax_evals"] == 1000
 
 
 # ============================================================

@@ -1,6 +1,6 @@
 {
  "description": "C++ CollectiveCoordinateMD reference samples (plan T4)",
- "created": "2026-11-08T17:27:42",
+ "created": "2026-11-08T17:37:41",
  "generator": "tools/cpp_reference/md_reference.py collect",
  "N": 256,
  "d": 2,
@@ -251,7 +251,9 @@
   "path": "/scratch/gpfs/TORQUATO/sd2402/wt-T4/tools/cpp_reference/build/dump_reference",
   "sha256": "bcf875800166d1a9d7a4f361c3840b853f722be70fbf3e5e5120d5b066585639",
   "bytes": 807656,
-  "mtime": "2026-11-08T12:27:59.578878"
+  "mtime": "2026-11-08T12:27:59.578878",
+  "repo_path": "tools/cpp_reference/build/dump_reference",
+  "built_by": "make -C tools/cpp_reference"
  },
  "units": {
   "box": "C++ random-mode box, side L = 1000^(1/d) = 31.622776601683793 (D-004: stale num = 1000), V = 1000.0, density N/V = 0.256; use xla Box(basis = L I) and Cartesian dynamics in it",
@@ -291,7 +293,22 @@
   },
   "com": "never removed: SetRandomSpeed and Andersen draw all N d components independently, so the COM momentum fluctuates and KE counts N d degrees of freedom",
   "rng": "one RandomGenerator(seed) (rngGod) drives the initial config, the velocities and the Andersen draws",
-  "nthreads": 1
+  "nthreads": 1,
+  "steps_per_sample": 100000,
+  "nc_equi": 20,
+  "velocity_redraws_per_equi_cycle": 2,
+  "nve_steps_equi": 50000,
+  "nc": 200,
+  "andersen_steps": 50000,
+  "nve_steps": 50000,
+  "andersen_p": 0.01,
+  "resets_per_call": 501,
+  "first_reset_step": 1,
+  "reset_counter_per_call": true,
+  "first_kick_zero_acceleration": true,
+  "remove_com": false,
+  "ke_dof": 512,
+  "prerelax_evals": 1000
  },
  "unit_gate": {
   "rtol": 1e-08,

@@ -474,7 +474,44 @@ def collect_seed(work: Path, par: Dict[str, Any]) -> Tuple[Dict[str, Any], np.nd
     return rec, s
 
 
-def protocol_record() -> Dict[str, Any]:
+def protocol_numbers(n_samples: int, n_equil: int) -> Dict[str, Any]:
+    """Return the machine-readable C++ protocol counts (main.cpp:725-890).
+
+    Parameters
+    ----------
+    n_samples, n_equil : int
+        Nc and Nc_equi.
+
+    Returns
+    -------
+    Dict[str, Any]
+        Stage counts, Andersen schedule, COM handling and KE degrees of freedom.
+    """
+    assert n_samples >= 1 and n_equil >= 0, "need Nc >= 1 and Nc_equi >= 0"
+    half = STEP_PER_SAMPLE // 2
+    resets = andersen_reset_steps(half, ANDERSEN_P)
+    assert resets.size > 0, "empty Andersen schedule"
+    return {
+        "dt": MD_DT,
+        "steps_per_sample": STEP_PER_SAMPLE,
+        "nc_equi": n_equil,
+        "velocity_redraws_per_equi_cycle": 2,  # main.cpp:803 ii < 2
+        "nve_steps_equi": half,  # per redraw
+        "nc": n_samples,
+        "andersen_steps": half,
+        "nve_steps": half,
+        "andersen_p": ANDERSEN_P,
+        "resets_per_call": int(resets.size),
+        "first_reset_step": int(resets[0]),
+        "reset_counter_per_call": True,  # ResetCount = 0.0 at each call (D-050)
+        "first_kick_zero_acceleration": True,  # D-051
+        "remove_com": False,
+        "ke_dof": N_PARTICLES * DIM,  # all N d components, no COM removal
+        "prerelax_evals": PRERELAX_EVALS,
+    }
+
+
+def protocol_record(n_samples: int, n_equil: int) -> Dict[str, Any]:
     """Return the C++ protocol V2 needs to replicate (main.cpp:725-890)."""
     half = STEP_PER_SAMPLE // 2
     resets = andersen_reset_steps(half, ANDERSEN_P)
@@ -517,6 +554,7 @@ def protocol_record() -> Dict[str, Any]:
         "rng": "one RandomGenerator(seed) (rngGod) drives the initial config, "
         "the velocities and the Andersen draws",
         "nthreads": NTHREADS,
+        **protocol_numbers(n_samples, n_equil),
     }
 
 
@@ -582,9 +620,13 @@ def reference_meta(
         "seeds": [r["seed"] for r in recs],
         "n_vectors": kset.n.tolist(),
         "binary": file_meta(CCO_BINARY),
-        "harness": file_meta(HARNESS),
+        "harness": {
+            **file_meta(HARNESS),
+            "repo_path": str(HARNESS.relative_to(REPO)),
+            "built_by": "make -C tools/cpp_reference",
+        },
         "units": units_record(par),
-        "protocol": protocol_record(),
+        "protocol": protocol_record(n_samples, n_equil),
         "unit_gate": gate,
         "runs": recs,
     }

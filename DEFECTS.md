@@ -167,7 +167,7 @@ needed for parity, reproduce the behaviour.
 - **Symptom:** `CollectiveCoordinateMD` builds `ParticleMolecularDynamics` from the relaxed config without computing forces, so step 1 of stage 1 kicks with a = 0 instead of F(r0)/m
 - **Repro:** read the constructor and `Evolve`; no `_GetAcc` call precedes the first step
 - **Impact:** none measurable here: the start is an L-BFGS-relaxed config with |F| near 0, and 2.2e7 later steps follow. Recorded in the reference JSON protocol so V2 does not chase it
-- **Regression test:** none (no effect on our code or on the statistical comparison)
+- **Regression test:** tests/unit/test_md_cxx_reference.py::test_regression_D051_first_kick_zero_acceleration_recorded (guards the protocol record; the quirk itself is statistically invisible: one kick from a relaxed start with |F| ~ 0 before 2.2e7 steps)
 - **Fix:** none (C++ is read-only)
 
 ## D-052 — MD sample log has 6 significant digits
