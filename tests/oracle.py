@@ -207,3 +207,29 @@ def pair_distances(s: np.ndarray, basis: np.ndarray) -> np.ndarray:
                 best = min(best, math.sqrt(modulus2(ds @ basis)))
             out.append(best)
     return np.array(out, dtype=np.float64)
+
+
+# ============================================================
+# STATISTICS
+# ============================================================
+
+
+def blocked_standard_error(x: np.ndarray, min_blocks: int = 128) -> float:
+    """Flyvbjerg-Petersen standard error of the mean of a correlated series.
+
+    The series is repeatedly coarse-grained by averaging neighbouring pairs; at
+    each level with m blocks the naive error sqrt(var / (m - 1)) is computed.
+    The estimate rises to a plateau once blocks exceed the correlation time; the
+    maximum over levels keeping at least ``min_blocks`` blocks is returned
+    (conservative: it never undershoots the plateau).
+    """
+    assert x.ndim == 1 and x.size >= 2 * min_blocks, "need a long 1D series"
+    assert min_blocks >= 2, "min_blocks must be >= 2"
+    y = np.asarray(x, dtype=np.float64)
+    best = 0.0
+    for _ in range(64):  # bounded: log2(size) levels at most
+        if y.size < min_blocks:
+            break
+        best = max(best, math.sqrt(float(np.var(y)) / (y.size - 1)))
+        y = 0.5 * (y[: 2 * (y.size // 2) : 2] + y[1 : 2 * (y.size // 2) : 2])
+    return best
