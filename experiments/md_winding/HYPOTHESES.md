@@ -43,3 +43,14 @@ Every z-test below uses autocorrelation-corrected errors (Flyvbjerg–Petersen b
 - **PASS:** all parts are met.
 - **FAIL:** any part misses by ≥ 10% relative.
 - **INCONCLUSIVE:** a part misses with \|z\| > 3 but by < 10%. One cell is then rerun at 2× length from the reserve budget, and the verdict is re-evaluated once.
+
+## Amendment A1 (2026-11-08, before any production MD job)
+
+These changes were made after a synthetic dry run of the analysis pipeline and before any production data existed (D-047).
+
+1. **H5 effect size.** The plain Kruskal–Wallis ε² = H(n+1)/(n²−1) has a null expectation of about (k−1)/(n−1). For k = 5 starts and n = 50 ground states that is 0.082, above the 0.06 threshold, so a start-independent system would fail H5 with probability ≈ 0.99. H5 therefore uses the bias-corrected η²_H = (H − k + 1)/(n − k), whose null expectation is 0. The threshold (< 0.06) and the median-difference part (< 3%) are unchanged.
+2. **Mapping misses to verdicts.**
+   - *Interval and tolerance parts* (ratios in [a, b]; "within x%"): a part that misses by less than 10% relative is INCONCLUSIVE whatever its \|z\|; a miss of 10% or more is FAIL. Deviations are measured from the predicted value; for H5 they are the largest pairwise median difference.
+   - *Significance-test parts* (H4 mean net rate \|z\| < 3; H8 part 2, Mann–Whitney p < 0.01): a miss is FAIL. There is no INCONCLUSIVE for these.
+3. **Normalized unsigned rate.** H5 and H7 use, per ground state, ν = the mean over constrained waves of (unsigned rate)/(\|k\|/2π).
+4. **H6.** The t√T collapse and the exponent β use the harmonic temperatures only. Values including T = 1e-3 are reported descriptively.
