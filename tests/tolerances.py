@@ -206,3 +206,15 @@ MD_SPECTRUM_BINS: float = 2.0
 # the strongest line fall below 1e-3 (-31 dB first sidelobe, then 18 dB/octave)
 # beyond ~2 bins, where they would count as (wrongly placed) peaks.
 MD_SPECTRUM_PEAK_FRAC: float = 1e-3
+# V3 benchmark (benchmarks/md_bench.py). Offline winding against the device rule
+# (observables.winding_update in a loop): both sum <= 12 atan2 values of O(1)
+# arguments, each correctly rounded (~1e-16 relative), in the same order; the jax
+# and numpy atan2 may differ by 1-2 ulp, so 1e-12 relative (+1e-12 absolute for
+# near-zero sums) leaves > 1e3 headroom.
+RTOL_MD_BENCH_WIND: float = 1e-12
+# Ratio-of-means null test (D-070): |Delta| / SE of n = 4000 matched iid lognormal
+# pairs is asymptotically N(0, 1) (delta method; skew ~ 1/sqrt(n) negligible). A
+# bound of 5 sigma fails a correct estimator with probability 6e-7 per example
+# (< 2e-4 over the 300-example ci profile), while the mean of per-pair ratios is
+# biased by ~CV^2 = 0.09, i.e. > 100 SE, so the test separates the two.
+MD_BENCH_NULL_Z: float = 5.0

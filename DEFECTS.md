@@ -35,6 +35,8 @@ needed for parity, reproduce the behaviour.
 | D-060 | fixed | `dynamics/run.py` (`begin_segment`) | Frozen `begin_segment` cannot recompute rho_prev (no waves); a scheme switch mixed COM-corrected and raw rho in the first winding step. |
 | D-061 | fixed | `tests/integration/test_md_cli.py` (end to end) | The real-driver end-to-end test ran NVE from random (non-ground) states, which the drift guard correctly aborts. |
 | D-062 | fixed | `cli/md.py` (`_run_phase`) | Andersen phases after an NVE segment started without begin_segment: their first winding step compared raw with COM-corrected rho. |
+| D-070 | fixed | `benchmarks/md_bench.py` (`_bin_stats`) | V3 winding criterion (c) used the mean of per-wave ratios, biased by ~CV^2 for decorrelated waves; no dt passed at chi = 0.4. |
+| D-071 | fixed | `benchmarks/md_bench.py` (`round_up_125`) | log10 rounding put x just below 10^k in the next decade (assertion error). |
 
 ## D-006 — `unit_ball_volume` is not bit-equal to the C++ hard-coded constants
 - **Found:** 2026-11-05, by the T4 auditor's preview parity
@@ -268,3 +270,23 @@ needed for parity, reproduce the behaviour.
 - **Regression test:** tests/integration/test_md_cli.py::test_regression_D062_andersen_after_nve_restarts_winding (test_md_cli_protocol now checks the restart flags)
 - **Fix:** every phase that does not begin a segment starts (done == 0) with `_rewind`: begin_segment(reset_sums=False, reset_winding=True) with remove_com=False, so rho_prev is recomputed under the phase's COM rule; velocities, sums and step are untouched, resume semantics unchanged
 
+## D-070 — V3 criterion (c) estimator biased upward for decorrelated waves
+- **Found:** 2026-11-08, while implementing V3 (job 17119586, chi = 0.4 calibration)
+- **Status:** fixed
+- **Where:** benchmarks/md_bench.py (`_bin_stats`, used by `compare_pooled`)
+- **Symptom:** every dt in {0.04, ..., 0.005} failed criterion (c) at chi = 0.4. The per-bin change was Delta_b = +1-4 % in all unconstrained bins at T >= 1e-4, positive, and did not shrink with dt.
+- **Repro:** matched iid lognormal pairs (CV 0.3, n = 4000, no dt effect): mean(a / b) - 1 = +0.09 (> 100 SE), while mean(a) / mean(b) - 1 is within its delta-method SE.
+- **Cause:** a Jensen bias. E[a / b] - 1 ~ CV(b)^2 for waves whose dt and dt/2 runs decorrelate (slow, noisy unconstrained winding).
+- **Impact:** one failed calibration job (0.51 GPU-h). No production setting was taken from it.
+- **Regression test:** tests/unit/test_md_bench.py::test_regression_D070_ratio_of_means_unbiased_under_noise
+- **Fix:** Delta_b is now the ratio of bin means, with SE by the delta method. Both saved ladders were re-evaluated from their raw winding (`--ladder-from`).
+
+## D-071 — `round_up_125` assertion for x just below a power of ten
+- **Found:** 2026-11-08, by the Hypothesis property test while implementing V3
+- **Status:** fixed
+- **Where:** benchmarks/md_bench.py (`round_up_125`)
+- **Symptom:** AssertionError "decade of x" for x = 999999999999.998.
+- **Cause:** math.log10(x) rounds to 12.0, so base = 1e12 > x.
+- **Impact:** none on outputs (drift_tol inputs were 4e-4 and 1e-3).
+- **Regression test:** tests/unit/test_md_bench.py::test_regression_D071_round_up_125_property (@example pins the repro)
+- **Fix:** step the base down one decade when it exceeds x.
