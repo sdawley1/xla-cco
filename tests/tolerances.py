@@ -223,3 +223,22 @@ RTOL_CXX_LOG_6SIG: float = 5e-6 * (1.0 + 1e-3)
 # sqrt(1/M)/sqrt(600) = 0.6 % for Phi and sqrt(2/(N d))/sqrt(600) = 0.3 % for KE,
 # x3 for sample correlation, so 0.1 is > 5 sigma and far below any unit error.
 MD_CXX_UNITS_TOL: float = 0.1
+# ----- MD statistical validation (V1, tests/integration/test_md_equipartition.py) -----
+# Power requirement of the plan: a relative bias of MD_BIAS_DETECT in <Phi>/(M T) must
+# stand MD_POWER_Z standard errors from 1, i.e. SE <= 0.05 / 6 = 8.3e-3. At z = 6 a
+# real 5 % bias is missed (|z| < t_crit ~ 3.5 for m = 8) with probability < 1e-2.
+MD_POWER_Z: float = 6.0
+# Effective sample size behind that power: Phi / T ~ Gamma(M, 1), so one sample of
+# Phi / (M T) has variance 1/M and SE = 1 / sqrt(M n_eff); z = MD_BIAS_DETECT
+# sqrt(M n_eff) >= 6 needs n_eff >= 36 / (0.05^2 M) = 600 at M = 24 (the plan's
+# n_eff >= 600; asserted with the measured variance, so the two checks agree).
+MD_MIN_NEFF: float = 600.0
+# Negative control: the same data reported at a 10 % wrong temperature must fail the
+# <Phi>/(M T) = 1 test (expected |t| ~ 0.09 / SE >= 11 at the required power).
+MD_CONTROL_T_FACTOR: float = 1.1
+# Velocity Verlet samples the shadow-canonical measure of the harmonic modes, biasing
+# <Phi>/(M T) by (1/2M) sum lam dt^2 / (4 - lam dt^2) (5e-4 at dt = 0.02 for the
+# N = 64 system, mean lam = 4.9). Comparing against exactly 1 is valid while this
+# predicted bias stays below a quarter of the SE: it then shifts t by < 0.25 (and the
+# family false-alarm rate from 1e-3 to < 2e-3).
+MD_SHADOW_BIAS_FRAC: float = 0.25
