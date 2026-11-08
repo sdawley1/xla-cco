@@ -801,8 +801,8 @@ At a ground state, a displacement δr changes the constrained waves by δu = J �
   At χ = 0.4 the cost rises with |k|.
 
 **2. Coherent decay is not independence (panels a, b).** In the gradient flow, coherent decay means the residual's waves all shrink at one rate.
-- *One stiffness band.* Below Φ ≈ 10⁻¹–10⁻⁵ (start-dependent), more than 95% of |u|² sits in collective modes within 10% of the residual's mean stiffness ⟨K⟩_u ≈ k₁².
-- *The longest waves carry it.* The longest-wave shell |k| = k₁ holds more than 97% of Σ S(k).
+- *One stiffness band.* Below a start-dependent Φ (≈ 10 for HIP, 10⁻¹–10⁻³ for Poisson, RSA and Gaussian, ≈ 10⁻⁷ for URL), more than 95% of |u|² sits in collective modes within 10% of the residual's mean stiffness ⟨K⟩_u ≈ k₁².
+- *The longest waves carry it.* The longest-wave shell |k| = k₁ holds at least 97% of Σ S(k).
 - *Many modes, not one.* The single softest mode of K spans only 1–2 waves and holds 10–40% of the residual. The narrow band is made of the nearly degenerate long-wave modes.
 - *Everything else is slaved.* All other waves decay at the same rate because they are slaved to the long waves (`landscape_floor`). This is the opposite of independent excitation.
 
