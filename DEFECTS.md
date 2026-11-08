@@ -24,6 +24,10 @@ needed for parity, reproduce the behaviour.
 | D-015 | fixed | `cli/relax.py` (`load_input`) | The CLI rejected its own output packs (basis scaled by N^(1/d)) as input. |
 | D-016 | fixed | `_device.py` (`classify_failure`) | GPU guard blamed `--gres=gpu` when `JAX_PLATFORMS=cpu` hid the GPU, and its fix hint synced CUDA JAX into the CPU env. |
 | D-017 | fixed | `tests/property/test_energy_tables_props.py` | Table-path gradient tolerance blind to pre-cancellation magnitude (sibling of D-011). |
+| D-050 | wontfix-upstream | `MD_System.cpp:199-250` | Andersen count mode fires on step 1 and float accumulation of p = 0.01 shifts the schedule: 501 resets per 50000-step call, not 500. |
+| D-051 | wontfix-upstream | `MD_System.cpp:19-30, 128-136` | The MD system starts with zero acceleration, so the first Verlet half-kick after construction omits the force. |
+| D-052 | wontfix-upstream | `main.cpp:864-877` | MD sample log prints energy, KE, dt and pressure with the 6-significant-digit stream default. |
+| D-053 | fixed | `tools/cpp_reference/md_reference.py` (`shell_table`) | Shells grouped with exact float equality, so an ulp split of one shell put K inside it. |
 
 ## D-006 — `unit_ball_volume` is not bit-equal to the C++ hard-coded constants
 - **Found:** 2026-11-05, by the T4 auditor's preview parity
@@ -146,3 +150,42 @@ needed for parity, reproduce the behaviour.
 - **Regression test:** tests/property/test_energy_tables_props.py::test_regression_D017_coincident_particles_gradient_tolerance
 - **Fix:** atol = max(1e-12 * max(1, max|grad|), GRAD_SUM_C eps (4 pi n_max / V) sum(w) N + GRAD_SUM_FLOOR), the D-011 bound per particle, in both gradient comparisons
 
+## D-050 — Andersen count mode: reset on step 1 and a 501-reset schedule
+- **Found:** 2026-11-08, while building the C++ MD reference (plan T4)
+- **Status:** wontfix-upstream
+- **Where:** /home/sd2402/ccoptimization/cco/MD_System.cpp:199-250 (`ParticleMolecularDynamics::AndersonEvolve`)
+- **Symptom:** `ResetCount` starts at 0.0 in every call and the reset loop runs `for (; ResetCount > 0; ResetCount -= 1.0)` after `ResetCount += p`, so the first step of every call resets a velocity; the float sum of 0.01 then reaches > 0 at step 100 (not 101), and later every 100 steps. One `AndersonEvolve(50000, ..., 0.01)` call does 501 resets at steps 1, 100, 200, ..., 50000, not floor(p n) = 500 (the plan's T1 count-mode description)
+- **Repro:** transcription `tools/cpp_reference/md_reference.py::andersen_reset_steps(50000, 0.01)` gives 501 steps starting `[1, 100, 200, 300]`
+- **Impact:** a JAX count-mode replica must reset at these exact steps (recorded in `tests/data/md_cxx_reference.json` `protocol.andersen`) to replicate the C++ protocol for V2; statistics change by O(1/500)
+- **Regression test:** tests/unit/test_md_cxx_reference.py::test_regression_D050_andersen_count_schedule
+- **Fix:** none (C++ is read-only); reproduced in the transcription and recorded in the reference JSON
+
+## D-051 — First Verlet half-kick after MD construction uses a zero acceleration
+- **Found:** 2026-11-08, while building the C++ MD reference (plan T4)
+- **Status:** wontfix-upstream
+- **Where:** /home/sd2402/ccoptimization/cco/MD_System.cpp:19-30 (constructor zero-fills `Acceleration`), :128-136 (`Evolve` kicks with the stored acceleration)
+- **Symptom:** `CollectiveCoordinateMD` builds `ParticleMolecularDynamics` from the relaxed config without computing forces, so step 1 of stage 1 kicks with a = 0 instead of F(r0)/m
+- **Repro:** read the constructor and `Evolve`; no `_GetAcc` call precedes the first step
+- **Impact:** none measurable here: the start is an L-BFGS-relaxed config with |F| near 0, and 2.2e7 later steps follow. Recorded in the reference JSON protocol so V2 does not chase it
+- **Regression test:** none (no effect on our code or on the statistical comparison)
+- **Fix:** none (C++ is read-only)
+
+## D-052 — MD sample log has 6 significant digits
+- **Found:** 2026-11-08, while building the C++ MD reference (plan T4)
+- **Status:** wontfix-upstream
+- **Where:** /home/sd2402/ccoptimization/cco/CCOptimization/main.cpp:864-877 (`std::cout`/`logfile` default precision)
+- **Symptom:** `energy=0.000414431`: the logged Phi, KE, dt and pressure are rounded to 6 significant digits, so a relative 1e-8 unit gate against the log is impossible
+- **Repro:** any MD run; compare the logged energy with the `%.17g` harness value `0.00041443080610021411`
+- **Impact:** the T4 unit gate compares xla Phi with full-precision C++ energies recomputed from the sampled ConfigPack by the unmodified `ShiftedCCPotential` (`tools/cpp_reference/build/dump_reference kernel`); the log is checked only to its rounding (relative 5e-6, and `%g` string equality). KE is available only at 6 digits (velocities are not saved)
+- **Regression test:** tests/unit/test_md_cxx_reference.py::test_regression_D052_log_is_six_digit_rounding_of_cpp_energy
+- **Fix:** none (C++ is read-only); full precision comes from the harness
+
+## D-053 — `shell_table` split symmetry-equivalent shells at the ulp level
+- **Found:** 2026-11-08, by Hypothesis (`test_choose_k_outer_properties`) before the first commit of T4
+- **Status:** fixed
+- **Where:** tools/cpp_reference/md_reference.py (`shell_table`, `choose_k_outer`)
+- **Symptom:** `np.unique(k_sq)` treated the float |k|^2 of n = (5, 0) and (3, 4) as two shells; the mid-gap K then fell inside the n^2 = 25 shell (34 waves instead of 36) or on it
+- **Repro:** `choose_k_outer(6.0 * np.eye(2), 36)` claimed M = 36 (an ulp sub-shell of n^2 = 25) but its K holds 34 waves (achievable counts are 34 and 40); `choose_k_outer(6.25 * np.eye(2), 76)` put K^2 on a shell
+- **Impact:** none on the committed data (L = sqrt(1000), M = 50 was unaffected: the cutoff K was checked by enumeration and the C++ harness), only on other boxes
+- **Regression test:** tests/unit/test_md_cxx_reference.py::test_regression_D053_shell_split_by_ulp, plus the `@example` pins in `test_choose_k_outer_properties`
+- **Fix:** group sorted |k|^2 into shells with relative tolerance `SHELL_RTOL = 1e-9` and place K between the largest value of one shell and the smallest of the next
