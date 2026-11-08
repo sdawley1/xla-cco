@@ -32,6 +32,7 @@ needed for parity, reproduce the behaviour.
 | D-044 | fixed | `cli/md.py` (`run_phases`) | Equilibration gate averaged over the transient and was never acted on. |
 | D-045 | fixed | `cli/md.py` (`record_schedule`) | Default 200 snapshots deduplicated to 184. |
 | D-046 | fixed | `cli/md.py` (`_run_phase`) | Stale in-phase checkpoint left at the path handed to simulate. |
+| D-047 | open | `experiments/md_winding/HYPOTHESES.md` (H5) | Kruskal-Wallis eps^2 < 0.06 fails under the null more often than not (E[eps^2] = (k-1)/(n-1) = 0.082 for 5 x 10). |
 
 ## D-006 — `unit_ball_volume` is not bit-equal to the C++ hard-coded constants
 - **Found:** 2026-11-05, by the T4 auditor's preview parity
@@ -234,3 +235,13 @@ needed for parity, reproduce the behaviour.
 - **Impact:** none with a write-only simulate; double-applied steps otherwise
 - **Regression test:** tests/integration/test_md_cli.py::test_regression_D046_simulate_never_gets_existing_file
 - **Fix:** the in-phase file is removed after every phase checkpoint and before every simulate call
+
+## D-047 — H5 epsilon^2 threshold lies below its null expectation
+- **Found:** 2026-11-08, while implementing E2 (batten2008_md_stats.py)
+- **Status:** open (pre-registered criterion; HYPOTHESES.md is binding, so only an orchestrator amendment can change it)
+- **Where:** experiments/md_winding/HYPOTHESES.md, H5 ("Kruskal-Wallis effect size eps^2 < 0.06")
+- **Symptom:** with eps^2 = H (n+1)/(n^2-1) and k = 5 starts of n_g = 10 ground states (n = 50), H ~ chi^2_4 under the null, so E[eps^2] = 4/49 = 0.082 and P(eps^2 < 0.06) = P(chi^2_4 < 2.94) = 0.43 per (chi, T) cell; over 6 harmonic cells a start-independent system passes all with probability ~0.006
+- **Repro:** the synthetic dry run with independent draws per start (batten2008_md_synthetic.py, no injected effect): H5 parts "KW eps2" miss in 3 of 6 cells (eps^2 0.07-0.10), so H5 is INCONCLUSIVE although nu is identical in law across starts
+- **Impact:** H5 can only be PASS or INCONCLUSIVE on real data with no start dependence; FAIL still needs a >= 10 % median difference (the deviation measure used for both H5 parts), so false FAILs do not arise
+- **Regression test:** none (statistics design, not code); batten2008_md_stats.evaluate prints the null expectation in verdicts.json "notes"
+- **Fix:** none applied; options for an amendment: the bias-corrected eta^2_H = (H - k + 1)/(n - k) (null mean 0), or a KW p-value criterion
