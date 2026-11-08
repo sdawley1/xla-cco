@@ -609,6 +609,36 @@ A 2D hyperuniform start therefore behaves like a Poisson start in a higher dimen
 - *Where the start enters.* Only above Φ ≈ 1, where R is not small compared with the stiffness of G. There the count exceeds half, by more for starts with larger residual waves: from 598 (RSA, χ = 0.4) to 1342 (HIP, χ = 0.1). The extra negative directions disappear once √Φ is small.
 - *What the plateau means physically.* The flow descends in a narrow valley (2M stiff directions, curvature ~|k|²) whose floor is the (Nd − 2M)-dimensional ground-state manifold, and the floor is curved with no preferred side. A state above the floor can always lower Φ by sliding along half the floor directions. Lower energy is always available by sliding along the floor, but the gradient never points that way, so each flow ends wherever its descent first meets the floor.
 
+#### Negative and positive counts together
+
+`batten2008_hessian_sign_plot.py` writes two figures.
+- **`figures/hessian_sign_compare`:** panels (a, b) show the negative (solid) and positive (dashed) eigenvalue counts against Φ for every 2D start and both χ, with the cut-free P R P counts as points. Panels (c, d) show the soft-sector counts n₋ and n₊ − 2M over (Nd − 2M)/2.
+- **`figures/hessian_sign_mechanism`:**
+  - (a, b) the signed spectrum against Φ;
+  - (c) how the Nd directions split;
+  - (d) the soft magnitudes;
+  - (e) the cut-free sign fractions;
+  - (f) the stiff band.
+
+**The counts at Φ = 10⁻⁴** (median over 100 flows) are:
+
+  | Start | χ = 0.1: n₊ / 2M / n₋ | χ = 0.4: n₊ / 2M / n₋ |
+  |---|---|---|
+  | Poisson | 1232 / 420 / 813 | 1845 / 1640 / 201 |
+  | Gaussian | 1202 / 400 / 796 | 1802 / 1604 / 196 |
+  | URL | 1231 / 416 / 814 | 1847 / 1642 / 199 |
+  | RSA | 1197 / 400 / 799 | 1797 / 1596 / 199 |
+  | HIP | 1198 / 400 / 800 | 1804 / 1604 / 194 |
+
+In every case n₊ = 2M + n₋ to within 1–3, and the remaining ≈ 3 eigenvalues are the zero modes (2 of them translations).
+
+**What the figures show.**
+- **The stiff band is fixed.** It holds the 2M wave directions, with eigenvalues between k₁² and 10³ k₁² independent of Φ below Φ ≈ 1 (panel f). It is the "positive count" floor 2M that remains at the end.
+- **The soft branches are symmetric.** The other Nd − 2M eigenvalues form a positive and a negative branch of equal weight (signed spectrum, panels a and b). Their median magnitudes coincide and shrink together as √Φ (panel d). The cut-free P R P spectrum is 50 ± 1% negative from Φ ≈ 0.1 down (panel e).
+- **Why the counts drop.** The negative count and the soft part of the positive count fall together at Φ ≈ 10⁻¹¹. This happens only because both branches cross the cut c = 10⁻⁹ λ_max (red dashed line); they then join the near-zero count. So n₊ falls from 2M + (Nd − 2M)/2 to 2M at the same Φ at which n₋ falls to 0.
+- **At high Φ the count is not symmetric.** Above Φ ≈ 1, R is not small compared with G, and the counts favor negative curvature (n₋ > (Nd − 2M)/2 > n₊ − 2M). At χ = 0.4 the stiff band also has not separated: its 2M-th eigenvalue is still negative at the start.
+- **The mechanism is the sum rule of the previous section.** The residual waves curve the energy down at half the particles and up at the other half, so the floor directions split evenly into positive and negative curvature, both of size √Φ. The positive half is the counterpart of the negative half: the valley floor bends toward the state in (Nd − 2M)/2 directions and away from it in as many.
+
 ### Flow-averaged mode planes
 
 `batten2008_planes_mean_plot.py` writes `figures/<start>_mode_planes_mean`, one per 2D start. It uses the same layout as `*_mode_planes_full`: angle arg ρ(kₙ), radius log₁₀ S + 20, rows 1–5, 10 and |k| = K/4 to K, at both χ.
@@ -716,6 +746,40 @@ No approximation enters. Φ is a sum of |ρ|², and the product of two plane wav
   - The spiral number σ = Ω/(−½ d ln Φ/dt) is an instantaneous state function. Ω is the energy-weighted RMS winding rate, and σ is the ratio of iso-energetic (phase) motion to descent in collective-coordinate space. It marks the nonlinear stage. In 2D, σ ~ 0.1–1 above Φ ≈ 1 and falls to 10⁻³–10⁻² once Φ < 0.1, where the flow becomes nearly separable radial relaxation and winding stops. In 1D χ = 1/3 (not plotted), σ reaches about 14 near Φ = 0.1: the waves spiral more than they decay while the slow waves carry them.
 - **How winding builds up** (`*_winding_kymograph`, `winding_total`). Each wave winds between its own relaxation fronts (the last times its S exceeds 10⁻² and 10⁻⁸) and somewhat after. Short waves wind first, while long waves are still carrying their particles; the total saturates once Φ ≲ 10⁻². Against path fraction (not plotted), 1D χ = 1/3 winds at a nearly constant rate per unit arclength all the way to s = 1. 1D χ = 2/3 stops at s ≈ 0.3, where the lattice locks in. Every start finishes winding by Φ ≈ 10⁻²–10⁻³. Against path fraction the 2D starts split as their turning does: Poisson and HIP wind steadily along the path, while Gaussian, URL and RSA at χ = 0.1 gain much of their winding in the last 10% of it. Against time all 2D starts have the same shape, with HIP leading by about a decade.
 
+#### Why Ω, σ and |cos α| behave as they do (`winding_cv` (a), (b), (f))
+
+`batten2008_windcv_explain_plot.py` writes `figures/winding_cv_explained`.
+
+**The exact partition.** Write l_k = ln|ρ_k|, so that |ρ̇_k|² = |ρ_k|²(l̇_k² + θ̇_k²). The S-weighted mean square speed of the residual waves then splits exactly into three parts:
+
+  ⟨l̇² + θ̇²⟩_S = ⟨l̇⟩_S² + Var_S(l̇) + Ω².
+
+- **Coherent decay, ⟨l̇⟩_S²:** the waves shrink together. −⟨l̇⟩_S is the decay rate in the denominator of σ.
+- **Differential decay, Var_S(l̇):** different waves shrink at different rates.
+- **Rotation, Ω²:** the waves turn.
+
+Over all constrained waves, the left side equals ⟨K²⟩_u and −⟨l̇⟩_S equals ⟨K⟩_u = −½ d ln Φ/dt. Here K = (2/V)JJᵀ is the wave-coupling matrix of the landscape section, and the identities hold to 4 digits in the data.
+
+**Panels (a) and (b), Ω and σ.**
+- **Rotation is a small share.** At Φ = 10 it is 2–3% of the residual speed at χ = 0.1 (HIP 1.5%, RSA 0.7%) and 21–28% at χ = 0.4. By Φ = 10⁻³ it has fallen to at most 4 × 10⁻⁵ (χ = 0.1) and to 2 × 10⁻⁴–3 × 10⁻² (χ = 0.4) (`winding_cv_explained` (a–c)). Differential decay takes 13–43% at Φ = 10 and vanishes with it.
+- **σ is bounded by the stiffness spread.** Since Ω² ≤ ⟨K²⟩_u − ⟨K⟩_u², the spiral number obeys
+
+  σ = Ω/⟨K⟩_u ≤ CV_u(K),
+
+  the coefficient of variation of the collective stiffness over the residual (panel d; the grey region is forbidden).
+- **Why σ falls.** Every flow and level lies on or below the bound. Its largest σ/CV_u(K) is 0.90–1.00 for every start except URL at χ = 0.1 (0.40). σ falls because the residual concentrates on the softest collective modes of K, so CV_u(K) → 0.
+- **How close σ stays to the bound.** The median efficiency σ/CV_u(K) is 0.46–0.67 at χ = 0.4 and 0.02–0.55 at χ = 0.1. With independent wells, the stiffness spread shows up as differential decay rather than rotation (a diagonal K turns nothing).
+- **The late plateau of Ω and σ.** At χ = 0.4 (and for HIP at χ = 0.1), σ settles near 0.6–0.85 of its bound (URL χ = 0.4: 0.27). This is beating between near-degenerate soft collective modes: the last spread left in the residual is mostly rotation.
+
+**Panel (f), |cos α|.** It factorizes exactly as
+
+  |cos α_k| = (|θ̇_k|/|k|) · √(S_k/Φ) / √⟨K⟩_u,
+
+using |∇Φ|² = 2⟨K⟩_u Φ and |∇θ_k| = |k|/√(2S_k). The product matches the measured median to 3 digits (panel e).
+- **Why it is tiny.** Early on, the factors are a normalized winding rate of order 10⁻¹ and an energy share √(S_k/Φ) of order 10⁻², since one wave holds about 1/M of Φ. 1/√⟨K⟩_u grows toward 1/k₁ as the residual moves to the slow modes.
+- **Why it dips.** Both the rate and the share fall, to a minimum of about 10⁻⁵ near Φ ≈ 10⁻³.
+- **Why it rises late, which is a selection effect.** winding_cv keeps only waves with S_k > 10⁻⁸, and that set empties: half the constrained waves are gone by Φ ≈ 10⁻¹–10⁻⁴·², and 99% by Φ ≈ 10⁻⁴·²⁵–10⁻⁷·⁵ (panel f). The survivors are the last-relaxing waves, which hold most of the remaining energy (√(S_k/Φ) → 0.7). So their |cos α| rises to 10⁻³–10⁻². Below Φ ≈ 10⁻⁴, the three panels describe only a handful of slow waves, not the constrained set.
+
 ### Other initial conditions: Gaussian, URL, saturated RSA and HIP
 
 The full 2D analysis set (flows, slices, mismatch, modes, tail, Hessians, Wasserstein, valley floors, off-plane, winding and all figures) was repeated from four more starts at χ = 0.1 and 0.4. Every 2D start has 100 flows per χ except Gaussian, which uses all 50 configurations that exist. All 900 2D flows reach Φ < 10⁻²⁰. The starts:
@@ -773,6 +837,8 @@ uv run --no-sync python -I experiments/scripts/batten2008_kl_plot.py --roots exp
 uv run --no-sync python -I experiments/scripts/batten2008_plateau.py --roots experiments/trajectories/{flows2d/N1024,...} --flows 10   # CPU, ~2 min per chi
 uv run --no-sync python -I experiments/scripts/batten2008_plateau_plot.py --roots ... --labels ...   # hessian_negative_compare, hessian_plateau_mechanism
 uv run --no-sync python -I experiments/scripts/batten2008_planes_mean_plot.py --root experiments/trajectories/flows2d/N1024 --prefix flows2d_N1024   # per start
+/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_hessian_sign_plot.py --roots experiments/trajectories/{flows2d/N1024,...} --labels ...   # hessian_sign_compare, hessian_sign_mechanism
+/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_windcv_explain_plot.py --roots ... --labels ...   # winding_cv_explained (needs landscape_chi*.npz)
 uv run --no-sync python -I experiments/scripts/batten2008_landscape.py --roots experiments/trajectories/{flows2d/N1024,...} --flows 10   # CPU, 2-3 min per start
 uv run --no-sync python -I experiments/scripts/batten2008_landscape_plot.py --roots ... --labels ...   # landscape_wells, landscape_floor, landscape_valley
 uv run --no-sync python -I experiments/scripts/batten2008_winding_plot.py --roots experiments/trajectories/{flows2d/N1024,gau2d/N1000,url2d/N1024,rsa2d/N999,hip2d/N1000} \
@@ -783,7 +849,7 @@ uv run --no-sync python -I experiments/scripts/batten2008_windcv_plot.py --total
 
 **Data.** `trajectories/{gau2d/N1000,url2d/N1024,rsa2d/N999,hip2d/N1000}/` with the same files as `flows2d/N1024`, plus `winding_chi<tag>.npz`, `plateau_chi<tag>.npz` and `landscape_chi<tag>.npz` everywhere. The 20-flow runs are kept in `trajectories/<start>/N<N>_n20/`. The tolerance checks are in `trajectories/{batten2008_tight/N1000,flows2d_tight/N1024}/` (flow 0, atol 10⁻¹¹, rtol 10⁻³).
 
-**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
+**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `hessian_sign_compare`, `hessian_sign_mechanism`, `winding_cv_explained`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
 
 ### The 1D landscape against χ, in 3D
 
