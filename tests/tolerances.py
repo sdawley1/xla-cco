@@ -206,3 +206,20 @@ MD_SPECTRUM_BINS: float = 2.0
 # the strongest line fall below 1e-3 (-31 dB first sidelobe, then 18 dB/octave)
 # beyond ~2 bins, where they would count as (wrongly placed) peaks.
 MD_SPECTRUM_PEAK_FRAC: float = 1e-3
+
+# ----- C++ MD reference (tests/unit/test_md_cxx_reference.py, plan T4) -----
+# Unit gate: xla Phi vs the full-precision C++ ShiftedCCPotential energy of the same
+# configuration. Both are a sum of M = 50 positive terms |rho_k|^2 / V with rho_k a
+# sum of N = 256 phases; summation order and libm differences give ~N eps / |rho|^2
+# relative error, ~1e-12 at the sampled |rho_k|^2 ~ V T; 1e-8 is the plan's gate.
+RTOL_MD_CXX_PHI: float = 1e-8
+# The C++ MD log uses the 6-significant-digit stream default (D-052): a value
+# m 10^e with 1 <= m < 10 is rounded to 0.5e-5 10^e, i.e. relative <= 5e-6. The
+# extra 1e-3 relative slack covers the ~1e-12 xla vs C++ difference.
+RTOL_CXX_LOG_6SIG: float = 5e-6 * (1.0 + 1e-3)
+# Units check of the pooled C++ samples: <Phi>/(M T) and <KE>/(N d T/2) must be 1.
+# A unit error is a factor >= 2 (half vs full k-space, KE without 1/2) or V/N =
+# 3.9 (D-004 box); the statistical error of the pooled mean of 600 samples is
+# sqrt(1/M)/sqrt(600) = 0.6 % for Phi and sqrt(2/(N d))/sqrt(600) = 0.3 % for KE,
+# x3 for sample correlation, so 0.1 is > 5 sigma and far below any unit error.
+MD_CXX_UNITS_TOL: float = 0.1
