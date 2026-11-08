@@ -86,9 +86,30 @@ def _cli_windings(
     return phases, rec, w_abs, w_net
 
 
+def _cli_trace(
+    phases: List[Any], s_mean: np.ndarray, every: int
+) -> Dict[str, np.ndarray]:
+    """Uniform rho trace every ``every`` steps over ALL phases (A4 fixture).
+
+    |rho| = sqrt(3 s_mean) inside the production segments and 1e3 outside,
+    so a selection that leaks non-production samples changes <1/|rho|>.
+    """
+    lanes, waves = s_mean.shape
+    total = sum(int(p.n_steps) for p in phases)
+    steps = np.arange(every, total + 1, every)
+    segs = ana.segments({"phases": [dict(p.__dict__) for p in phases]})
+    prod = np.any([(steps > a) & (steps <= a + b) for a, b in segs], axis=0)
+    mod = np.where(prod[None, :, None], np.sqrt(3.0 * s_mean)[:, None, :], 1e3)
+    rho = np.zeros((lanes, steps.size, waves, 2))
+    rho[..., 1] = mod  # phase pi/2: |rho| = mod
+    assert prod.any() and not prod.all(), "samples inside and outside production"
+    return {"trace_rho": rho, "trace_time": np.tile(steps * CLI_DT, (lanes, 1)),
+            "trace_count": np.full(lanes, steps.size)}  # fmt: skip
+
+
 def cli_files(
     path: Path, omega_abs: np.ndarray, omega_net: np.ndarray, temps: List[float],
-    n_gs: int, s_mean: np.ndarray, net_msd: Any = None,
+    n_gs: int, s_mean: np.ndarray, net_msd: Any = None, trace_every: int = 0,
 ) -> Path:  # fmt: skip
     """Write a minimal CLI-schema md_chi<tag>.npz / .json with exact windings.
 
@@ -125,6 +146,8 @@ def cli_files(
         "waves_constrained": np.array([True, True, False, False]),
         "record_steps": rec, "basis": np.sqrt(3.0) * np.eye(2),
     }  # fmt: skip
+    if trace_every > 0:
+        arrays.update(_cli_trace(phases, s_mean, trace_every))
     meta = {"phases": [dict(p.__dict__) for p in phases], "settings": {"dt": CLI_DT},
             "M": 2, "K": 1.0, "N": 3, "d": 2, "chi": 1 / 3}  # fmt: skip
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -807,7 +830,8 @@ def test_h6b_through_analysis_and_verdicts(tmp_path: Path) -> None:
     """Constant |rho|: rice_cond = unconstrained Rice; H6b bins in [0.9, 1.1]."""
     om = np.tile(np.array([1.0, 1.0, 0.02, 0.03]), (2, 1))
     s_mean = np.tile(np.array([1e-6, 1e-6, 0.5, 0.8]), (2, 1))
-    path = cli_files(tmp_path / "x" / "N3" / "md_chi1-3.npz", om, om, [1e-6], 2, s_mean)
+    path = cli_files(tmp_path / "x" / "N3" / "md_chi1-3.npz", om, om, [1e-6], 2,
+                     s_mean, trace_every=100)  # fmt: skip
     res = ana.analyze_file(path, None)
     unc = ~res["constrained"]
     np.testing.assert_allclose(res["rice_cond"][..., unc], res["rice"][..., unc],
@@ -896,3 +920,34 @@ def test_synthetic_phase_increment_is_independent() -> None:
     np.testing.assert_allclose(got, ref, atol=1e-15)
     assert syn.phase_increment is not ana.winding_step
     assert "winding_step" not in vars(syn)
+
+
+@pytest.mark.critical
+@pytest.mark.parametrize(
+    ("every", "evaluated"), [(100, True), (400, False), (0, False)]
+)
+def test_a4_trace_only_inside_production(
+    tmp_path: Path, every: int, evaluated: bool
+) -> None:
+    """A4: <1/|rho|> from the dense trace inside production, >= 500 per segment.
+
+    every = 100 gives 1000 samples per segment (evaluated; the 1e3-modulus
+    samples outside production are excluded); 400 gives 250 (NaN); no trace
+    gives NaN. Never filled from the snapshots.
+    """
+    om = np.tile(np.array([1.0, 1.0, 0.02, 0.03]), (2, 1))
+    s_mean = np.tile(np.array([1e-6, 1e-6, 0.5, 0.8]), (2, 1))
+    path = cli_files(tmp_path / "x" / "N3" / "md_chi1-3.npz", om, om, [1e-6], 2,
+                     s_mean, trace_every=every)  # fmt: skip
+    res = ana.analyze_file(path, None)
+    want = 1.0 / np.sqrt(3.0 * s_mean)
+    if evaluated:
+        np.testing.assert_allclose(res["inv_rho"][:, 0], want, rtol=1e-12)
+        assert np.all(res["trace_min"] == 100_000 // every)
+        assert len(mds.h6b_parts([res], True)) > 0
+    else:
+        assert np.isnan(res["inv_rho"]).all() and np.isnan(res["ratio_cond_bin"]).all()
+        assert mds.h6b_parts([res], True) == []
+        assert mds.combine([p["outcome"] for p in mds.h6b_parts([res], True)]) == (
+            mds.NOT_EVALUATED
+        )

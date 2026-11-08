@@ -738,8 +738,9 @@ def evaluate(main: List[Data], lang: List[Data]) -> Dict[str, Any]:
         "t_end; beta is its log-log slope against the harmonic T per ground state.",
         "Interpretation (H8 part 2): Mann-Whitney per (start, harmonic T) cell, "
         "each at p < 0.01, with no multiplicity correction.",
-        "H6b (A3): <1/|rho_k|>_t is the mean over the log-spaced production "
-        "snapshots (weighted toward early times of each segment).",
+        "H6b (A3, A4): <1/|rho_k|>_t is the mean over the uniform dense rho trace "
+        "inside the production segments (>= 500 samples per segment); lanes "
+        "without it are NOT_EVALUATED (never filled from the snapshots).",
     ]
     out = {"hypotheses": {h: {"title": TITLES[h], **summarize(parts[h])}
                           for h in HYPOTHESES},

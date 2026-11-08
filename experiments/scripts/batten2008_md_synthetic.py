@@ -74,6 +74,7 @@ GAMMA_RATIO = (
 DRIFT_C = 0.05  # manifold drift Omega ~ DRIFT_C |k| sqrt(T) (<< jiggle rate)
 NOISE_BLOCK = 64  # steps of random numbers drawn at once
 PHASE_FLOOR = 1e-16  # MD default (S = |rho|^2 / N)
+TRACE_PER_SEGMENT = 520  # A4: >= 500 uniform trace samples per segment
 LANGEVIN_GAMMAS: Tuple[float, ...] = (0.003, 0.03)
 LANGEVIN_STARTS: Tuple[str, ...] = ("flows2d", "hip2d")
 
@@ -409,7 +410,9 @@ def write_file(
     cycles = _run_phases(st, phases, rec)
     settings = {"dt": cfg["dt"], "wind_every": 1, "phase_floor": PHASE_FLOOR,
                 "record_steps": rec.tolist(), "andersen_p": 0.01,
-                "gamma": proto.get("gamma", 0.0), "remove_com": True}  # fmt: skip
+                "gamma": proto.get("gamma", 0.0), "remove_com": True,
+                "record_rho_every": int(proto.get("trace_every", 0)),
+                "max_rho_records": int(proto.get("trace_cap", 0))}  # fmt: skip
     args = {**{k: proto[k] for k in proto}, "dt": cfg["dt"], "temperature": temps}
     meta = {"temps": temps, "indices": list(range(s_final.shape[0])), "rec": rec,
             "settings": settings, "args": args, "factor": cfg["factor"],
@@ -438,10 +441,18 @@ def write_flows(
 
 
 def default_proto(n_nve: int, cycles: int, n_snapshots: int) -> Dict[str, Any]:
-    """Protocol settings: short equilibration/Andersen phases (skipped), NVE."""
+    """Protocol settings: short equilibration/Andersen phases (skipped), NVE.
+
+    A uniform dense rho trace (A4) every n_nve // TRACE_PER_SEGMENT steps,
+    so each production segment holds >= TRACE_PER_SEGMENT samples when
+    n_nve allows it.
+    """
     assert n_nve >= 8 and cycles >= 1, "need production segments"
     assert 2 <= n_snapshots <= 256, "snapshot capacity as the CLI"
+    every = max(1, n_nve // TRACE_PER_SEGMENT)
     return {
+        "trace_every": every,
+        "trace_cap": cycles * (n_nve // every + 1),
         "n_equil": 1000,
         "n_andersen": 500,
         "n_nve": n_nve,

@@ -20,7 +20,8 @@ unit) and temperature it stores:
 - Rice predictions with <S_k> = sum_s / n_sum: |k| sqrt(T / S) / 2 pi
   (constrained) and |k| sqrt(T / (pi S)) / 2 pi (unconstrained), and the
   conditional Rice rate |k| sqrt(N T / pi) <1/|rho_k|>_t / 2 pi (H6b,
-  Amendment A3; <1/|rho|>_t over the log-spaced production snapshots);
+  Amendment A3; <1/|rho|>_t over the uniform dense rho trace inside the
+  production segments, >= 500 samples per segment, else NaN: Amendment A4);
 - <Phi> / (M T), <S_k> / T and <KE> / (d (N - 1) T / 2) from the sums;
 - the net-winding MSD <W_net(t)^2> (turns^2, mean over waves, t since the
   segment began), its exponent alpha (log-log least squares over t >= 10
@@ -65,6 +66,7 @@ BIN_EDGES_C = np.linspace(0.0, 1.0, N_BINS + 1)  # constrained: (0, 1]
 BIN_EDGES_U = np.linspace(1.0, 2.0, N_BINS + 1)  # unconstrained: (1, 2]
 WINDOW_FACTOR = 10.0  # MSD fit: lags >= this x median inverse unsigned rate
 MIN_FIT_POINTS = 3
+MIN_TRACE_PER_SEGMENT = 500  # A4: uniform rho-trace samples per production segment
 STATUS_RUNNING = 0  # minimize.result.STATUS_RUNNING (no JAX import here)
 MOMENT_NAMES: Tuple[str, ...] = (
     "k_mean", "k_cv", "k_min_rel", "k_q10_rel", "k_harm_rel",
@@ -508,6 +510,38 @@ def _fits(
     return out
 
 
+def trace_inverse_modulus(
+    arrays: Dict[str, np.ndarray], meta: Dict[str, Any]
+) -> Tuple[np.ndarray, np.ndarray]:
+    """(<1/|rho_k|>_t (L, W), fewest samples in a segment (L,)) from the rho trace.
+
+    Amendment A4: only the uniformly spaced dense trace is used, restricted
+    to samples whose step (time / dt) lies in a production segment (s0, s0 +
+    n]; a lane with fewer than MIN_TRACE_PER_SEGMENT samples in any segment,
+    or a file without a trace, gets NaN (H6b NOT_EVALUATED). The log-spaced
+    snapshots are never used.
+    """
+    lanes, waves = arrays["snap_wind_abs"].shape[0], arrays["snap_wind_abs"].shape[2]
+    nan = np.full((lanes, waves), np.nan)
+    if "trace_rho" not in arrays:
+        return nan, np.zeros(lanes, np.int64)
+    dt = float(meta["settings"]["dt"])
+    q = arrays["trace_time"].shape[1]
+    valid = np.arange(q)[None, :] < arrays["trace_count"][:, None]
+    steps = np.rint(arrays["trace_time"] / dt).astype(np.int64)
+    in_seg = [valid & (steps > a) & (steps <= a + b) for a, b in segments(meta)]
+    counts = np.stack([m.sum(axis=1) for m in in_seg], axis=1)  # (L, C)
+    mask = np.any(np.stack(in_seg), axis=0)  # (L, Q)
+    mod = np.hypot(arrays["trace_rho"][..., 0], arrays["trace_rho"][..., 1])
+    inv = np.where(mask[..., None], 1.0 / np.where(mod > 0.0, mod, np.nan), 0.0)
+    mean = inv.sum(axis=1) / np.maximum(mask.sum(axis=1), 1)[:, None]
+    enough = counts.min(axis=1) >= MIN_TRACE_PER_SEGMENT
+    out = np.where(enough[:, None], mean, nan)
+    assert out.shape == (lanes, waves), "one value per lane and wave"
+    assert counts.shape == (lanes, len(in_seg)), "samples per lane and segment"
+    return out, counts.min(axis=1)
+
+
 def _production(arrays: Dict[str, np.ndarray], meta: Dict[str, Any]) -> np.ndarray:
     """Snapshot indices of every production segment, in order."""
     rec = arrays["record_steps"]
@@ -535,9 +569,7 @@ def lane_quantities(
     out["rice"] = rice_prediction(kmag, temp, out["s_mean"], con)
     out["ratio"] = out["rate_abs"] / out["rice"]
     out["norm"] = out["rate_abs"] / (kmag / TWO_PI)  # nu (A1.3), not rate / Rice
-    out["inv_rho"] = mean_inverse_modulus(
-        arrays["snap_rho"][:, _production(arrays, meta)]
-    )
+    out["inv_rho"], out["trace_min"] = trace_inverse_modulus(arrays, meta)
     out["rice_cond"] = conditional_rice(kmag, int(meta["N"]), temp, out["inv_rho"])
     out["ratio_cond"] = out["rate_abs"] / out["rice_cond"]
     for key in ("abs_w1", "abs_w2"):  # (C, L, W) -> (L, C, W)
@@ -593,7 +625,7 @@ PER_LANE_KEYS: Tuple[str, ...] = (
     "rate_abs", "rate_net", "s_mean", "rice", "ratio", "norm", "phi_ratio",
     "phi_ratio_seg", "ke_ratio", "net_rms_u", "msd_c", "msd_u", "part_msd",
     "t_min", "alpha", "d_theta", "d_theta_bin", "lane_ok", "inv_rho",
-    "rice_cond",
+    "rice_cond", "trace_min",
 )  # fmt: skip
 
 
@@ -661,14 +693,23 @@ def _snapshot_extras(
 
 
 def _trace_spectra(arrays: Dict[str, np.ndarray], g: int, n_t: int) -> Dict:
-    """Power spectrum of the constrained rho in the dense trace, per lane."""
+    """Power spectrum of the constrained rho over the trace's leading uniform run.
+
+    The trace persists across phases, so a gap (e.g. an unrecorded phase)
+    ends the run; empty dict if it is shorter than 8 samples.
+    """
     con = arrays["waves_constrained"].astype(bool)
     q = int(np.min(arrays["trace_count"]))
-    assert q >= 8, "dense trace too short"
     times = arrays["trace_time"][:, :q]
-    steps = np.diff(times, axis=1)
-    if not np.allclose(steps, steps[0, 0], rtol=1e-6):
-        raise ValueError("dense rho trace is not uniformly spaced")
+    assert np.allclose(times, times[:1]), "lanes share the trace schedule"
+    steps = np.diff(times[0])
+    if q < 9:
+        return {}
+    gaps = np.flatnonzero(~np.isclose(steps, steps[0], rtol=1e-6))
+    q = int(gaps[0]) + 1 if gaps.size else q
+    if q < 8:
+        return {}
+    steps = steps[None, :]
     rho = arrays["trace_rho"][:, :q, con, 0] + 1j * arrays["trace_rho"][:, :q, con, 1]
     spec = [power_spectrum(r, float(steps[0, 0])) for r in rho]
     power = np.stack([p for _, p in spec])
