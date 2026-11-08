@@ -35,8 +35,11 @@ from xla_cco.energy import AbstractEnergy
 # ============================================================
 
 
-def _require_key(key: Array) -> None:
-    """Raise ``TypeError`` unless ``key`` is a raw uint32 (2,) PRNG key (static)."""
+def require_key(key: Array) -> None:
+    """Raise ``TypeError`` unless ``key`` is a raw uint32 (2,) PRNG key (static).
+
+    Shared by the MD integrators; not exported from ``xla_cco.dynamics``.
+    """
     if getattr(key, "dtype", None) != jnp.uint32 or getattr(key, "shape", ()) != (2,):
         raise TypeError("key must be a raw uint32 PRNG key of shape (2,)")
 
@@ -85,7 +88,7 @@ def maxwell_boltzmann(
     """
     if n < 1 or d < 1:
         raise ValueError(f"n and d must be positive, got n={n}, d={d}")
-    _require_key(key)
+    require_key(key)
     t = jnp.asarray(temperature, dtype=jnp.float64)
     v = jnp.sqrt(t) * jax.random.normal(key, (n, d), dtype=jnp.float64)
     if remove_com:
@@ -99,6 +102,7 @@ def kinetic_energy(v: Float[Array, "n d"]) -> Float[Array, ""]:
     require_float64(v, "v")
     assert v.ndim == 2, "v must have shape (n, d)"
     out: Array = 0.5 * jnp.sum(v * v)
+    assert out.shape == () and out.dtype == jnp.float64, "KE must be a f64 scalar"
     return out
 
 

@@ -146,3 +146,13 @@ needed for parity, reproduce the behaviour.
 - **Regression test:** tests/property/test_energy_tables_props.py::test_regression_D017_coincident_particles_gradient_tolerance
 - **Fix:** atol = max(1e-12 * max(1, max|grad|), GRAD_SUM_C eps (4 pi n_max / V) sum(w) N + GRAD_SUM_FLOOR), the D-011 bound per particle, in both gradient comparisons
 
+
+## D-020 — MD reversibility property used an absolute tolerance blind to |r|
+- **Found:** 2026-11-08, T1 fix round (Hypothesis `dev` profile, random seed)
+- **Status:** fixed
+- **Where:** tests/property/test_md_props.py (`test_verlet_reversible_random_states`), tests/tolerances.py (`ATOL_MD_REVERSE`)
+- **Symptom:** forward/backward Verlet returned to r0 within 1.08e-12, where the test allowed 1e-12; the derivation assumed |r| <= 10 but the 33-particle 1D cell has |r| up to 33
+- **Repro:** `shape=(33, 1), seed=3192540, dt=0.05` (40 steps each way, stealthy force of the cubic cell)
+- **Impact:** test-only; spurious failure. The integrator is correct (error 538 eps |r| over 80 steps at the repro, chaotic amplification of roundoff)
+- **Regression test:** tests/property/test_md_props.py::test_regression_D020_reverse_tolerance_scales_with_r (repro also pinned by `@example`)
+- **Fix:** bound MD_REVERSE_ULPS_PER_STEP * 2 n_steps * eps * max(1, max|r0|) with C = 16 (measured worst 538 eps |r| at the repro, 17 eps |r| at dt <= 0.02); the property draws dt from {0.01, 0.02}

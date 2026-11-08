@@ -33,8 +33,12 @@ from jaxtyping import Float
 # ----- project -----
 from tolerances import (
     ATOL_MD_CART_ORACLE,
-    ATOL_MD_REVERSE,
     MD_COM_ROUNDOFF_C,
+    MD_COM_SHIFT_C,
+    MD_DRIFT_IDENTITY_C,
+    MD_REVERSE_ULPS_PER_STEP,
+    MD_SQRT_T_ULPS,
+    RTOL_MD_KE,
     RTOL_MD_QUADFORM,
 )
 from xla_cco.box import Box
@@ -132,29 +136,49 @@ class _FracQuadratic(AbstractEnergy):
 # ============================================================
 
 
-@pytest.mark.critical
-@settings(deadline=None, max_examples=25)
-@given(shape=st.sampled_from([(4, 2), (9, 3), (16, 2), (33, 1)]), seed=SEEDS,
-       dt=st.sampled_from([0.01, 0.05]))  # fmt: skip
-@example(shape=(16, 2), seed=0, dt=0.05)
-def test_verlet_reversible_random_states(
-    shape: Tuple[int, int], seed: int, dt: float
-) -> None:
-    """Forward 40 steps, flip v, 40 steps: back to (r0, -v0) within ATOL_MD_REVERSE."""
+def _check_reversible(shape: Tuple[int, int], seed: int, dt: float) -> None:
+    """Forward 40 steps, flip v, 40 steps: back to (r0, -v0) to roundoff.
+
+    Roundoff scales with ulp(|r|), so the bound is
+    MD_REVERSE_ULPS_PER_STEP * 2 n_steps * eps * max(1, max|r0|) (D-020).
+    """
     n, d = shape
+    n_steps = 40
     rng = np.random.default_rng(seed)
     side = float(n) ** (1.0 / d)
     r0 = jnp.asarray(rng.uniform(size=(n, d)) * side)
     v0 = jnp.asarray(rng.normal(size=(n, d)))
     force = _FORCES[shape]
-    r1, v1 = _VERLET(force, r0, v0, dt, 40)
-    r2, v2 = _VERLET(force, r1, -v1, dt, 40)
-    np.testing.assert_allclose(
-        np.asarray(r2), np.asarray(r0), rtol=0, atol=ATOL_MD_REVERSE
-    )
-    np.testing.assert_allclose(
-        np.asarray(-v2), np.asarray(v0), rtol=0, atol=ATOL_MD_REVERSE
-    )
+    r1, v1 = _VERLET(force, r0, v0, dt, n_steps)
+    r2, v2 = _VERLET(force, r1, -v1, dt, n_steps)
+    scale = max(1.0, float(jnp.max(jnp.abs(r0))))
+    atol = MD_REVERSE_ULPS_PER_STEP * 2 * n_steps * EPS * scale
+    np.testing.assert_allclose(np.asarray(r2), np.asarray(r0), rtol=0, atol=atol)
+    np.testing.assert_allclose(np.asarray(-v2), np.asarray(v0), rtol=0, atol=atol)
+
+
+@pytest.mark.critical
+@settings(deadline=None, max_examples=25)
+@given(shape=st.sampled_from([(4, 2), (9, 3), (16, 2), (33, 1)]), seed=SEEDS,
+       dt=st.sampled_from([0.01, 0.02]))  # fmt: skip
+@example(shape=(16, 2), seed=0, dt=0.02)
+@example(shape=(33, 1), seed=3192540, dt=0.02)  # D-020 repro configuration
+def test_verlet_reversible_random_states(
+    shape: Tuple[int, int], seed: int, dt: float
+) -> None:
+    """Forward 40 steps, flip v, 40 steps: back to (r0, -v0) (ulp-scaled bound)."""
+    _check_reversible(shape, seed, dt)
+
+
+@pytest.mark.high
+def test_regression_D020_reverse_tolerance_scales_with_r() -> None:
+    """D-020: |r| ~ 32 (33 particles, 1D) reverses to 1.08e-12 > the fixed 1e-12.
+
+    The repro (dt = 0.05, the most amplifying run seen) and an edge (same
+    state, dt = 0.01) pass the ulp-scaled bound.
+    """
+    _check_reversible((33, 1), 3192540, 0.05)
+    _check_reversible((33, 1), 3192540, 0.01)
 
 
 @pytest.mark.critical
@@ -169,13 +193,18 @@ def test_maxwell_boltzmann_scaling_and_com(
     key = jax.random.PRNGKey(seed)
     raw1 = np.asarray(maxwell_boltzmann(key, n, d, jnp.asarray(1.0), False))
     raw_t = np.asarray(maxwell_boltzmann(key, n, d, jnp.asarray(temp), False))
-    np.testing.assert_allclose(raw_t, math.sqrt(temp) * raw1, rtol=4 * EPS, atol=0)
+    np.testing.assert_allclose(
+        raw_t, math.sqrt(temp) * raw1, rtol=MD_SQRT_T_ULPS * EPS, atol=0
+    )
     v = np.asarray(maxwell_boltzmann(key, n, d, jnp.asarray(temp), True))
     bound = MD_COM_ROUNDOFF_C * n * EPS * max(np.abs(raw_t).max(), 1e-300)
     assert np.abs(v.sum(axis=0)).max() <= bound
     # COM removal is a shift by the mean of the same draw
     np.testing.assert_allclose(
-        v, raw_t - raw_t.mean(axis=0), rtol=0, atol=4 * EPS * np.abs(raw_t).max()
+        v,
+        raw_t - raw_t.mean(axis=0),
+        rtol=0,
+        atol=MD_COM_SHIFT_C * EPS * np.abs(raw_t).max(),
     )
 
 
@@ -188,9 +217,9 @@ def test_kinetic_temperature_is_twice_ke_over_dof(
     """KE = sum v^2 / 2 and T_kin = 2 KE / dof."""
     v = np.random.default_rng(seed).normal(size=shape)
     ke = float(kinetic_energy(jnp.asarray(v)))
-    assert ke == pytest.approx(0.5 * float(np.sum(v * v)), rel=1e-14)
+    assert ke == pytest.approx(0.5 * float(np.sum(v * v)), rel=RTOL_MD_KE)
     assert float(kinetic_temperature(jnp.asarray(v), dof)) == pytest.approx(
-        2.0 * ke / dof, rel=1e-14
+        2.0 * ke / dof, rel=RTOL_MD_KE
     )
 
 
@@ -220,7 +249,9 @@ def test_andersen_reset_row_scales_with_sqrt_t(
         assert float(acct) == (acc + p - 1.0 if expected else acc + p)
     for j in rows:
         np.testing.assert_allclose(
-            np.asarray(vt[j]), math.sqrt(temp) * np.asarray(v1[j]), rtol=4 * EPS
+            np.asarray(vt[j]),
+            math.sqrt(temp) * np.asarray(v1[j]),
+            rtol=MD_SQRT_T_ULPS * EPS,
         )
 
 
@@ -314,7 +345,7 @@ def test_baoab_free_particle_drift_identity(
         np.asarray(r1),
         np.asarray(r0 + 0.5 * dt * (v0 + v1)),
         rtol=0,
-        atol=8 * EPS * scale,
+        atol=MD_DRIFT_IDENTITY_C * EPS * scale,
     )
 
 

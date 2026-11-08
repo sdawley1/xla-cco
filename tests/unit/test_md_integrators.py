@@ -38,15 +38,18 @@ from tolerances import (
     ATOL_FD,
     ATOL_MD_CART_ORACLE,
     ATOL_MD_COM,
+    ATOL_MD_ONE_STEP,
     ATOL_MD_REVERSE,
     ATOL_MD_VERLET_EXACT,
     ATOL_VMAP_S,
     MD_BIAS_DETECT,
     MD_BLOCK_SE_RTOL,
     MD_BLOCK_Z,
+    MD_DRIFT_IDENTITY_C,
     MD_FAMILY_ALPHA,
     MD_KS_PVALUE,
     MD_ORDER_RATIO_TOL,
+    MD_SQRT_T_ULPS,
     MD_VERLET_ENERGY_FACTOR,
     RTOL_MD_HESSIAN,
     RTOL_MD_ZERO_MODE,
@@ -73,6 +76,7 @@ from xla_cco.kvectors import enumerate_kvectors
 # CONSTANTS
 # ============================================================
 
+EPS = float(np.finfo(np.float64).eps)
 RECT_BASIS = np.diag([32.0, 16.0 * math.sqrt(3.0)])  # the URL rectangular cell
 SHEAR_BASIS = np.array([[4.0, 0.0], [1.3, 3.5]])  # sheared, |det| = 14
 
@@ -266,6 +270,24 @@ def _assert_whitened_identity(cov: np.ndarray, n_samples: int) -> None:
     assert z_tr < zc, f"mean whitened variance off 1: z {z_tr:.2f}"
 
 
+def _assert_joint_gaussian(x: np.ndarray, var: float) -> None:
+    """Rows of x (m, d) ~ N(0, var I_d) jointly: |x|^2 / var ~ chi^2_d (KS) and
+    zero cross-covariances (z-tests, sd var / sqrt(m), Bonferroni over pairs).
+
+    Catches one N(0, 1) draw broadcast over the d components (then
+    |x|^2 / var ~ d chi^2_1 and corr = 1).
+    """
+    m, d = x.shape
+    assert d >= 2, "joint test needs d >= 2"
+    p = stats.kstest(np.sum(x * x, axis=1) / var, stats.chi2(d).cdf).pvalue
+    assert p > MD_KS_PVALUE, ("|v|^2 / T not chi^2_d", p)
+    pairs = [(a, b) for a in range(d) for b in range(a + 1, d)]
+    zc = _z_crit(len(pairs))
+    for a, b in pairs:
+        z = abs(float(np.mean(x[:, a] * x[:, b]))) / (var / math.sqrt(m))
+        assert z < zc, (a, b, z)
+
+
 class _RingQuadratic(AbstractEnergy):
     """Phi(s) = 1/2 sum_j (u_j - u_{j+1}) C (u_j - u_{j+1})^T, u = s - a (ring).
 
@@ -361,9 +383,11 @@ def test_verlet_single_step_matches_definition() -> None:
     vh = np.asarray(v0) - 0.05 * w2 * np.asarray(r0)
     r_ex = np.asarray(r0) + 0.1 * vh
     v_ex = vh - 0.05 * w2 * r_ex
-    np.testing.assert_allclose(np.asarray(r1), r_ex, rtol=0, atol=1e-15)
-    np.testing.assert_allclose(np.asarray(v1), v_ex, rtol=0, atol=1e-15)
-    np.testing.assert_allclose(np.asarray(out[1]), -w2 * r_ex, rtol=0, atol=1e-15)
+    np.testing.assert_allclose(np.asarray(r1), r_ex, rtol=0, atol=ATOL_MD_ONE_STEP)
+    np.testing.assert_allclose(np.asarray(v1), v_ex, rtol=0, atol=ATOL_MD_ONE_STEP)
+    np.testing.assert_allclose(
+        np.asarray(out[1]), -w2 * r_ex, rtol=0, atol=ATOL_MD_ONE_STEP
+    )
     assert len(out) == 4 and out[2].shape == (1,) and out[3].shape == (1,)
 
 
@@ -504,7 +528,7 @@ def test_maxwell_boltzmann_kinetic_energy_z(com: bool) -> None:
 
 @pytest.mark.critical
 def test_maxwell_boltzmann_components_ks() -> None:
-    """Each Cartesian component ~ N(0, T (n - 1) / n) after COM removal (KS)."""
+    """Components ~ N(0, T (n - 1) / n) after COM removal (KS), jointly independent."""
     n, d, temp = 16, 3, 0.7
     v = _mb_batch(3000, n, d, temp, True)
     scale = math.sqrt(temp * (n - 1) / n)
@@ -515,16 +539,18 @@ def test_maxwell_boltzmann_components_ks() -> None:
     for a in range(d):
         p = stats.kstest(raw[:, :, a].ravel() / math.sqrt(temp), "norm").pvalue
         assert p > MD_KS_PVALUE, (a, p)
+    # joint law of each particle's d components (independent axes)
+    _assert_joint_gaussian(raw.reshape(-1, d), temp)
+    _assert_joint_gaussian(v.reshape(-1, d), scale**2)
 
 
 @pytest.mark.high
 def test_kinetic_energy_and_temperature() -> None:
     """KE = sum v^2 / 2; T_kin = 2 KE / dof."""
     v = jnp.asarray([[1.0, 2.0], [-3.0, 0.5]])
-    assert float(kinetic_energy(v)) == pytest.approx(
-        0.5 * (1 + 4 + 9 + 0.25), rel=1e-15
-    )
-    assert float(kinetic_temperature(v, 2)) == pytest.approx(14.25 / 2, rel=1e-15)
+    # exact: every partial sum and the halving are representable in binary
+    assert float(kinetic_energy(v)) == 0.5 * (1 + 4 + 9 + 0.25)
+    assert float(kinetic_temperature(v, 2)) == 14.25 / 2
     assert kinetic_energy(v).shape == () and kinetic_temperature(v, 3).shape == ()
 
 
@@ -681,6 +707,48 @@ def test_andersen_free_particles_reach_temperature(
         assert MD_BIAS_DETECT / math.sqrt(2.0 / m) >= 6.0
         p_ks = stats.kstest(x[:, a] / math.sqrt(temp), "norm").pvalue
         assert p_ks > MD_KS_PVALUE, (a, p_ks)
+    _assert_joint_gaussian(x, temp)
+
+
+@pytest.mark.critical
+@pytest.mark.parametrize("mode", ["count", "bernoulli"])
+def test_andersen_key_streams_are_independent(mode: str) -> None:
+    """key', k_pick, k_draw, k_coin = split(key, 4): the index comes from k_pick and
+    the redrawn row from k_draw, so the row is independent of the choice.
+
+    A reused subkey (e.g. the row drawn from k_pick) changes the row.
+    """
+    n, d, temp = 7, 3, 2.0
+    v = jnp.full((n, d), 1e6)
+    for seed in range(20):
+        key = jax.random.PRNGKey(seed)
+        k_next, k_pick, k_draw, _ = jax.random.split(key, 4)
+        k2, v2, _, nr = andersen_reset(
+            key, v, jnp.asarray(0.0), jnp.asarray(temp), 1.0, mode
+        )
+        assert int(nr) == 1
+        np.testing.assert_array_equal(np.asarray(k2), np.asarray(k_next))
+        pick = int(jax.random.randint(k_pick, (), 0, n))
+        changed = np.flatnonzero(np.any(np.asarray(v2) != np.asarray(v), axis=1))
+        assert changed.tolist() == [pick]
+        row = math.sqrt(temp) * np.asarray(jax.random.normal(k_draw, (d,)))
+        np.testing.assert_allclose(
+            np.asarray(v2[pick]), row, rtol=MD_SQRT_T_ULPS * EPS, atol=0
+        )
+
+
+@pytest.mark.critical
+def test_baoab_noise_key_stream() -> None:
+    """key', k_xi = split(key); xi = normal(k_xi, (n, d)) (free particle, v = 0)."""
+    n, d, dt, gamma, temp = 5, 3, 0.2, 1.3, 0.6
+    key = jax.random.PRNGKey(8)
+    k_next, k_xi = jax.random.split(key)
+    z = jnp.zeros((n, d))
+    k2, _, v1, _ = baoab_step(key, z, z, z, _free, dt, gamma, jnp.asarray(temp))
+    np.testing.assert_array_equal(np.asarray(k2), np.asarray(k_next))
+    amp = math.sqrt(-math.expm1(-2.0 * gamma * dt) * temp)
+    xi = np.asarray(jax.random.normal(k_xi, (n, d)))
+    np.testing.assert_allclose(np.asarray(v1), amp * xi, rtol=MD_SQRT_T_ULPS * EPS)
 
 
 @pytest.mark.medium
@@ -781,7 +849,10 @@ def test_baoab_free_particle_single_step_statistics() -> None:
         jnp.asarray(temp),
     )
     np.testing.assert_allclose(
-        np.asarray(r1), np.asarray(r0 + 0.5 * dt * (v0 + v1)), rtol=0, atol=1e-14
+        np.asarray(r1),
+        np.asarray(r0 + 0.5 * dt * (v0 + v1)),
+        rtol=0,
+        atol=MD_DRIFT_IDENTITY_C * EPS * (1.0 + float(jnp.max(jnp.abs(r1)))),
     )
     xi = (np.asarray(v1) - c * np.asarray(v0)) / math.sqrt((1 - c * c) * temp)
     m = xi.size
@@ -789,6 +860,7 @@ def test_baoab_free_particle_single_step_statistics() -> None:
     z_mean = abs(np.mean(xi)) * math.sqrt(m)
     assert z_var < _z_crit(2) and z_mean < _z_crit(2), (z_var, z_mean)
     assert stats.kstest(xi.ravel(), "norm").pvalue > MD_KS_PVALUE
+    _assert_joint_gaussian(xi, 1.0)
     assert k2.dtype == jnp.uint32 and out[1].shape == (n, d)
 
 

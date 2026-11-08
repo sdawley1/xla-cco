@@ -38,7 +38,7 @@ from jaxtyping import Float, Int, UInt32
 # ----- project -----
 from xla_cco._types import require_float64
 from xla_cco.dynamics.state import ANDERSEN_MODES
-from xla_cco.dynamics.thermal import _require_key
+from xla_cco.dynamics.thermal import require_key
 
 # ============================================================
 # TYPES
@@ -85,8 +85,10 @@ def verlet_step(
     half = 0.5 * dt
     v_half = v + half * f
     r_new = r + dt * v_half
+    assert r_new.shape == r.shape, "drift changed the shape of r"
     out = force_fn(r_new)
     v_new = _kick(v_half, out, half)
+    assert v_new.dtype == v.dtype == r_new.dtype, "dtype changed in the step"
     return r_new, v_new, out
 
 
@@ -98,7 +100,10 @@ def andersen_reset(
     """Andersen resets after a step; returns (key', v', reset_acc', n_reset).
 
     ``n_reset`` is 0 or 1 (int32). In "bernoulli" mode ``reset_acc`` is
-    returned unchanged.
+    returned unchanged. Keys: ``key', k_pick, k_draw, k_coin =
+    split(key, 4)``; the particle index comes from ``k_pick``, the redrawn
+    row sqrt(T) N(0, I_d) from ``k_draw`` (independent of the choice) and
+    the Bernoulli coin from ``k_coin``.
 
     Raises
     ------
@@ -109,7 +114,7 @@ def andersen_reset(
         raise ValueError(f"mode must be one of {ANDERSEN_MODES}, got {mode!r}")
     if not 0.0 <= p <= 1.0:
         raise ValueError(f"p must lie in [0, 1], got {p}")
-    _require_key(key)
+    require_key(key)
     require_float64(v, "v")
     if v.ndim != 2:
         raise ValueError(f"v must have shape (n, d), got {v.shape}")
@@ -138,6 +143,9 @@ def baoab_step(
            ForceOut]:  # fmt: skip
     """One BAOAB Langevin step; returns (key', r', v', force_fn(r')).
 
+    Keys: ``key', k_xi = split(key)``; xi ~ N(0, I) of shape (n, d) from
+    ``k_xi``.
+
     Raises
     ------
     ValueError
@@ -146,7 +154,7 @@ def baoab_step(
     _check_phase_space(r, v, f, dt)
     if not (math.isfinite(gamma) and gamma >= 0.0):
         raise ValueError(f"gamma must be finite and >= 0, got {gamma}")
-    _require_key(key)
+    require_key(key)
     c = math.exp(-gamma * dt)
     noise_var = -math.expm1(-2.0 * gamma * dt)  # 1 - c^2 without cancellation
     half = 0.5 * dt
@@ -157,6 +165,8 @@ def baoab_step(
     xi = jax.random.normal(k_xi, v.shape, dtype=jnp.float64)
     v = c * v + jnp.sqrt(noise_var * t) * xi
     r = r + half * v
+    assert xi.shape == r.shape and xi.dtype == jnp.float64, "bad noise draw"
     out = force_fn(r)
     v = _kick(v, out, half)
+    assert v.shape == r.shape and v.dtype == r.dtype, "step changed v"
     return key, r, v, out

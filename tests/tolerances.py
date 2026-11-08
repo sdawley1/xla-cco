@@ -66,7 +66,8 @@ MD_FAMILY_ALPHA: float = 1e-3
 # Smallest relative bias the statistical validations must detect with z >= 6.
 MD_BIAS_DETECT: float = 0.05
 # ----- molecular dynamics: T1 (integrators and thermal sampling) -----
-# Time reversal of Verlet: the forward and backward maps cancel up to ~1 ulp of
+# Time reversal of Verlet (fixed-seed unit test only, |r| <= 10; for any |r| see
+# MD_REVERSE_ULPS_PER_STEP): forward and backward maps cancel up to ~1 ulp of
 # |r| <= 10 per step and coordinate (1e-15), grown at most linearly by the smooth
 # stealthy force over <= 200 steps: 200 * 2e-15 ~ 4e-13 < 1e-12.
 ATOL_MD_REVERSE: float = 1e-12
@@ -106,3 +107,23 @@ RTOL_MD_QUADFORM: float = 1e-8
 # per-level relative sd <= sqrt(2 / 127) = 0.125, so it stays within ~2.8 sd = 0.35
 # of the true standard error (one-sided upward bias by construction).
 MD_BLOCK_SE_RTOL: float = 0.35
+# One Verlet step on O(1) values (|x| <= 1.5): <= 4 roundings of eps/2 |x| each,
+# ~7e-16 < 1e-15 (the NumPy check repeats the same operations).
+ATOL_MD_ONE_STEP: float = 1e-15
+# Sums of n d <= 33 squares in different orders (JAX vs NumPy): <= n d eps ~ 7e-15.
+RTOL_MD_KE: float = 1e-14
+# sqrt(T) x vs sqrt(T) x from another (correctly rounded) sqrt: identical on CPU;
+# 4 ulps allow one extra rounding in sqrt and in the product on other backends.
+MD_SQRT_T_ULPS: float = 4.0
+# COM shift vs x - mean(x): mean summation order differs by <= eps max|x| and the
+# subtraction rounds by <= eps max|x|; factor 4 (times eps max|x|) leaves 2x room.
+MD_COM_SHIFT_C: float = 4.0
+# Free-particle drift r + dt/2 v + dt/2 v' vs r + dt/2 (v + v'): <= 4 roundings of
+# eps/2 times (|r| + dt |v|) each; factor 8 (times eps * scale) leaves 4x room.
+MD_DRIFT_IDENTITY_C: float = 8.0
+# Time reversal at any |r| (property test, D-020): roundoff of ~1 ulp of max(1, |r|)
+# per step, amplified by the chaotic flow over the 2 n forward/backward steps. The
+# bound C * 2 n * eps * max(1, |r|) with C = 16 (= 1280 eps |r| at n = 40) covers the
+# measured worst: 17 eps |r| over 8000 runs at dt <= 0.02 (the property domain) and
+# 538 eps |r| at the dt = 0.05 Hypothesis repro (the largest of 8000 dt = 0.05 runs).
+MD_REVERSE_ULPS_PER_STEP: float = 16.0
