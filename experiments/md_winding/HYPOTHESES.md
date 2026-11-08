@@ -72,3 +72,7 @@ H6 stays exactly as registered; a FAIL of its part 1 is reported as evidence of 
 | H6b | Conditional Rice rate of the unconstrained waves | at each harmonic T, the per-bin median over ground states of the unsigned rate divided by \|k\|√(NT/π)·⟨1/\|ρ_k\|⟩_t/(2π) lies in [0.90, 1.10] for every unconstrained \|k\|/K bin |
 
 Here ⟨1/|ρ_k|⟩_t is estimated from the production-segment snapshots, which are log-spaced. That estimator is noted in the report. The A1 verdict mapping applies.
+
+## Amendment A4 (2026-11-08, before any production MD job)
+
+The production snapshots are log-spaced, which over-weights early segment times in time averages. In H6b, ⟨1/|ρ_k|⟩_t is therefore estimated from the uniformly spaced dense ρ trace (`--record-rho-every`), restricted to the production NVE segments, with at least 500 samples per segment. If a lane lacks such a trace, its H6b bins are NOT_EVALUATED; they are never filled from the snapshots.
