@@ -17,7 +17,7 @@ import json
 import math
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 # ----- numerics -----
 import numpy as np
@@ -54,6 +54,7 @@ import batten2008_md_synthetic as syn  # noqa: E402
 # ============================================================
 
 TWO_PI = 2.0 * np.pi
+CLI_DT = 0.01  # time step of the cli_files fixtures
 finite = st.floats(min_value=-1e3, max_value=1e3, allow_nan=False,
                    allow_infinity=False, allow_subnormal=False)  # fmt: skip
 samples = hnp.arrays(np.float64, st.integers(1, 12), elements=finite)
@@ -61,6 +62,28 @@ samples = hnp.arrays(np.float64, st.integers(1, 12), elements=finite)
 # ============================================================
 # HELPERS
 # ============================================================
+
+
+def _cli_windings(
+    omega_abs: np.ndarray, omega_net: np.ndarray, net_msd: Any
+) -> Tuple[List[Any], np.ndarray, np.ndarray, np.ndarray]:
+    """(phases, record steps, W_abs, W_net) of cli_files (radians, dt = 0.01)."""
+    lanes, waves = omega_abs.shape
+    phases, rec = syn._protocol(syn.default_proto(100_000, 2, 120))
+    segs = ana.segments({"phases": [dict(p.__dict__) for p in phases]})
+    w_abs = np.zeros((lanes, rec.size, waves))
+    w_net = np.zeros((lanes, rec.size, waves))
+    for s0, n in segs:
+        j = np.flatnonzero((rec > s0) & (rec <= s0 + n))
+        t = (rec[j] - s0) * CLI_DT
+        w_abs[:, j] = omega_abs[:, None, :] * t[None, :, None]
+        if net_msd is None:
+            w_net[:, j] = omega_net[:, None, :] * t[None, :, None]
+        else:
+            sign = np.where(np.arange(waves) % 2 == 0, 1.0, -1.0)
+            w_net[:, j] = TWO_PI * np.sqrt(net_msd(t))[None, :, None] * sign
+    assert len(segs) == 2 and w_abs.shape == w_net.shape, "two segments"
+    return phases, rec, w_abs, w_net
 
 
 def cli_files(
@@ -73,53 +96,36 @@ def cli_files(
     (radians, t since the segment began), or, if ``net_msd`` (a function of
     t in turns^2) is given, W_net = +-2 pi sqrt(net_msd(t)) with alternating
     signs. Waves: 2 constrained (|k| = 0.5, 0.9) then 2 unconstrained (1.4,
-    1.8) with K = 1; sums give <S_k> = s_mean[l, w] and <Phi> = M T.
+    1.8) with K = 1, N = 3; sums give <S_k> = s_mean[l, w] and <Phi> = M T;
+    snapshot rho has the constant modulus sqrt(N s_mean[l, w]).
     """
     lanes, waves = omega_abs.shape
     assert lanes == n_gs * len(temps) and waves == 4, "4 waves per lane"
-    proto = syn.default_proto(100_000, 2, 120)
-    phases, rec = syn._protocol(proto)
-    dt = 0.01
-    segs = ana.segments({"phases": [dict(p.__dict__) for p in phases]})
-    w_abs = np.zeros((lanes, rec.size, waves))
-    w_net = np.zeros((lanes, rec.size, waves))
-    for s0, n in segs:
-        j = np.flatnonzero((rec > s0) & (rec <= s0 + n))
-        t = (rec[j] - s0) * dt
-        w_abs[:, j] = omega_abs[:, None, :] * t[None, :, None]
-        if net_msd is None:
-            w_net[:, j] = omega_net[:, None, :] * t[None, :, None]
-        else:
-            sign = np.where(np.arange(waves) % 2 == 0, 1.0, -1.0)
-            w_net[:, j] = TWO_PI * np.sqrt(net_msd(t))[None, :, None] * sign
+    phases, rec, w_abs, w_net = _cli_windings(omega_abs, omega_net, net_msd)
     lane_t = np.tile(np.asarray(temps), n_gs)
-    kvec = np.array([[0.5, 0.0], [0.0, 0.9], [1.4, 0.0], [0.0, 1.8]])
     n_sum = np.full((2, lanes), 1000)
+    rho = np.zeros((lanes, rec.size, waves, 2))
+    rho[..., 0] = np.sqrt(3.0 * s_mean)[:, None, :]
     arrays = {
-        "snap_step": np.tile(rec, (lanes, 1)),
-        "snap_time": np.tile(rec * dt, (lanes, 1)),
-        "snap_wind_abs": w_abs,
-        "snap_wind_net": w_net,
-        "snap_rho": np.zeros((lanes, rec.size, waves, 2)),
+        "snap_step": np.tile(rec, (lanes, 1)), "snap_time": np.tile(rec * CLI_DT,
+                                                                    (lanes, 1)),
+        "snap_wind_abs": w_abs, "snap_wind_net": w_net, "snap_rho": rho,
         "snap_r": np.zeros((lanes, rec.size, 3, 2)),
         "snap_phi": np.ones((lanes, rec.size)),
         "snap_kinetic": np.ones((lanes, rec.size)),
         "snap_count": np.full(lanes, rec.size),
-        "cycle_sum_s": n_sum[..., None] * s_mean[None],
-        "cycle_n_sum": n_sum,
+        "cycle_sum_s": n_sum[..., None] * s_mean[None], "cycle_n_sum": n_sum,
         "cycle_sum_phi": n_sum * 2 * lane_t[None],
         "cycle_sum_kinetic": n_sum * 2 * lane_t,
         "status": np.zeros(lanes, np.int64),
         "lane_index": np.repeat(np.arange(n_gs), len(temps)),
-        "lane_temperature": lane_t,
-        "temperatures": np.asarray(temps),
+        "lane_temperature": lane_t, "temperatures": np.asarray(temps),
         "indices": np.arange(n_gs),
-        "waves_kvec": kvec,
+        "waves_kvec": np.array([[0.5, 0.0], [0.0, 0.9], [1.4, 0.0], [0.0, 1.8]]),
         "waves_constrained": np.array([True, True, False, False]),
-        "record_steps": rec,
-        "basis": np.sqrt(3.0) * np.eye(2),
-    }
-    meta = {"phases": [dict(p.__dict__) for p in phases], "settings": {"dt": dt},
+        "record_steps": rec, "basis": np.sqrt(3.0) * np.eye(2),
+    }  # fmt: skip
+    meta = {"phases": [dict(p.__dict__) for p in phases], "settings": {"dt": CLI_DT},
             "M": 2, "K": 1.0, "N": 3, "d": 2, "chi": 1 / 3}  # fmt: skip
     path.parent.mkdir(parents=True, exist_ok=True)
     np.savez(path, **arrays)
@@ -769,3 +775,124 @@ def test_a1_h6_collapse_and_beta_use_harmonic_t() -> None:
     assert parts["collapse t sqrt(T)"]["value"] < 1e-9
     desc = {p["part"]: p for p in mds.h6_parts([z], False)}
     assert desc["collapse t sqrt(T)"]["value"] > 0.2 and desc["beta"]["value"] > 0.6
+
+
+# ============================================================
+# AMENDMENT A3 (H6b) AND AUDIT MUTANTS
+# ============================================================
+
+
+@pytest.mark.critical
+def test_conditional_rice_formula() -> None:
+    """|k| sqrt(N T / pi) <1/|rho|> / 2 pi; the fixed-rho Rice at constant |rho|."""
+    rho = np.zeros((2, 3, 2, 2))
+    rho[..., 0] = np.array([1.0, 2.0, 4.0])[None, :, None]  # |rho| = 1, 2, 4
+    inv = ana.mean_inverse_modulus(rho)
+    np.testing.assert_allclose(inv, (1.0 + 0.5 + 0.25) / 3.0, rtol=1e-15)
+    kmag, n, temp = np.array([1.0, 2.0]), 9, np.array([[1e-4]])
+    got = ana.conditional_rice(kmag, n, temp, inv)
+    want = kmag * math.sqrt(n * 1e-4 / math.pi) * (1.75 / 3.0) / TWO_PI
+    np.testing.assert_allclose(got[0], want, rtol=1e-14)
+    s = np.full(2, 0.7)
+    fixed = ana.conditional_rice(kmag, n, temp, 1.0 / np.sqrt(n * s)[None])
+    np.testing.assert_allclose(
+        fixed[0], ana.rice_prediction(kmag, temp, s, np.zeros(2, bool))[0], rtol=1e-14
+    )
+    zero = np.zeros((1, 2, 1, 2))
+    assert np.isnan(ana.mean_inverse_modulus(zero)).all()
+
+
+@pytest.mark.critical
+def test_h6b_through_analysis_and_verdicts(tmp_path: Path) -> None:
+    """Constant |rho|: rice_cond = unconstrained Rice; H6b bins in [0.9, 1.1]."""
+    om = np.tile(np.array([1.0, 1.0, 0.02, 0.03]), (2, 1))
+    s_mean = np.tile(np.array([1e-6, 1e-6, 0.5, 0.8]), (2, 1))
+    path = cli_files(tmp_path / "x" / "N3" / "md_chi1-3.npz", om, om, [1e-6], 2, s_mean)
+    res = ana.analyze_file(path, None)
+    unc = ~res["constrained"]
+    np.testing.assert_allclose(res["rice_cond"][..., unc], res["rice"][..., unc],
+                               rtol=1e-12)  # fmt: skip
+    z = {"system": "x", "tag": "1-3", "temps": np.array([1e-6, 1e-5]),
+         "ratio_cond_bin": np.full((3, 2, 40), np.nan)}  # fmt: skip
+    for value, outcome in ((1.08, mds.PASS), (1.12, mds.FAIL), (0.95, mds.PASS)):
+        z["ratio_cond_bin"][:, :, 25] = value
+        parts = mds.h6b_parts([z], True)
+        assert [p["outcome"] for p in parts] == [outcome, outcome]
+    assert "H6b" in mds.HYPOTHESES and mds.h6b_parts([z], False) == []
+
+
+@pytest.mark.critical
+def test_h8_threshold_is_p_001() -> None:
+    """M13: Mann-Whitney p = 0.017 (between 0.01 and 0.05) is a miss, i.e. FAIL."""
+    base = np.linspace(-1e-3, 1e-3, 10)
+    d = np.arange(10.0)
+    a = _cell_data(base, np.ones(10), 1.0 + 0.1 * d, "1-10", 0.1)
+    b = _cell_data(base, np.ones(10), 1.4 + 0.1 * d, "2-5", 0.4)
+    part = mds.h8_parts([a, b], [])[0]
+    assert 0.01 < part["p"] < 0.05
+    assert part["outcome"] == mds.FAIL
+
+
+@pytest.mark.critical
+def test_h3_needs_z_below_3() -> None:
+    """M17: a tight 2 % window mismatch (within 3 % but |z| >> 3) is not a PASS."""
+    w1 = np.ones((10, 1, 2))
+    w2 = (1.02 + 1e-5 * np.arange(10))[:, None, None] * np.ones((10, 1, 2))
+    z = {"system": "x", "tag": "1-10", "temps": np.array([1e-6]), "w1_c": w1,
+         "w2_c": w2}  # fmt: skip
+    parts = mds.h3_parts([z], True)
+    assert all(abs(p["z"]) > 3 and p["dev"] < 0.03 for p in parts)
+    assert {p["outcome"] for p in parts} == {mds.INCONCLUSIVE}
+
+
+@pytest.mark.critical
+def test_nu_is_rate_over_k_not_over_rice(tmp_path: Path) -> None:
+    """M19 (A1.3): nu = mean over constrained waves of rate / (|k| / 2 pi), S != T."""
+    om = np.tile(np.array([0.4, 1.3, 0.02, 0.03]), (2, 1))
+    s_mean = np.tile(np.array([4e-6, 9e-6, 0.5, 0.8]), (2, 1))  # S = 4 T, 9 T
+    path = cli_files(tmp_path / "x" / "N3" / "md_chi1-3.npz", om, om, [1e-6], 2, s_mean)
+    res = ana.analyze_file(path, None)
+    want = np.mean(np.array([0.4, 1.3]) / np.array([0.5, 0.9]))
+    np.testing.assert_allclose(res["nu_c"], want, rtol=1e-11)
+    rice_ratio = np.mean(np.array([0.4 / 0.5 * 2.0, 1.3 / 0.9 * 3.0]))
+    assert abs(float(res["nu_c"][0, 0]) - rice_ratio) > 0.5
+
+
+@pytest.mark.critical
+def test_h2_t_ratio_uses_1e6_over_1e4() -> None:
+    """M20: three T with distinct rates; the H2 ratio is rate(1e-6) / rate(1e-4)."""
+    rates = np.array([1.0, 1.5, 1.02])  # at T = 1e-6, 1e-5, 1e-4
+    z = {"system": "x", "tag": "1-10", "temps": np.array([1e-6, 1e-5, 1e-4]),
+         "ratio_bin": np.full((4, 3, 40), np.nan),
+         "rate_abs_bin": np.full((4, 3, 40), np.nan)}  # fmt: skip
+    z["rate_abs_bin"][:, :, 7] = rates
+    parts = [p for p in mds.h2_parts([z], True) if p["part"].startswith("T ratio")]
+    assert len(parts) == 1
+    assert parts[0]["value"] == pytest.approx(1.0 / 1.02, rel=1e-12)
+    assert parts[0]["outcome"] == mds.PASS
+
+
+@pytest.mark.critical
+def test_h5_median_difference_is_relative() -> None:
+    """M21: nu ~ 5, one start +2 %: relative difference 0.02 PASSes (absolute 0.1)."""
+    base = 5.0 + 0.001 * np.arange(10)
+    groups = {s: base.copy() for s in "abcd"}
+    groups["e"] = base * 1.02
+    part = mds.h5_cell(groups, "x")[1]
+    assert part["value"] == pytest.approx(0.02, rel=1e-3)
+    assert part["outcome"] == mds.PASS
+
+
+@pytest.mark.critical
+def test_synthetic_phase_increment_is_independent() -> None:
+    """The generator's own winding step matches the analysis and honours the floor."""
+    rng = np.random.default_rng(9)
+    new = rng.standard_normal(50) + 1j * rng.standard_normal(50)
+    old = rng.standard_normal(50) + 1j * rng.standard_normal(50)
+    floor = 0.5  # S = |rho|^2 / 2 > 0.5 for about 37 % of the samples
+    got, ok = syn.phase_increment(new, old, 2, floor)
+    ref, ref_ok = ana.winding_step(new, old, 2, floor)
+    assert np.array_equal(ok, ref_ok) and 0 < ok.sum() < ok.size
+    np.testing.assert_allclose(got, ref, atol=1e-15)
+    assert syn.phase_increment is not ana.winding_step
+    assert "winding_step" not in vars(syn)

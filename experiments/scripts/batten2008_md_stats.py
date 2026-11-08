@@ -78,9 +78,12 @@ H5_MEDDIFF = 0.03
 H6_RATE = 0.10
 H6_BETA = (0.4, 0.6)
 H6_COLLAPSE = 0.20
+H6B_BAND = (0.90, 1.10)  # A3: conditional Rice rate of the unconstrained waves
 H7_TOL = 0.03
 H8_P = 0.01
-HYPOTHESES: Tuple[str, ...] = ("H1", "H2", "H3", "H4", "H5", "H6", "H7", "H8")
+HYPOTHESES: Tuple[str, ...] = (
+    "H1", "H2", "H3", "H4", "H5", "H6", "H6b", "H7", "H8",
+)  # fmt: skip
 TITLES = {
     "H1": "Equipartition at harmonic T",
     "H2": "Rice rate of the constrained waves",
@@ -88,6 +91,7 @@ TITLES = {
     "H4": "Net winding is a random walk",
     "H5": "Start independence of the unsigned rate (Q2)",
     "H6": "Unconstrained waves",
+    "H6b": "Conditional Rice rate of the unconstrained waves (A3)",
     "H7": "Thermostat independence",
     "H8": "chi dependence",
 }
@@ -556,6 +560,21 @@ def _ratio_part(name: str, cell: str, x: np.ndarray, tol: float) -> Part:
     )
 
 
+def h6b_parts(main: List[Data], harmonic: bool) -> List[Part]:
+    """A3 H6b: rate / conditional Rice in [0.90, 1.10] per unconstrained bin and T."""
+    assert all("ratio_cond_bin" in z for z in main), "analysis data (A3)"
+    out: List[Part] = []
+    for z in main:
+        for ti in temp_indices(z["temps"], harmonic):
+            cell = label(z, z["temps"][ti])
+            for b in range(N_BINS, 2 * N_BINS):
+                x = z["ratio_cond_bin"][:, ti, b]
+                if np.any(np.isfinite(x)):
+                    out.append(band_part(f"cond Rice bin {b}", cell, x, H6B_BAND, 1.0))
+    assert all(p["part"].startswith("cond Rice") for p in out), "named parts"
+    return out
+
+
 def h7_parts(main: List[Data], lang: List[Data]) -> List[Part]:
     """BAOAB vs Andersen+NVE normalized rate, and gamma vs gamma: within 3 %."""
     assert all("gamma" in z for z in lang), "Langevin analyses carry gamma"
@@ -689,10 +708,12 @@ def evaluate(main: List[Data], lang: List[Data]) -> Dict[str, Any]:
     }  # fmt: skip
     parts["H5"], report = h5_parts(main, True)
     parts["H6"] = h6_parts(main, True)
+    parts["H6b"] = h6b_parts(main, True)
     parts["H7"] = h7_parts(main, lang)
     parts["H8"] = h8_parts(main, parts["H2"])
     desc_fns: Dict[str, Callable[..., Any]] = {
         "H1": h1_parts, "H2": h2_parts, "H3": h3_parts, "H4": h4_parts, "H6": h6_parts,
+        "H6b": h6b_parts,
     }  # fmt: skip
     descriptive = {h: fn(main, False) for h, fn in desc_fns.items()}
     descriptive["H5"], desc_report = h5_parts(main, False)
@@ -710,6 +731,15 @@ def evaluate(main: List[Data], lang: List[Data]) -> Dict[str, Any]:
         "on any miss.",
         "Normalized unsigned rate nu = mean over constrained waves of "
         "rate / (|k| / 2 pi); H5, H7 use it per ground state.",
+        "Interpretation (H4): t >> tau_corr is taken as t >= 10 x the median over "
+        "constrained waves of 1 / (unsigned rate); alpha is the log-log slope there.",
+        "Interpretation (H6): the net-winding rate of the unconstrained waves is "
+        "the RMS over waves and segments of the end-point rate W_net(t_end) / "
+        "t_end; beta is its log-log slope against the harmonic T per ground state.",
+        "Interpretation (H8 part 2): Mann-Whitney per (start, harmonic T) cell, "
+        "each at p < 0.01, with no multiplicity correction.",
+        "H6b (A3): <1/|rho_k|>_t is the mean over the log-spaced production "
+        "snapshots (weighted toward early times of each segment).",
     ]
     out = {"hypotheses": {h: {"title": TITLES[h], **summarize(parts[h])}
                           for h in HYPOTHESES},
@@ -752,6 +782,7 @@ def collect(paths: List[Path]) -> Tuple[List[Data], List[Data], List[str]]:
 def _json_default(obj: Any) -> Any:
     """NumPy scalars and arrays -> Python values for json.dumps."""
     assert obj is not None, "json.dumps never passes None here"
+    assert not isinstance(obj, (str, int, float, list, dict)), "native JSON types"
     if isinstance(obj, (np.floating, np.integer, np.bool_)):
         return obj.item()
     if isinstance(obj, np.ndarray):

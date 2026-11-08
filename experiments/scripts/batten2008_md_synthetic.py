@@ -29,7 +29,9 @@ Model (exact in law, sampled every step; dt is the record step):
   removed, so the particle MSD is d (N - 1) / N T t^2 (collapses on t sqrt T).
 
 Winding is accumulated every step with the MD rule (atan2 increment, counted
-only when S > phase_floor at both ends; batten2008_md_analysis.winding_step).
+only when S > phase_floor at both ends), implemented here independently of
+the analysis code (np.angle of the product, own floor test) so the synthetic
+files check the analysis's phase-floor path.
 With --common-seeds every start shares the same random draws per ground
 state (the starts then differ only by --inject); --langevin and --spectra
 add BAOAB-labelled and dense-trace files for F9 and F10.
@@ -47,7 +49,6 @@ Samuel J. Dawley
 # ----- standard library -----
 import argparse
 import json
-import sys
 from fractions import Fraction
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -59,9 +60,6 @@ from scipy.linalg import expm
 # ----- project -----
 from xla_cco.cli.md import protocol_phases, record_schedule
 from xla_cco.kvectors import chi_from_count, enumerate_kvectors
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from batten2008_md_analysis import winding_step  # noqa: E402
 
 # ============================================================
 # CONSTANTS
@@ -145,6 +143,23 @@ def oscillator_coeffs(omega: np.ndarray, dt: float) -> Tuple[np.ndarray, np.ndar
 # ============================================================
 
 
+def phase_increment(
+    new: np.ndarray, old: np.ndarray, n: int, floor: float
+) -> Tuple[np.ndarray, np.ndarray]:
+    """MD winding step: angle of new conj(old), zeroed unless S > floor at both ends.
+
+    Written independently of batten2008_md_analysis.winding_step (np.angle,
+    S from the squared real and imaginary parts).
+    """
+    assert new.shape == old.shape and n >= 1 and floor >= 0.0, "matching inputs"
+    s_new = (new.real**2 + new.imag**2) / n
+    s_old = (old.real**2 + old.imag**2) / n
+    ok = np.logical_and(s_new > floor, s_old > floor)
+    dth = np.angle(new * np.conj(old)) * ok
+    assert np.all(np.abs(dth) <= np.pi + 1e-12), "principal-value increments"
+    return dth, ok
+
+
 def _rho(st: Dict[str, Any], t: float) -> np.ndarray:
     """Complex rho (L, W) of every lane at time t."""
     out = st["amp"][:, None] * st["x"]
@@ -224,7 +239,7 @@ def run_segment(
         _advance(st, xi[i % NOISE_BLOCK])
         st["step"] = s0 + i + 1
         new = _rho(st, st["step"] * st["dt"])
-        dth, ok = winding_step(new, rho, st["N"], PHASE_FLOOR)
+        dth, ok = phase_increment(new, rho, st["N"], PHASE_FLOOR)
         st["wabs"] += np.abs(dth)
         st["wnet"] += dth
         acc["n_valid"] += ok

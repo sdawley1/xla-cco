@@ -11,7 +11,8 @@ to --out:
   of every wave against log10 t and |k|/K, ground state 0, first segment;
   rows T, columns starts.
 - F2 ``md_F2_rates``: unsigned rate / (|k| / 2 pi) against |k|/K (median and
-  10-90 % band over ground states, per T) with the Rice lines (dashed).
+  10-90 % band over ground states, per T) with the Rice lines (dashed) and,
+  for |k| > K, the conditional Rice rate of H6b (dotted, Amendment A3).
 - F3 ``md_F3_stationarity``: windowed-rate ratio [t/2, t] / [t/4, t/2] - 1 per
   ground state and segment, with the 3 % band of H3.
 - F4 ``md_F4_net_msd``: net-winding MSD (median over ground states) with the
@@ -77,6 +78,7 @@ START_COLORS = {"flows2d": "black", "gau2d": "#1f4e9c", "url2d": "#c0392b",
                 "rsa2d": "#2e7d32", "hip2d": "#b9770e"}  # fmt: skip
 T_COLORS = ("#1f4e9c", "#2e7d32", "#b9770e", "#c0392b")
 GAMMA_MARKERS = ("o", "s", "^")
+GAMMA_SIZES = (9.0, 4.0, 6.0)  # open large circles behind small filled squares
 PREFIX = "md"
 
 Data = Dict[str, np.ndarray]
@@ -136,6 +138,7 @@ def band(ax: plt.Axes, x: np.ndarray, rows: np.ndarray, color: str, ls: str = "-
          label: str = "") -> None:  # fmt: skip
     """Median and 10-90 % band over rows (ground states) of rows (G, X)."""
     assert rows.ndim == 2 and rows.shape[1] == x.size, "rows (G, X)"
+    assert x.ndim == 1 and color, "x (X,) and a color"
     ok = np.any(np.isfinite(rows), axis=0)
     if not np.any(ok):
         return
@@ -148,6 +151,7 @@ def strip(ax: plt.Axes, x0: float, y: np.ndarray, color: str, marker: str = "o",
           width: float = 0.25) -> None:  # fmt: skip
     """Jittered points of y around x0 with a median tick."""
     assert width > 0.0, "positive strip width"
+    assert np.ndim(y) == 1, "one value per ground state"
     y = np.asarray(y, dtype=np.float64)
     y = y[np.isfinite(y)]
     if y.size == 0:
@@ -250,6 +254,7 @@ def figure_rates(data: Dict[str, object], out: Path, dpi: int) -> None:
         for j, s in enumerate(starts_of(main, tag)):
             z, ax = main[(s, tag)], axes[r, j]
             rice = binned(z, z["rice"] / (z["kmag"] / TWO_PI))
+            cond = binned(z, z["rice_cond"] / (z["kmag"] / TWO_PI))
             for i, t in enumerate(z["temps"]):
                 for cls in (slice(0, N_BINS), slice(N_BINS, 2 * N_BINS)):
                     band(ax, xc[cls], z["norm_bin"][:, i, cls], T_COLORS[i % 4],
@@ -258,16 +263,21 @@ def figure_rates(data: Dict[str, object], out: Path, dpi: int) -> None:
                     fin = np.isfinite(med)  # empty bins: join the occupied ones
                     ax.plot(xc[cls][fin], med[fin], color="black", ls="--", lw=1.0,
                             zorder=5)  # fmt: skip
+                u = slice(N_BINS, 2 * N_BINS)
+                med = _median_rows(cond[:, i, u])
+                fin = np.isfinite(med)
+                ax.plot(xc[u][fin], med[fin], color="black", ls=":", lw=1.4, zorder=6)
             ax.axvline(1.0, color="0.6", lw=0.8, zorder=0)
             ax.set_yscale("log")
             ax.set_title(f"{START_LABELS.get(s, s)}, {chi_label(data, tag)}",
                          fontsize=12)  # fmt: skip
             if r == len(tags) - 1:
                 ax.set_xlabel(r"Wavenumber, $|\mathbf{k}|/K$")
-        axes[r, 0].set_ylabel(r"Rate / $(|\mathbf{k}|/2\pi)$")
+        axes[r, 0].set_ylabel(r"Normalized Rate, $\dot W / (|\mathbf{k}|/2\pi)$")
     handles, labels = axes[0, 0].get_legend_handles_labels()
-    handles.append(Line2D([], [], color="black", ls="--", lw=1.0))
-    labels.append("Rice prediction")
+    handles += [Line2D([], [], color="black", ls="--", lw=1.0),
+                Line2D([], [], color="black", ls=":", lw=1.4)]  # fmt: skip
+    labels += ["Rice (H2, H6)", "conditional Rice (H6b)"]
     fig.legend(handles, labels, loc="upper center", ncol=len(labels),
                bbox_to_anchor=(0.5, 0.0), frameon=False)  # fmt: skip
     fig.tight_layout()
@@ -294,7 +304,7 @@ def figure_stationarity(data: Dict[str, object], out: Path, dpi: int) -> None:
         ax.axhline(0.0, color="0.6", lw=0.8, zorder=0)
         start_axis(ax, starts)
         ax.set_title(chi_label(data, tag), fontsize=13)
-    axes[0, 0].set_ylabel(r"Rate$[t/2, t]$ / Rate$[t/4, t/2] - 1$")
+    axes[0, 0].set_ylabel(r"Window Ratio, $\dot W_{[t/2,t]} / \dot W_{[t/4,t/2]} - 1$")
     temps = next(iter(main.values()))["temps"]
     handles = [Line2D([], [], color=T_COLORS[i % 4], marker="o", ls="none")
                for i in range(temps.size)]  # fmt: skip
@@ -394,7 +404,7 @@ def figure_starts(data: Dict[str, object], out: Path, dpi: int) -> None:
                              squeeze=False)  # fmt: skip
     ylab = {
         "nu_c": r"Normalized Rate, $\nu$",
-        "d_theta": r"$D_\theta$ (turns$^2$/time)",
+        "d_theta": r"Net Diffusion, $D_\theta$",
     }
     for r, (tag, key) in enumerate(rows):
         starts = starts_of(main, tag)
@@ -421,8 +431,8 @@ def figure_temperature(data: Dict[str, object], out: Path, dpi: int) -> None:
     assert dpi > 0, "positive dpi"
     main, tags = data["main"], data["tags"]  # type: ignore[assignment]
     keys = (("nu_c", r"Normalized Rate, $\nu$"),
-            ("net_rms_u", r"Net Rate, $|\mathbf{k}| > K$"),
-            ("d_theta", r"$D_\theta$ (turns$^2$/time)"))  # fmt: skip
+            ("net_rms_u", r"Unconstrained Net Rate, $W_{\rm net}/t$"),
+            ("d_theta", r"Net Diffusion, $D_\theta$"))  # fmt: skip
     fig, axes = plt.subplots(len(tags), 3, figsize=(15.0, 3.9 * len(tags)),
                              sharex=True, squeeze=False)  # fmt: skip
     for r, tag in enumerate(tags):
@@ -439,15 +449,10 @@ def figure_temperature(data: Dict[str, object], out: Path, dpi: int) -> None:
                 ax.set_yscale("log")
             if key == "net_rms_u":
                 z = main[(starts_of(main, tag)[0], tag)]
-                y0 = float(np.nanmedian(z[key][:, 0]))
-                ax.plot(
-                    z["temps"],
-                    y0 * np.sqrt(z["temps"] / z["temps"][0]),
-                    color="0.6",
-                    lw=0.8,
-                    ls="--",
-                    label=r"$\propto T^{1/2}$",
-                )
+                y0 = 3.0 * float(np.nanmedian(z[key][:, 0]))  # offset above the data
+                ax.plot(z["temps"], y0 * np.sqrt(z["temps"] / z["temps"][0]),
+                        color="black", lw=1.2, ls="--", zorder=10,
+                        label=r"$\propto T^{1/2}$")  # fmt: skip
             ax.set_ylabel(ylab)
             ax.set_title(chi_label(data, tag), fontsize=12)
             if r == len(tags) - 1:
@@ -474,7 +479,7 @@ def figure_equipartition(data: Dict[str, object], out: Path, dpi: int) -> None:
             band(axes[r, 0], xc, z0["s_over_t_bin"][:, i, :N_BINS], T_COLORS[i % 4],
                  label=t_label(t))  # fmt: skip
         axes[r, 0].axhspan(0.95, 1.05, color="0.85", zorder=0)
-        axes[r, 0].set_ylabel(r"$\langle S(\mathbf{k})\rangle / T$")
+        axes[r, 0].set_ylabel(r"Structure Factor, $\langle S(\mathbf{k})\rangle / T$")
         axes[r, 0].set_xlabel(r"Wavenumber, $|\mathbf{k}|/K$")
         axes[r, 0].set_title(f"{START_LABELS.get(starts[0])}, {chi_label(data, tag)}",
                              fontsize=12)  # fmt: skip
@@ -487,7 +492,7 @@ def figure_equipartition(data: Dict[str, object], out: Path, dpi: int) -> None:
                       T_COLORS[i % 4], width=0.15)  # fmt: skip
         ax.axhspan(0.98, 1.02, color="0.85", zorder=0)
         start_axis(ax, starts)
-        ax.set_ylabel(r"$\langle\Phi\rangle / (M T)$")
+        ax.set_ylabel(r"Energy, $\langle\Phi\rangle / (M T)$")
         ax = axes[r, 2]
         harm = temp_indices(z0["temps"], True)
         x = z0["phi_over_t"][:, harm].ravel()
@@ -497,8 +502,8 @@ def figure_equipartition(data: Dict[str, object], out: Path, dpi: int) -> None:
         grid = np.linspace(x.min(), x.max(), 200)
         ax.plot(grid, stats.gamma.pdf(grid, m), color="black", lw=2.0,
                 label=rf"Gamma$({m}, 1)$")  # fmt: skip
-        ax.set_xlabel(r"$\Phi / T$")
-        ax.set_ylabel("Density")
+        ax.set_xlabel(r"Scaled Energy, $\Phi / T$")
+        ax.set_ylabel(r"Probability Density, $p(\Phi/T)$")
         ax.legend(frameon=False, fontsize=11)
     handles, labels = axes[0, 0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="upper center", ncol=len(labels),
@@ -539,6 +544,7 @@ def figure_drift(data: Dict[str, object], out: Path, dpi: int) -> None:
         )
         ax.legend(frameon=False, fontsize=11)
         ax = axes[r, 1]
+        ratios = []
         for s in starts:
             z = main[(s, tag)]
             k2 = float(np.mean(z["kmag"][~z["constrained"]] ** 2))
@@ -546,15 +552,16 @@ def figure_drift(data: Dict[str, object], out: Path, dpi: int) -> None:
                 x = k2 * z["part_msd"][:, i, -1]
                 y = (TWO_PI * z["net_rms_u"][:, i] * z["msd_lag"][-1]) ** 2
                 ax.plot(x, y, "o", color=T_COLORS[i % 4], ms=4, alpha=0.7)
-        lim = ax.get_xlim()
-        ax.plot(lim, lim, color="0.6", lw=0.8, ls="--")
+                ratios.append(y / x)
+        c_fit = float(np.nanmedian(np.concatenate(ratios)))
+        lim = np.array(ax.get_xlim())
+        ax.plot(lim, c_fit * lim, color="0.4", lw=1.0, ls="--")
         ax.set_xscale("log")
         ax.set_yscale("log")
-        ax.set_xlabel(r"$\langle|\mathbf{k}|^2\rangle_u\,$MSD$(t_{\rm end})$")
-        ax.set_ylabel(r"Unconstrained $\langle(2\pi W_{\rm net})^2\rangle$")
-        ax.set_title(
-            f"all starts, {chi_label(data, tag)} (dashed: $y = x$)", fontsize=12
-        )
+        ax.set_xlabel(r"Drift Phase Scale, $\langle|\mathbf{k}|^2\rangle_u\,$MSD")
+        ax.set_ylabel(r"Net Phase, $\langle(2\pi W_{\rm net})^2\rangle_u$")
+        ax.set_title(f"all starts, {chi_label(data, tag)} (dashed: "
+                     rf"$y = {c_fit:.2g}\,x$, median fit)", fontsize=12)  # fmt: skip
     fig.tight_layout()
     assert axes.shape[1] == 2, "two columns"
     finish(fig, out / f"{PREFIX}_F8_drift", dpi)
@@ -584,31 +591,31 @@ def figure_thermostat(data: Dict[str, object], out: Path, dpi: int) -> None:
             for ti in temp_indices(z["temps"], True):
                 tm = np.flatnonzero(np.isclose(m["temps"], z["temps"][ti]))
                 if tm.size:
-                    ax.plot(
-                        m["nu_c"][im, tm[0]],
-                        z["nu_c"][iz, ti],
-                        GAMMA_MARKERS[gammas.index(float(z["gamma"])) % 3],
-                        color=T_COLORS[int(tm[0]) % 4],
-                        ms=5,
-                        ls="none",
-                    )
+                    gi = gammas.index(float(z["gamma"])) % 3
+                    color = T_COLORS[int(tm[0]) % 4]
+                    ax.plot(m["nu_c"][im, tm[0]], z["nu_c"][iz, ti],
+                            GAMMA_MARKERS[gi], ms=GAMMA_SIZES[gi], ls="none",
+                            mfc="none" if gi == 0 else color, mec=color,
+                            mew=1.4)  # fmt: skip
         lo, hi = ax.get_xlim()
         grid = np.array([lo, hi])
         ax.plot(grid, grid, color="0.6", lw=0.8)
         ax.fill_between(grid, grid * 0.97, grid * 1.03, color="0.85", zorder=0)
-        ax.set_xlabel(r"Andersen + NVE, $\nu$")
-        ax.set_ylabel(r"BAOAB, $\nu$")
+        ax.set_xlabel(r"Andersen + NVE Rate, $\nu_{\rm NVE}$")
+        ax.set_ylabel(r"BAOAB Rate, $\nu_{\rm BAOAB}$")
         ax.set_title(chi_label(data, tag), fontsize=12)
-    handles = [Line2D([], [], color="0.3", marker=GAMMA_MARKERS[i % 3], ls="none")
+    handles = [Line2D([], [], color="0.3", marker=GAMMA_MARKERS[i % 3], ls="none",
+                      ms=GAMMA_SIZES[i % 3], mfc="none" if i == 0 else "0.3")
                for i in range(len(gammas))]  # fmt: skip
-    fig.legend(
-        handles,
-        [rf"$\gamma = {g:g}$" for g in gammas],
-        loc="upper center",
-        ncol=len(gammas),
-        bbox_to_anchor=(0.5, 0.0),
-        frameon=False,
-    )
+    labels = [rf"$\gamma = {g:g}$" for g in gammas]
+    temps = next(iter(main.values()))["temps"]  # type: ignore[attr-defined]
+    used = {float(t) for z in lang for t in z["temps"]}
+    for i in temp_indices(temps, True):
+        if any(np.isclose(float(temps[i]), u) for u in used):
+            handles.append(Line2D([], [], color=T_COLORS[i % 4], marker="s", ls="none"))
+            labels.append(t_label(float(temps[i])))
+    fig.legend(handles, labels, loc="upper center", ncol=len(labels),
+               bbox_to_anchor=(0.5, 0.0), frameon=False)  # fmt: skip
     fig.tight_layout()
     assert gammas, "Langevin runs carry gamma"
     finish(fig, out / f"{PREFIX}_F9_thermostat", dpi)
@@ -650,7 +657,7 @@ def figure_spectra(data: Dict[str, object], out: Path, dpi: int) -> None:
         )
         ax.set_xlabel(r"Frequency, $\omega$")
     for r in range(len(tags)):
-        axes[r, 0].set_ylabel("Mean Normalized Power")
+        axes[r, 0].set_ylabel(r"Power, $\langle|\tilde\rho_k(\omega)|^2\rangle$")
     handles = [
         Line2D([], [], color="black", lw=1.0),
         plt.Rectangle((0, 0), 1, 1, color="#c0392b", alpha=0.35),

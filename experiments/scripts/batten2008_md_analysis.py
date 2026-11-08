@@ -18,7 +18,9 @@ unit) and temperature it stores:
   segment length), averaged over segments; 20 |k|/K bins over (0, 1] for
   the constrained waves and 20 over (1, 2] for the unconstrained ones;
 - Rice predictions with <S_k> = sum_s / n_sum: |k| sqrt(T / S) / 2 pi
-  (constrained) and |k| sqrt(T / (pi S)) / 2 pi (unconstrained);
+  (constrained) and |k| sqrt(T / (pi S)) / 2 pi (unconstrained), and the
+  conditional Rice rate |k| sqrt(N T / pi) <1/|rho_k|>_t / 2 pi (H6b,
+  Amendment A3; <1/|rho|>_t over the log-spaced production snapshots);
 - <Phi> / (M T), <S_k> / T and <KE> / (d (N - 1) T / 2) from the sums;
 - the net-winding MSD <W_net(t)^2> (turns^2, mean over waves, t since the
   segment began), its exponent alpha (log-log least squares over t >= 10
@@ -69,7 +71,7 @@ MOMENT_NAMES: Tuple[str, ...] = (
 )  # fmt: skip
 COLLAPSE_GRID = 40  # points of the common t sqrt(T) grid
 REQUIRED_KEYS: Tuple[str, ...] = (
-    "snap_step", "snap_wind_abs", "snap_wind_net", "snap_r", "snap_phi",
+    "snap_step", "snap_wind_abs", "snap_wind_net", "snap_rho", "snap_r", "snap_phi",
     "snap_count", "cycle_sum_s", "cycle_n_sum", "cycle_sum_phi",
     "cycle_sum_kinetic", "status", "lane_index", "lane_temperature",
     "temperatures", "indices", "waves_kvec", "waves_constrained",
@@ -157,6 +159,31 @@ def segment_rates(
         "abs_w2": (q[..., 2, :] - q[..., 1, :]) / (0.5 * t_end),
         "net_end": w_net[..., -1, :] / t_end,
     }
+
+
+def conditional_rice(
+    kmag: np.ndarray, n: int, temp: np.ndarray, inv_rho: np.ndarray
+) -> np.ndarray:
+    """Conditional Rice rate (turns / time): |k| sqrt(N T / pi) <1/|rho|>_t / 2 pi.
+
+    Given rho, theta' is Gaussian with variance N |k|^2 T / (2 |rho|^2), so
+    E|theta'| = |k| sqrt(N T / pi) E[1/|rho|] for any slowly varying
+    amplitude (Amendment A3, H6b). ``temp`` broadcasts against inv_rho (..., W).
+    """
+    assert kmag.shape == inv_rho.shape[-1:] and n >= 1, "per-wave arrays"
+    assert np.all(np.asarray(temp) > 0.0), "temperatures must be positive"
+    out: np.ndarray = kmag * np.sqrt(n * temp / np.pi) * inv_rho / TWO_PI
+    return out
+
+
+def mean_inverse_modulus(rho: np.ndarray) -> np.ndarray:
+    """<1/|rho|> over the snapshot axis -2 of rho (..., R, W, 2); NaN if any is 0."""
+    assert rho.shape[-1] == 2 and rho.ndim >= 3, "rho (..., R, W, 2)"
+    mod = np.hypot(rho[..., 0], rho[..., 1])
+    inv = np.where(mod > 0.0, 1.0 / np.where(mod > 0.0, mod, 1.0), np.nan)
+    out: np.ndarray = np.mean(inv, axis=-2)
+    assert out.shape == rho.shape[:-3] + rho.shape[-2:-1], "one value per wave"
+    return out
 
 
 def rice_prediction(
@@ -481,6 +508,16 @@ def _fits(
     return out
 
 
+def _production(arrays: Dict[str, np.ndarray], meta: Dict[str, Any]) -> np.ndarray:
+    """Snapshot indices of every production segment, in order."""
+    rec = arrays["record_steps"]
+    assert rec.ndim == 1 and rec.size >= 2, "record steps"
+    idx = [np.flatnonzero((rec > a) & (rec <= a + b)) for a, b in segments(meta)]
+    out = np.concatenate(idx)
+    assert out.size >= 2 and np.all(np.diff(out) > 0), "production snapshots"
+    return out
+
+
 def lane_quantities(
     arrays: Dict[str, np.ndarray], meta: Dict[str, Any]
 ) -> Dict[str, np.ndarray]:
@@ -497,7 +534,12 @@ def lane_quantities(
     out["rate_net"] = comb["net_ls"].mean(axis=0)
     out["rice"] = rice_prediction(kmag, temp, out["s_mean"], con)
     out["ratio"] = out["rate_abs"] / out["rice"]
-    out["norm"] = out["rate_abs"] / (kmag / TWO_PI)
+    out["norm"] = out["rate_abs"] / (kmag / TWO_PI)  # nu (A1.3), not rate / Rice
+    out["inv_rho"] = mean_inverse_modulus(
+        arrays["snap_rho"][:, _production(arrays, meta)]
+    )
+    out["rice_cond"] = conditional_rice(kmag, int(meta["N"]), temp, out["inv_rho"])
+    out["ratio_cond"] = out["rate_abs"] / out["rice_cond"]
     for key in ("abs_w1", "abs_w2"):  # (C, L, W) -> (L, C, W)
         out[key] = np.moveaxis(comb[key], 0, 1)
     out["net_rms_u"] = (
@@ -536,6 +578,7 @@ def _aggregates(q: Dict[str, np.ndarray], con: np.ndarray) -> Dict[str, np.ndarr
         "rate_abs_bin": bin_mean(q["rate_abs"], ids),
         "rate_net_bin": bin_mean(q["rate_net"], ids),
         "ratio_bin": bin_mean(q["ratio"], ids),
+        "ratio_cond_bin": bin_mean(q["ratio_cond"], ids),
         "norm_bin": bin_mean(q["norm"], ids),
         "s_over_t_bin": bin_mean(q["s_mean"] / temp, ids),
         "w1_bin": bin_mean(q["abs_w1"], ids),
@@ -549,7 +592,8 @@ def _aggregates(q: Dict[str, np.ndarray], con: np.ndarray) -> Dict[str, np.ndarr
 PER_LANE_KEYS: Tuple[str, ...] = (
     "rate_abs", "rate_net", "s_mean", "rice", "ratio", "norm", "phi_ratio",
     "phi_ratio_seg", "ke_ratio", "net_rms_u", "msd_c", "msd_u", "part_msd",
-    "t_min", "alpha", "d_theta", "d_theta_bin", "lane_ok",
+    "t_min", "alpha", "d_theta", "d_theta_bin", "lane_ok", "inv_rho",
+    "rice_cond",
 )  # fmt: skip
 
 
@@ -603,7 +647,7 @@ def _snapshot_extras(
     rec, dt = arrays["record_steps"], float(meta["settings"]["dt"])
     s0, n = segs[0]
     idx0 = np.flatnonzero((rec > s0) & (rec <= s0 + n))
-    prod = np.concatenate([np.flatnonzero((rec > a) & (rec <= a + b)) for a, b in segs])
+    prod = _production(arrays, meta)
     g = arrays["lane_index"].size // n_t
     phi = arrays["snap_phi"][:, prod] / arrays["lane_temperature"][:, None]
     out = {
