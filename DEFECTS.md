@@ -24,6 +24,13 @@ needed for parity, reproduce the behaviour.
 | D-015 | fixed | `cli/relax.py` (`load_input`) | The CLI rejected its own output packs (basis scaled by N^(1/d)) as input. |
 | D-016 | fixed | `_device.py` (`classify_failure`) | GPU guard blamed `--gres=gpu` when `JAX_PLATFORMS=cpu` hid the GPU, and its fix hint synced CUDA JAX into the CPU env. |
 | D-017 | fixed | `tests/property/test_energy_tables_props.py` | Table-path gradient tolerance blind to pre-cancellation magnitude (sibling of D-011). |
+| D-040 | fixed | `dynamics/checkpoint.py` (`load_state`) | Corrupt MD checkpoint escaped as BadZipFile instead of a ValueError. |
+| D-041 | fixed | `cli/md.py` (`main`) | MD CLI usage errors exited 2 instead of 1. |
+| D-042 | fixed | `cli/md.py` (`start_state`) | A crash in phase 0 discarded its in-phase progress. |
+| D-043 | fixed | `cli/md.py` (`fingerprint`) | Resume fingerprint missed k_chunk and the input content. |
+| D-044 | fixed | `cli/md.py` (`run_phases`) | Equilibration gate averaged over the transient and was never acted on. |
+| D-045 | fixed | `cli/md.py` (`record_schedule`) | Default 200 snapshots deduplicated to 184. |
+| D-046 | fixed | `cli/md.py` (`_run_phase`) | Stale in-phase checkpoint left at the path handed to simulate. |
 
 ## D-006 — `unit_ball_volume` is not bit-equal to the C++ hard-coded constants
 - **Found:** 2026-11-05, by the T4 auditor's preview parity
@@ -146,3 +153,73 @@ needed for parity, reproduce the behaviour.
 - **Regression test:** tests/property/test_energy_tables_props.py::test_regression_D017_coincident_particles_gradient_tolerance
 - **Fix:** atol = max(1e-12 * max(1, max|grad|), GRAD_SUM_C eps (4 pi n_max / V) sum(w) N + GRAD_SUM_FLOOR), the D-011 bound per particle, in both gradient comparisons
 
+
+## D-040 — Corrupt MD checkpoint escapes as BadZipFile
+- **Found:** 2026-11-08, audit of T3 (AUDIT-T3.md finding 2)
+- **Status:** fixed
+- **Where:** src/xla_cco/dynamics/checkpoint.py (`load_state`); src/xla_cco/cli/md.py (`resume`)
+- **Symptom:** a truncated or garbage checkpoint raised `zipfile.BadZipFile` (and a checkpoint without `next_phase` a KeyError), outside the documented Raises and outside the CLI's except clause: a traceback instead of `ERROR:` and exit 1
+- **Repro:** `save_state(p, s, {}); p.write_bytes(p.read_bytes()[:n // 2]); load_state(p, s)` → BadZipFile
+- **Impact:** CLI crash with a traceback on a damaged checkpoint; no wrong results
+- **Regression test:** tests/unit/test_md_checkpoint.py::test_regression_D040_truncated_checkpoint_raises_value_error (also test_damaged_checkpoint_raises_value_error, tests/integration/test_md_cli.py::test_md_cli_damaged_checkpoint_exits_1)
+- **Fix:** zip/npy/JSON/KeyError failures become `CheckpointError` (a ValueError); `read_meta` added; the CLI checks every metadata field it uses
+
+## D-041 — MD CLI usage errors exit 2
+- **Found:** 2026-11-08, audit of T3 (finding 3)
+- **Status:** fixed
+- **Where:** src/xla_cco/cli/md.py (`main`)
+- **Symptom:** argparse usage errors returned 2; the contract is exit 1 on any error
+- **Repro:** `md.main(["--dt"])` → 2
+- **Impact:** job scripts testing for exit 1 miss usage errors
+- **Regression test:** tests/integration/test_md_cli.py::test_regression_D041_usage_error_exits_1
+- **Fix:** SystemExit codes other than 0/None map to 1 (--help still 0)
+
+## D-042 — Crash in phase 0 discards its in-phase progress
+- **Found:** 2026-11-08, audit of T3 (finding 5)
+- **Status:** fixed
+- **Where:** src/xla_cco/cli/md.py (`start_state`)
+- **Symptom:** with no phase checkpoint yet, the in-phase file of phase 0 was deleted as stale on restart, losing up to n_equil / 2 steps
+- **Repro:** crash at the first simulate call after an in-phase save, restart → equilibration restarts from step 0
+- **Impact:** lost compute only (the rerun is identical)
+- **Regression test:** tests/integration/test_md_cli.py::test_regression_D042_phase0_inphase_progress_kept
+- **Fix:** the lanes are checkpointed (next_phase 0) before the first phase; a newer in-phase file is folded into the checkpoint on resume
+
+## D-043 — Resume fingerprint misses k_chunk and the input content
+- **Found:** 2026-11-08, audit of T3 (finding 6)
+- **Status:** fixed
+- **Where:** src/xla_cco/cli/md.py (`fingerprint`)
+- **Symptom:** a checkpoint was resumed after --k-chunk changed or the input file was rewritten at the same path
+- **Repro:** run with --checkpoint, rewrite the input npz with other ground states, rerun → resumed silently
+- **Impact:** a resumed run could mix two inputs (or summation orders) without notice
+- **Regression test:** tests/integration/test_md_cli.py::test_regression_D043_fingerprint_has_k_chunk_and_input_hash (plus the per-field test_md_cli_resume_rejects_any_changed_setting)
+- **Fix:** k_chunk and the SHA-256 of the input bytes are fingerprinted (the path is not)
+
+## D-044 — Equilibration gate averaged over the transient and never acted on
+- **Found:** 2026-11-08, audit of T3 ("Against E1")
+- **Status:** fixed
+- **Where:** src/xla_cco/cli/md.py (`run_phases`, `protocol_phases`)
+- **Symptom:** <Phi>/(M T) included the start-up transient and was only reported
+- **Repro:** Phi = 10 M T in the first half of equilibration, M T after → gate 5.5
+- **Impact:** a gate value that does not measure equilibrium; unequilibrated lanes went to production unflagged
+- **Regression test:** tests/integration/test_md_cli.py::test_regression_D044_gate_excludes_transient (also test_gate_failure_extends_once)
+- **Fix:** equilibration runs in halves, the second starting with begin_segment; a failed gate (|g - 1| > 5 %) extends equilibration once; per-lane gate values and pass flags are written
+
+## D-045 — Default 200 snapshots deduplicate to 184
+- **Found:** 2026-11-08, audit of T3 ("Against E1")
+- **Status:** fixed
+- **Where:** src/xla_cco/cli/md.py (`record_schedule`)
+- **Symptom:** rounding geomspace(1, L, n) produced repeated early steps, so fewer snapshots than requested
+- **Repro:** defaults (n_nve = 1e6, 2 cycles, 200 snapshots) → 184 record steps
+- **Impact:** fewer early-time snapshots than documented
+- **Regression test:** tests/integration/test_md_cli.py::test_regression_D045_default_snapshot_count (also test_segment_offsets_properties)
+- **Fix:** `segment_offsets` builds min(n, L) distinct log-spaced integers per segment
+
+## D-046 — Stale in-phase checkpoint left at the path handed to simulate
+- **Found:** 2026-11-08, audit of T3 (finding 4)
+- **Status:** fixed
+- **Where:** src/xla_cco/cli/md.py (`_run_phase`, `_save_phase`)
+- **Symptom:** an old `.inphase.npz` stayed at the path passed to `run.simulate`; a simulate that resumed from it would re-apply steps
+- **Repro:** a simulate that writes its checkpoint at the end of each call → the file exists when the next phase starts
+- **Impact:** none with a write-only simulate; double-applied steps otherwise
+- **Regression test:** tests/integration/test_md_cli.py::test_regression_D046_simulate_never_gets_existing_file
+- **Fix:** the in-phase file is removed after every phase checkpoint and before every simulate call
