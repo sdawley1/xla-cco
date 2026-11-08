@@ -207,6 +207,17 @@ class StealthyEnergy(AbstractEnergy):
         value = jnp.sum(self.weights * (re * re + im * im)) / self.volume
         return value, self._gradient(s, re, im)
 
+    def value_grad_density(
+        self, s: Positions
+    ) -> Tuple[Float[Array, ""], Positions, Float[Array, " m"], Float[Array, " m"]]:
+        """Return (Phi, dPhi/ds, Re rho, Im rho) from one shared chunked pass.
+
+        Phi and the gradient equal ``value_and_grad`` (on both the trig and the
+        phase-table paths); re/im equal ``collective_density(s, n_vectors,
+        chunk_size)`` including padding rows (MD reuses them for winding).
+        """
+        raise NotImplementedError
+
     def _value_and_grad_tables(
         self, s: Positions, n_max: int
     ) -> Tuple[Float[Array, ""], Positions]:

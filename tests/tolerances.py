@@ -51,3 +51,17 @@ C_E: float = 4.0
 GRAD_SUM_C: float = 8.0
 # Absolute floor for the grad-sum check when every term is tiny.
 GRAD_SUM_FLOOR: float = 1e-14
+
+# ----- molecular dynamics (xla_cco.dynamics) -----
+# P1 placeholders: each MD task replaces a value only with a derivation here.
+# Verlet on a harmonic oscillator follows the exact discrete map; only roundoff
+# (~1e-16 per step, grown linearly over <= 1e4 steps) separates them.
+ATOL_MD_VERLET_EXACT: float = 1e-12
+# Global error ratio for dt -> dt/2 is 4 for a second-order method; +-0.3 allows
+# the O(dt^4) correction at the dt used in the order test.
+MD_ORDER_RATIO_TOL: float = 0.3
+# Family-wise false-alarm rate of every statistical MD test (Bonferroni over the
+# m comparisons of one test: z_crit = Phi^-1(1 - MD_FAMILY_ALPHA / (2 m))).
+MD_FAMILY_ALPHA: float = 1e-3
+# Smallest relative bias the statistical validations must detect with z >= 6.
+MD_BIAS_DETECT: float = 0.05
