@@ -89,7 +89,7 @@ S_CMAP = plt.get_cmap("viridis")
 KL_CMAP = plt.get_cmap("plasma")
 THEORY_GRAYS = ((1, "0.0"), (2, "0.45"), (3, "0.72"))  # panel (h), by dimension
 LONG_WAVES = 12.0  # panel (d): |k| / k_1 range where the linear picture holds
-SYSTEM_COLORS = ("black", BLUE, RED, "#2e7d32", "#b9770e")  # one per pair of files
+SYSTEM_COLORS = ("black", BLUE, RED, "#2e7d32", "#b9770e", "#7d3c98")  # per pair
 STACK = 2.6  # vertical offset between stacked KL eigenfunctions
 OFF_LABEL = r"Off-Plane Distance, $|W|/|\Delta r|$"
 
@@ -586,7 +586,7 @@ def figure_kl_compare(
     for i, (path, label) in enumerate(zip(paths, labels, strict=True)):
         z = load(path)
         row, color = i % 2, SYSTEM_COLORS[(i // 2) % len(SYSTEM_COLORS)]
-        marker = "osD^v"[(i // 2) % 5]
+        marker = "osD^vP"[(i // 2) % 6]
         kl_overlay(axes[row, 0], z, color, i // 2)
         kl_nodes(axes[row, 1], z, color, marker)
         k = np.arange(1, z["kl_frac"].shape[1] + 1)
