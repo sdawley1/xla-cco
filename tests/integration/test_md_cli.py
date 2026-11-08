@@ -3,10 +3,9 @@
 """
 Integration tests of the MD driver CLI (``xla_cco.cli.md``).
 
-Until ``xla_cco.dynamics.run`` and ``thermal`` are implemented, the protocol,
-outputs and resume logic run against ``md_states.FakeDriver`` (monkeypatched
-into those modules); the end-to-end test on the real driver is a strict
-xfail that flips to a failure once they land.
+The protocol, outputs and resume logic run against ``md_states.FakeDriver``
+(monkeypatched into ``xla_cco.dynamics.run`` and ``thermal``); the
+end-to-end test runs the real driver on relaxed ground states.
 
 Samuel J. Dawley
 11/2026
@@ -28,6 +27,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 # ----- numerics -----
+import jax.numpy as jnp
 import numpy as np
 import pytest
 from hypothesis import example, given, settings
@@ -41,12 +41,14 @@ from md_states import (
     fake_make_waves,
     fake_maxwell_boltzmann,
 )
+from systems import small_system
 
 # ----- project -----
 from xla_cco.cli import md
 from xla_cco.cli import relax as relax_cli
 from xla_cco.dynamics import run as md_run
 from xla_cco.dynamics import thermal
+from xla_cco.minimize.flow import FlowSettings, gradient_flow
 
 # ============================================================
 # CONSTANTS
@@ -482,9 +484,14 @@ def test_md_cli_protocol(
     _write_input(tmp_path)
     assert md.main(_argv(tmp_path, *extra)) == 0
     assert driver.calls == calls
-    assert counters["begin"].n == n_begin and counters["harmonic"].n == 4
-    # every begin_segment resets both the sums and the winding
-    assert all(a[2:] == (True, True) for a in counters["begin"].args)
+    flags = [a[2:] for a in counters["begin"].args]
+    assert counters["harmonic"].n == 4 and len(flags) == len(calls)
+    # a segment begin resets both the sums and the winding; every other phase
+    # restarts only the winding, without COM removal (D-062)
+    assert flags.count((True, True)) == n_begin
+    assert flags.count((False, True)) == len(calls) - n_begin
+    restarts = [a[1] for a in counters["begin"].args if a[2:] == (False, True)]
+    assert all(not st.remove_com for st in restarts)
 
 
 @pytest.mark.critical
@@ -811,20 +818,38 @@ def test_md_cli_damaged_checkpoint_exits_1(
 # ============================================================
 
 
+def _ground_states(b: int = 3, seed: int = 3) -> np.ndarray:
+    """(b, N, d) fractional ground states (gradient flow from _write_input's starts).
+
+    The real driver aborts NVE lanes whose energy drifts by more than
+    drift_tol * dof T / 2; far from a minimum (random states) the Verlet
+    energy error exceeds that at T = 1e-4, so the end-to-end run starts from
+    ground states, as production does.
+    """
+    box, _, energy = small_system(N, D, K)
+    starts = np.random.default_rng(seed).uniform(size=(b, N, D))
+    fs = FlowSettings(energy_tol=1e-20, max_steps=100_000)
+    out = np.stack([np.asarray(gradient_flow(energy, s, box.basis, fs).s)
+                    for s in jnp.asarray(starts)])  # fmt: skip
+    assert out.shape == (b, N, D) and np.all(np.isfinite(out)), "bad flow"
+    return out
+
+
 @pytest.mark.high
 @pytest.mark.slow
-@pytest.mark.xfail(
-    raises=NotImplementedError,
-    strict=True,
-    reason="run.py / thermal.py not implemented yet (T1, T5)",
-)
-def test_md_cli_end_to_end_small(
+def test_regression_D061_md_cli_end_to_end_small(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """D-061: the real-driver end-to-end run starts from ground states.
+
+    From random states every NVE lane drifted (STATUS_DRIFT); on ground
+    states all lanes stay running, and a crash + resume is bitwise.
+    """
     ref_dir, run_dir = tmp_path / "ref", tmp_path / "run"
+    s_final = _ground_states()
     for root in (ref_dir, run_dir):
         root.mkdir()
-        _write_input(root)
+        _write_input(root, s_final=s_final)
     ref_args = md.build_parser().parse_args(_argv(ref_dir))
     summary = md.run(ref_args)
     ref = _load(ref_dir / "out.npz")
@@ -850,6 +875,44 @@ def test_md_cli_end_to_end_small(
     got = _load(run_dir / "out.npz")
     for k in ref:
         assert ref[k].tobytes() == got[k].tobytes(), k
+
+
+def _com_rho(r: np.ndarray, kvec: np.ndarray) -> np.ndarray:
+    """COM-corrected rho_k per lane: (lanes, n, d) positions -> (lanes, w)."""
+    rho = np.exp(1j * np.einsum("lnd,wd->lnw", r, kvec)).sum(1)
+    return np.asarray(rho * np.exp(-1j * (r.mean(1) @ kvec.T)))
+
+
+@pytest.mark.critical
+@pytest.mark.slow
+def test_regression_D062_andersen_after_nve_restarts_winding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-062: an Andersen phase after NVE winds from COM-corrected rho.
+
+    Every Andersen phase's first step must add exactly |angle(rho~(r1)
+    conj rho~(r0))| (rho~ COM-corrected, as the scheme stores it); before
+    the fix the stored raw NVE rho made that step jump by ~|k . R_cm|.
+    """
+    _write_input(tmp_path, s_final=_ground_states())
+    real = md_run.simulate
+    errors: List[float] = []
+
+    def spy(energy: Any, waves: Any, basis: Any, settings: Any, state: Any,
+            n_steps: int, **kw: Any) -> Any:  # fmt: skip
+        if settings.scheme == "andersen":
+            one = real(energy, waves, basis, settings, state, 1).state
+            kv = np.asarray(waves.kvec)
+            r0, r1 = np.asarray(state.r), np.asarray(one.r)
+            step = np.abs(np.angle(_com_rho(r1, kv) * np.conj(_com_rho(r0, kv))))
+            inc = np.asarray(one.wind_abs) - np.asarray(state.wind_abs)
+            errors.append(float(np.max(np.abs(np.nan_to_num(inc) - step))))
+        return real(energy, waves, basis, settings, state, n_steps, **kw)
+
+    monkeypatch.setattr(md_run, "simulate", spy)
+    assert md.main(_argv(tmp_path)) == 0
+    assert len(errors) >= 4  # equil halves (x2 if extended), andersen0, andersen1
+    assert max(errors) < 1e-9, errors
 
 
 # ============================================================
