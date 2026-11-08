@@ -238,7 +238,7 @@ def panel_split(ax: plt.Axes, h: Dict[str, np.ndarray], ls: str) -> None:
 def split_axes(ax: plt.Axes, title: str, tags: List[str]) -> None:
     """Axis styling and legend of a direction-split panel."""
     phi_axis(ax)
-    ax.set_ylim(0.0, 1.08)
+    ax.set_ylim(0.0, 1.3)
     ax.set_ylabel("Fraction of the $Nd$ Directions")
     ax.set_title(title, loc="left", fontsize=13)
     handles = [Line2D([], [], color=c, lw=2.0) for c in PART_COLORS]
