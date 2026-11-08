@@ -65,3 +65,34 @@ MD_ORDER_RATIO_TOL: float = 0.3
 MD_FAMILY_ALPHA: float = 1e-3
 # Smallest relative bias the statistical validations must detect with z >= 6.
 MD_BIAS_DETECT: float = 0.05
+
+# ----- MD observables and the energy extension (T2) -----
+# Winding vs batten2008_winding.cumulative_winding and vs analytic rotations: each
+# step is atan2 of the product rho_new conj(rho_old), rounded to <= ~2 ulp(pi)
+# ~ 1e-15 (the reference takes np.angle of the same product, the analytic path
+# rounds its phase by eps * omega t <= 1e-14); over the <= 400 steps of those
+# tests the sums drift by <= 4e-13, so 1e-12 leaves 2.5x headroom.
+ATOL_MD_WINDING: float = 1e-12
+# The accumulators also round each addition by <= eps W / 2 at magnitude W (and the
+# reference sums turns, then multiplies by 2 pi): over F <= 400 steps that is
+# <= F eps / 2 ~ 4.4e-14 relative (measured 3.8e-15 at W ~ 470 rad); 1e-13.
+RTOL_MD_WINDING: float = 1e-13
+# wave_densities (k . r) vs collective_density (2 pi n . s, s = r inv(B)): the two
+# phases differ by the rounding of r inv(B) and of n 2 pi inv(B)^T, a few eps
+# |theta| with |theta| <= 2 pi max|n| d max|s| <= 2 pi * 4 * 3 * 4 ~ 300 in the
+# tests (unwrapped s up to 4), i.e. <= ~2e-13 per particle; the check scales the
+# bound by N (atol = ATOL_MD_WAVE_PER_PARTICLE * N), 5x headroom.
+ATOL_MD_WAVE_PER_PARTICLE: float = 1e-12
+# Phase-table rho vs trig rho: a table factor z^p (cumulative product) carries
+# ~p eps relative error and z itself eps 2 pi |s|, so one (k, j) term is off by
+# <= (1 + 2 pi) n_max d eps; N terms add: atol = C eps N (1 + 2 pi) n_max d with
+# C = 4 for the final sum and the trig path's own rounding.
+TABLE_RHO_C: float = 4.0
+# Rice formula <|theta'|> = sigma_rho' / sigma_rho: the plan's 3 sigma criterion
+# for one fixed-seed comparison (false alarm 0.27% per seed, fixed seed).
+MD_RICE_Z: float = 3.0
+# COM-corrected winding of rigidly translated paths: the corrected rho differ by
+# roundoff N eps |theta| <= 40 * 2.2e-16 * 600 ~ 5e-12 (translations <= 8 add to
+# |theta|); with the test floor S > 1e-4 (|rho| >= 1e-2) each step's angle moves
+# by <= 5e-10 and 8 steps by <= 4e-9; 1e-8 leaves 2.5x headroom.
+ATOL_MD_COM_WIND: float = 1e-8
