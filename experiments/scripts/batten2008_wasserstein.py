@@ -317,5 +317,9 @@ if __name__ == "__main__":
                 f"{time.time() - t0:.0f} s",
                 flush=True,
             )
-        np.savez(root / "w2_summary.npz", **summary)
+        target = root / "w2_summary.npz"
+        if target.exists():  # keep the other chi values (one job per chi)
+            with np.load(target) as old:
+                summary = {**{k: old[k] for k in old.files}, **summary}
+        np.savez(target, **summary)
     print("Done.", flush=True)

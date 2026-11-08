@@ -9,7 +9,7 @@
 #SBATCH --output=experiments/trajectories/slurm-%x-%j.out
 #
 # Landscape analyses of stored flows (1D Batten flows or 2D flows2d). STEP
-# picks experiments/scripts/batten2008_<STEP>.py: slices, mismatch, tail,
+# picks experiments/scripts/batten2008_<STEP>.py: slices, mismatch, tail, winding,
 # wasserstein, modes, hessian or floor; STEP_ARGS is passed through (e.g.
 # --root experiments/trajectories/flows2d --sizes 1024 --chi 0.1 0.4).
 # GPU job; guarded. From the repository root:
@@ -18,8 +18,8 @@
 
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
-case "${STEP:?set STEP (slices, mismatch, tail, wasserstein, modes, hessian, floor)}" in
-  slices|mismatch|tail|wasserstein|modes|hessian|floor) ;;
+case "${STEP:?set STEP (slices, mismatch, tail, wasserstein, modes, hessian, floor, winding)}" in
+  slices|mismatch|tail|wasserstein|modes|hessian|floor|winding) ;;
   *) echo "ERROR: unknown STEP '$STEP'" >&2; exit 1 ;;
 esac
 export UV_CACHE_DIR="${UV_CACHE_DIR:-/scratch/gpfs/TORQUATO/${USER}/.uv-cache}"

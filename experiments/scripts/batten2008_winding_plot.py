@@ -55,8 +55,8 @@ from matplotlib.lines import Line2D  # noqa: E402
 # CONSTANTS
 # ============================================================
 
-COLORS = ("black", "#1f4e9c", "#c0392b", "#2e7d32", "#b9770e")
-MARKERS = "osD^v"
+COLORS = ("black", "#1f4e9c", "#c0392b", "#2e7d32", "#b9770e", "#7d3c98")
+MARKERS = "osD^vP"
 N_BINS = 8  # |k| / K bins
 SHORT = 0.6  # short waves: |k| > SHORT K
 BANDS = (r"$S > 10^{-2}$", r"$10^{-6}$-$10^{-2}$", r"$10^{-10}$-$10^{-6}$",

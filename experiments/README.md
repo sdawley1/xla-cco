@@ -271,18 +271,18 @@ uv run --no-sync python -I experiments/scripts/batten2008_cc_plot.py
 
 ### The same analyses in 2D: Poisson starts to stealthy ground states
 
-`flows2d.py` integrates the true gradient flow dr/dt = −∇Φ (ROS2 with the exact Hessian, as for the 1D flows) from the first 20 Poisson starts of `initial_conditions/POS-2D-N1024` (N = 1024, density 1, L = 32), at χ = 0.1 (M = 210) and χ = 0.4 (M = 820). The energies are the same as in `run_trajectories.py`. All 40 flows reach Φ < 10⁻²⁰: about 2,000 steps (530 s for 20 flows) at χ = 0.1 and 2,670–2,920 steps (790 s) at χ = 0.4. Every analysis script takes `--root experiments/trajectories/flows2d`. The energy is rebuilt from each run's stored basis and K, the Wasserstein matching runs on the torus (Hungarian assignment per frame), and the two-particle slice moves each particle along its own net displacement.
+`flows2d.py` integrates the true gradient flow dr/dt = −∇Φ (ROS2 with the exact Hessian, as for the 1D flows) from the first 100 Poisson starts of `initial_conditions/POS-2D-N1024` (N = 1024, density 1, L = 32), at χ = 0.1 (M = 210) and χ = 0.4 (M = 820). The energies are the same as in `run_trajectories.py`. All 200 flows reach Φ < 10⁻²⁰: 1,986–2,024 steps at χ = 0.1 and 2,605–3,027 at χ = 0.4 (1.0 and 1.6 h for 100 flows on one GPU). The figures and the counts below use all 100 flows; the mode decay rates, phase statistics and harmonic-stiffness ratios were measured on the first 20. Every analysis script takes `--root experiments/trajectories/flows2d`. The energy is rebuilt from each run's stored basis and K, the Wasserstein matching runs on the torus (Hungarian assignment per frame), and the two-particle slice moves each particle along its own net displacement.
 
 **Results, compared with 1D.**
 
-- **The 2D flows are local.** Particles move 0.70 (χ = 0.1) and 0.81 (χ = 0.4) mean spacings RMS, at most 2.7. In 1D they moved up to 8.7. At χ = 0.1 the optimal matching to r(0) is the identity at every frame, so W₀ = p₀ to 7 × 10⁻¹⁵. At χ = 0.4, 51% of frames relabel some particles (at most 56 of 1024) and |W₀ − p₀| ≤ 0.18 out of 22–28 (`flows2d_N1024_w2`). The W₂ geodesic between the endpoints climbs to a median Φ of 207 (χ = 0.1) and 808 (χ = 0.4) (`flows2d_w2_geodesic_energy`).
+- **The 2D flows are local.** Particles move 0.69 (χ = 0.1) and 0.80 (χ = 0.4) mean spacings RMS (median). In 1D they moved up to 8.7. At χ = 0.1 the optimal matching to r(0) is the identity at every frame, so W₀ = p₀ to 7 × 10⁻¹⁵. At χ = 0.4 some frames relabel particles (at most 56 of 1024) and |W₀ − p₀| ≤ 0.18 out of 22–28 (`flows2d_N1024_w2`). The W₂ geodesic between the endpoints climbs to a median Φ of 211 (χ = 0.1) and 814 (χ = 0.4) (`flows2d_w2_geodesic_energy`).
 - **Mode relaxation follows the 1D picture** (`flows2d_N1024_modes`). The last time S(k) exceeds 10⁻² scales as |k|⁻² across all shells at both χ. The longest wavelength decays at 0.978 × 2k₁² (χ = 0.1) and 0.85 × 2k₁² (χ = 0.4), close to the linearized rate but less exact than in 1D (0.998), because in 2D the |k| = k₁ shell holds two independent waves.
 - **Phases** (`flows2d_N1024_mode_planes_full`, `flows2d_N1024_mode_phases`). The two k₁ waves, (0, 1) and (1, 0), turn by 0.006 (χ = 0.1) and 0.03–0.04 (χ = 0.4) turns, i.e. straight radial lines. Higher modes wind at most about 1 (χ = 0.1) or 2 (χ = 0.4) turns, far less than the 1–10 turns at 1D χ = 1/3. Phases lock at S ≈ 10⁻⁸ to 10⁻¹⁰. Late-time slaving gives p ≈ 1 for every sampled mode at both χ, as at 1D χ = 1/3: the final approach is linear relaxation along one Hessian direction. No harmonic (p = n) regime exists, because neither χ is crystalline.
 - **Ground-state manifold dimension** (`flows2d_N1024_hessian`). Every end state has exactly Nd − 2M zero eigenvalues: 1628 at χ = 0.1 and 408 at χ = 0.4, so both are disordered, locally (Nd − 2M)-dimensional manifolds, like 1D χ = 1/3. The zero count completes at Φ ≈ 10⁻⁶·⁵ (|λ| < 10⁻⁶ λ_max) or 10⁻¹²·⁵ (10⁻⁹ λ_max), later than in 1D because the soft eigenvalues are larger at a given Φ (below). The stiffest eigenvalue settles at 6.4 (χ = 0.1) and 33 (χ = 0.4).
-- **Negative curvature: half the tangent directions, fading as √Φ** (`flows2d_N1024_hessian`, `flows2d_N1024_hessian_detail`). About 1,160 (χ = 0.1) and 1,130 (χ = 0.4) of the 2048 eigenvalues are negative at the Poisson start. The count falls to a plateau by Φ ≈ 1 and stays there to Φ ≈ 10⁻⁸: 815 at χ = 0.1 and 200 at χ = 0.4, half of Nd − 2M (1628 and 408), as at 1D χ = 1/3 (165 of 334). |λ_min| scales as Φ^0.500, about 0.0076 √Φ (χ = 0.1) and 0.063 √Φ (χ = 0.4). The plateau ends at Φ ≈ 10⁻¹²·⁵ only because |λ_min| crosses the 10⁻⁹ λ_max cut; with a 10⁻¹³ cut it lasts to Φ ≈ 10⁻¹⁸. (The earlier t/T sampling showed a gradual fall, 820 → 83 → 0, because its samples happened to straddle this cut-off.) Unlike 1D χ = 1/3 (>99% of the negative directions' motion at q > K), the 2D negative directions favor the unconstrained wavelengths only 2–3× (χ = 0.1) or 1.3× (χ = 0.4) per eigenvector.
+- **Negative curvature: half the tangent directions, fading as √Φ** (`flows2d_N1024_hessian`, `flows2d_N1024_hessian_detail`). About 1,160 (χ = 0.1) and 1,130 (χ = 0.4) of the 2048 eigenvalues are negative at the Poisson start. The count falls to a plateau by Φ ≈ 1 and stays there to Φ ≈ 10⁻⁸: 812 at χ = 0.1 and 201 at χ = 0.4 (median), half of Nd − 2M (1628 and 408), as at 1D χ = 1/3 (165 of 334). |λ_min| scales as Φ^0.500, about 0.0076 √Φ (χ = 0.1) and 0.063 √Φ (χ = 0.4). The plateau ends at Φ ≈ 10⁻¹²·⁵ only because |λ_min| crosses the 10⁻⁹ λ_max cut; with a 10⁻¹³ cut it lasts to Φ ≈ 10⁻¹⁸. (The earlier t/T sampling showed a gradual fall, 820 → 83 → 0, because its samples happened to straddle this cut-off.) Unlike 1D χ = 1/3 (>99% of the negative directions' motion at q > K), the 2D negative directions favor the unconstrained wavelengths only 2–3× (χ = 0.1) or 1.3× (χ = 0.4) per eigenvector.
 - **Harmonic stiffness.** End-state eigenvalues pair at |k_p|² less exactly than in 1D. λ/|k|² is 0.97–0.98 for the first pairs at χ = 0.1 (median 0.94), and 0.84–0.87 for the first pairs at χ = 0.4 (median 0.64). Along pure density waves the end state is stiffer than |k|²: 1.6–2.6× for the longest waves at χ = 0.1 and 9–15× at χ = 0.4.
-- **Flat slices misreport the energy as in 1D** (`flows2d_N1024_mismatch`). The median log₁₀(Φ_plane/Φ) is +0.34 (χ = 0.1) and +0.84 (χ = 0.4) on the start-end plane, +2.8 on the PCA plane over the second half of the flow (reaching 19–20 at the end), and −1.7 and −0.7 for the two-particle slice.
-- **The valley floor is zero everywhere** (`flows2d_N1024_floor`; flow 0, 21 × 21 grid on each plane plus 40 sampled frames). All 441 grid points per plane and every sampled frame relax to a ground state (Φ ≤ 10⁻²⁰, all with the energy-tolerance status) without leaving their fiber, at both χ. The in-plane drift is at most 7 × 10⁻¹¹. Reaching the floor takes a median 44–63 units of motion on the grid and 58–77 from r(t). On the grid that is 1.7–2.8× flow 0's net displacement, against 4.5× in 1D. In 2D, unlike 1D χ = 2/3, dense floors are cheap: a 21 × 21 plane takes 34–38 s at χ = 0.1 and about 250 s at χ = 0.4 on an A100.
+- **Flat slices misreport the energy as in 1D** (`flows2d_N1024_mismatch`). The median log₁₀(Φ_plane/Φ) is +0.31 (χ = 0.1) and +0.75 (χ = 0.4) on the start-end plane, +2.7 on the PCA plane over the second half of the flow (reaching 19–20 at the end), and −1.6 and −0.7 for the two-particle slice.
+- **The valley floor is zero everywhere** (`flows2d_N1024_floor`; flow 0, 21 × 21 grid on each plane plus 40 sampled frames). All 441 grid points per plane and every sampled frame relax to a ground state (Φ ≤ 10⁻²⁰, all with the energy-tolerance status) without leaving their fiber, at both χ. The in-plane drift is at most 2 × 10⁻¹¹. Reaching the floor takes a median 44–63 units of motion on the grid and 58–77 from r(t). On the grid that is 1.7–2.8× flow 0's net displacement, against 4.5× in 1D. In 2D, unlike 1D χ = 2/3, dense floors are cheap: a 21 × 21 plane takes 34–38 s at χ = 0.1 and about 250 s at χ = 0.4 on an A100.
 
 ```bash
 sbatch --export=ALL,CHI=0.1 experiments/slurm/flows2d_gpu.slurm   # resubmit to resume
@@ -339,24 +339,26 @@ uv run --no-sync python -I experiments/scripts/batten2008_offplane_plot.py --roo
 
 ### Why the humps are lopsided: linear relaxation of density waves
 
-`figures/offplane_lopsided` compares all ten ensembles (1D Poisson; 2D Poisson, Gaussian, URL and saturated RSA, each at two χ). `batten2008_offplane.py` also stores a linear relaxation model with no fitted parameter. In the linearized flow, density wave n relaxes as ρ(kₙ) ∝ exp(−|kₙ|²t). Cancelling it from the start takes squared displacement 2S(kₙ, 0)/|kₙ|², the least motion that zeroes ρ(kₙ). The model is the path y(t) = Σₙ √(2S(kₙ,0))/|kₙ| (1 − e^{−|kₙ|²t}) êₙ along orthogonal directions êₙ, analysed exactly like the flows.
+`figures/offplane_lopsided` compares all twelve ensembles (1D Poisson; 2D Poisson, Gaussian, URL, saturated RSA and HIP, each at two χ; 100 flows per 2D start, 50 for Gaussian). `batten2008_offplane.py` also stores a linear relaxation model with no fitted parameter. In the linearized flow, density wave n relaxes as ρ(kₙ) ∝ exp(−|kₙ|²t). Cancelling it from the start takes squared displacement 2S(kₙ, 0)/|kₙ|², the least motion that zeroes ρ(kₙ). The model is the path y(t) = Σₙ √(2S(kₙ,0))/|kₙ| (1 − e^{−|kₙ|²t}) êₙ along orthogonal directions êₙ, analysed exactly like the flows.
 
 - **The model reproduces the shape flow by flow** (panels a, b, f). Median hump ratio, first/second, measured against model:
 
   | Ensemble | χ = 0.1 (1D: 1/3) | χ = 0.4 (1D: 2/3) |
   |---|---|---|
   | 1D Poisson | 1.74 / 1.75 | 1.75 / 1.76 |
-  | 2D Poisson | 0.96 / 0.84 | 1.02 / 0.88 |
-  | 2D Gaussian | 0.52 / 0.49 | 0.76 / 0.48 |
-  | 2D URL | 0.50 / 0.47 | 0.65 / 0.47 |
-  | 2D RSA | 0.77 / 0.76 | 0.96 / 0.69 |
+  | 2D Poisson | 0.98 / 0.84 | 1.04 / 0.89 |
+  | 2D Gaussian | 0.52 / 0.48 | 0.76 / 0.48 |
+  | 2D URL | 0.51 / 0.47 | 0.65 / 0.48 |
+  | 2D RSA | 0.80 / 0.79 | 0.97 / 0.71 |
+  | 2D HIP | 1.20 / 1.12 | 1.16 / 1.28 |
 
   The per-flow correlation is 0.99 in 1D. The model also predicts the net displacement: |Δr| = 274.2 against 274.3 in 1D, 22.0 against 22.4 for 2D Poisson χ = 0.1, and 5.7 against 5.8 for Gaussian χ = 0.1. The worst agreement is for the hyperuniform starts at χ = 0.4, which move furthest from linear behavior.
 - **The mechanism: where along the path the displacement is spent.** Waves relax in order of |k|, short first, because their rates are |k|². The path runs straight while one rate dominates the motion still to come, and turns while that motion is shared among different rates. So the turning sits where the displacement weight 2S₀(k)/k², summed over the waves at each |k|, is spread across scales (panel h):
   - *1D Poisson.* Σ 1/n² is dominated by n = 1: the longest wave carries 57% of |Δr|² (59% predicted) and relaxes last along a fixed phase. The second half of the path is nearly straight k₁ motion: 0.84 of the remaining motion lies on k₁ at s = 1/2, against 0.98 at 3/4. The turning is front-loaded (86–97% done by s = 1/2), so the first hump is larger.
-  - *2D Poisson.* The number of waves per shell grows as k, so the weight per shell scales as k·(1/k²) = 1/k, equal per octave. Turning is uniform in arclength (46–48% by s = 1/2), and the humps are equal. In d = 2 this logarithmic case is marginal; d = 1 is dominated by the longest waves and d = 3 by the shortest.
+  - *2D Poisson.* The number of waves per shell grows as k, so the weight per shell scales as k·(1/k²) = 1/k, equal per octave. Turning is uniform in arclength (45% by s = 1/2), and the humps are equal. In d = 2 this logarithmic case is marginal; d = 1 is dominated by the longest waves and d = 3 by the shortest.
   - *Hyperuniform starts (Gaussian, URL).* S₀(k) ∝ k² at small k removes almost all long-wave displacement: k₁ carries 0.1–1.5%. The motion is spent early on short waves, which relax at nearly one rate (a straight start), and the turning crowds into the end (12–28% by s = 1/2). The second hump is the larger.
-  - *Saturated RSA.* It is not hyperuniform: S₀ is small but roughly flat at small k, like a scaled Poisson. Its weights are Poisson-like (k₁ share 0.18, as predicted), and so is its shape (ratio 0.77–0.96).
+  - *Saturated RSA.* It is not hyperuniform: S₀ is small but roughly flat at small k, like a scaled Poisson. Its weights are Poisson-like (k₁ share 0.18, as predicted), and so is its shape (ratio 0.80–0.97).
+  - *Antihyperuniform HIP.* S₀(k) grows as k → 0 (S₀(k₁) ≈ 13), so the weights are long-wave heavy, as in 1D. k₁ carries 0.36–0.38 of |Δr|² (0.38–0.40 predicted), the turning is front-loaded at χ = 0.1 (63% by s = 1/2), and the first hump is the larger (1.16–1.20). This is the reverse of the hyperuniform starts, as the theory predicts. Particles move 2.2 spacings RMS, three times as far as from Poisson starts.
 
 ### KL eigenfunctions: where they come from, and Poisson against Gaussian
 
@@ -370,59 +372,93 @@ uv run --no-sync python -I experiments/scripts/batten2008_offplane_plot.py --roo
 
 `batten2008_winding_plot.py` (`figures/winding_compare`) quantifies how much each density wave's trajectory winds in its mode plane (`*_mode_planes_full`). The metric is the total winding T_n = (1/2π) Σ_t |Δ arg ρ(kₙ)|, counted while S(kₙ) > 10⁻¹⁶. ρ(kₙ) sums over all particles, so T_n already averages over the particles of a flow. Also stored per mode (`batten2008_modes.py`): the net winding |Σ Δ arg ρ|/2π, and T_n split by log₁₀ S at each step.
 
-- **At χ = 0.4 the difference is physical, not statistical.** For |k| > 0.25K the Poisson waves wind 1.1–1.9 turns (rising with |k|), against 0.9–1.2 for Gaussian and URL and 0.85–1.0 for RSA. In every |k| bin above 0.25K, all 20 Poisson flows exceed all 20 Gaussian flows (Mann–Whitney p = 6.8 × 10⁻⁸, the smallest value possible for 20 against 20). The net (coherent) winding differs the same way.
-- **What sets it.** The short-wave winding tracks how far the particles move, |Δr|/√N: Spearman 0.89 over all 80 flows and 0.80 within the 20 Poisson flows alone. The within-ensemble correlation cannot come from comparing different kinds of start. The extra Poisson winding happens while S(k) of the short wave is already 10⁻²–10⁻⁶ (panel g): the wave has nearly cancelled but its particles are still being carried by the slow, long-wave relaxation. That transport slides the residual short-wave pattern, rotating arg ρ(k) without changing |ρ(k)| (the near-circular arcs in the Poisson mode planes). Hyperuniform and RSA starts need little long-wave motion (per-particle displacement 0.24–0.37, against 0.81), so their short waves slide less.
-- **At χ = 0.1 the starts differ little.** All four wind 0.75–0.9 turns at large |k|. The 2–10% Poisson–Gaussian differences are statistically real (p = 4 × 10⁻³ to 2 × 10⁻⁷ per bin), but winding is not correlated with displacement within Poisson (Spearman 0.04), so displacement is not what sets it at this χ.
+- **At χ = 0.4 the difference is physical, not statistical.** For |k| > 0.25K the Poisson waves wind 1.1–1.9 turns (rising with |k|), against 0.9–1.2 for Gaussian and URL, 0.85–1.0 for RSA, and 2–4 for HIP. The short-wave windings (|k| > 0.6K) of Poisson and Gaussian flows separate completely (Mann–Whitney p = 2 × 10⁻²³, 100 against 50 flows), and Poisson against URL, RSA or HIP gives p ≤ 3 × 10⁻³⁴. The net (coherent) winding differs the same way.
+- **What sets it.** The short-wave winding tracks how far the particles move, |Δr|/√N: Spearman 0.95 over all 450 flows and 0.69 within the 100 Poisson flows alone. The within-ensemble correlation cannot come from comparing different kinds of start. The extra Poisson winding happens while S(k) of the short wave is already 10⁻²–10⁻⁶ (panel g): the wave has nearly cancelled, but its particles are still being carried by the slow, long-wave relaxation. That transport slides the residual short-wave pattern, rotating arg ρ(k) without changing |ρ(k)| (the near-circular arcs in the Poisson mode planes). Hyperuniform and RSA starts need little long-wave motion (per-particle displacement 0.25–0.37, against 0.80), so their short waves slide less. HIP needs much more (2.2) and winds most (3.9 turns at |k| > 0.6K). The winding is set by the triad coupling to the unconstrained waves, and grows with the slip K·ℓ/2π (next section).
+- **At χ = 0.1 the starts differ less.** Poisson, Gaussian, URL and RSA wind 0.75–0.87 turns at large |k|; HIP winds 1.42. The differences between the first four are statistically real (Poisson against Gaussian p = 3 × 10⁻¹⁶), but within Poisson winding is not correlated with displacement (Spearman −0.08), so displacement sets it only when the particles move far.
 
-### Other initial conditions: Gaussian, URL and saturated RSA
+### Winding as a collective variable, and its relation to the potential
 
-The full 2D analysis set (flows, slices, mismatch, modes, tail, Hessians, Wasserstein, valley floors, off-plane and all figures) was repeated from three more starts, 20 flows each at χ = 0.1 and 0.4. All 120 flows reach Φ < 10⁻²⁰:
+`batten2008_winding.py` (GPU; one job per start) follows every constrained wave's phase θ_k = arg ρ_k along every flow. It stores the cumulative winding W_k on the Φ clock and at every frame, and the exact instantaneous rates from the gradient. `batten2008_windcv_plot.py` draws three kinds of figure:
+- **`*_winding_kymograph`:** W_k(t) for every wave, in time and on the Φ clock, plus the spiral pitch and a 3D surface.
+- **`winding_total`:** Σ_k W_k over the whole exclusion region |k| ≤ K, against log₁₀ Φ, path fraction s and t/τ₁.
+- **`winding_cv`:** the collective-variable diagnostics below.
+
+- **An exact relation to the potential.** Φ = Σ_k |ρ_k|²/N depends only on the moduli, so turning one wave's phase costs that wave no energy. Along the flow ṙ = −∇Φ,
+
+  dρ_k/dt = (1/N) Σ_q (k·q) [ρ_q* ρ_{k+q} − ρ_q ρ_{k−q}]   (q over the constrained set; the q = k term with ρ₀ = N is the linear decay −|k|²ρ_k),
+
+  so the winding rate θ̇_k = Im(ρ_k* ρ̇_k)/|ρ_k|² comes entirely from three-wave (triad) terms. Equivalently, θ̇_k = −∇θ_k · ∇Φ = −|∇θ_k| |∇Φ| cos α_k. A wave winds when the force has a component along its own phase direction, and that component is pure mode coupling: it vanishes for separable, harmonic relaxation. The identity holds to 10⁻⁹–10⁻¹⁴ along the flows (`winding_cv` (d)).
+- **The coupling runs through the unconstrained waves.** Below Φ ≈ 0.1, essentially all of each wave's phase torque (median share 0.95–1.00) comes from triads whose partner k ± q lies outside the exclusion region, |k ± q| > K. Those density fluctuations are free (S ~ 1), so they act as a bath that pushes the constrained waves around. Panel (e) shows the share per |k|.
+- **Why relaxed waves wind fast, and the numerical caveat.** |∇θ_k| = |k|/√(2S_k) to within 1% (measured), so a wave's phase becomes ever easier to turn as it relaxes. The alignment |cos α_k| is tiny, 10⁻⁴–10⁻³ (median), against 1/√(Nd) ≈ 0.02 for a random direction; the 1/√S amplification turns it into finite winding. The same amplification makes the instantaneous rate of a nearly cancelled wave sensitive to any small displacement. At a stored state, waves with S ≲ 10⁻¹⁰ show rates set by the integrator's error: following the exact flow from such a state, they fall 25–80-fold within 2 time units at fixed Φ. Instantaneous rates are therefore shown only for S > 10⁻⁸. Cumulative winding is robust. Rerunning flow 0 at atol = 10⁻¹¹ (from 10⁻⁸) and rtol = 10⁻³ (from 10⁻²), with 16–20× more steps, gives the same per-wave winding: 9.51 against 9.52 turns per wave (1D χ = 1/3), and 1.595 against 1.596 (2D Poisson χ = 0.4, per-wave correlation 1.000).
+- **As a collective variable.** W_k is a path functional, not a function of the configuration: the energy is blind to each wave's phase, and two configurations at the same Φ can carry any winding. So winding cannot replace Φ as a coordinate on the landscape. It records how the flow got there:
+  - It is monotone in time, like arclength.
+  - It is distinct for different starts at the same Φ (`winding_total`).
+  - Its short-wave value tracks the slip K·ℓ/2π, the phase a wave at K gains when particles move ℓ (`winding_cv` (g)).
+  - The spiral number σ = Ω/(−½ d ln Φ/dt) is an instantaneous state function. Ω is the energy-weighted RMS winding rate, and σ is the ratio of iso-energetic (phase) motion to descent in collective-coordinate space. It marks the nonlinear stage. In 2D, σ ~ 0.1–1 above Φ ≈ 1 and falls to 10⁻³–10⁻² once Φ < 0.1, where the flow becomes nearly separable radial relaxation and winding stops. In 1D χ = 1/3, σ reaches about 14 near Φ = 0.1: the waves spiral more than they decay while the slow waves carry them.
+- **How winding builds up** (`*_winding_kymograph`, `winding_total`). Each wave winds between its own relaxation fronts (the last times its S exceeds 10⁻² and 10⁻⁸) and somewhat after. Short waves wind first, while long waves are still carrying their particles; the total saturates once Φ ≲ 10⁻². Against path fraction, 1D χ = 1/3 winds at a nearly constant rate per unit arclength all the way to s = 1. 1D χ = 2/3 stops at s ≈ 0.3, where the lattice locks in. Every start finishes winding by Φ ≈ 10⁻²–10⁻³. Against path fraction the 2D starts split as their turning does: Poisson and HIP wind steadily along the path, while Gaussian, URL and RSA at χ = 0.1 gain much of their winding in the last 10% of it. Against time all 2D starts have the same shape, with HIP leading by about a decade.
+
+### Other initial conditions: Gaussian, URL, saturated RSA and HIP
+
+The full 2D analysis set (flows, slices, mismatch, modes, tail, Hessians, Wasserstein, valley floors, off-plane, winding and all figures) was repeated from four more starts at χ = 0.1 and 0.4. Every 2D start has 100 flows per χ except Gaussian, which uses all 50 configurations that exist. All 900 2D flows reach Φ < 10⁻²⁰. The starts:
 
 - **Gaussian pair statistics** (`GAU-2D-N1000`; hyperuniform, S ≈ k²/4π at small k);
 - **uniformly randomized triangular lattice** (`URL-2D-N1024`; the group's patterns, rectangular cell 32 × 16√3, rescaled to density 1);
-- **saturated RSA** (`RSA-2D-N999`). `saturated_rsa.py` is a NumPy port of the group's voxel algorithm (`CONFIGURATIONS/SATURATED_RSA/saturated_rsa.py`). One correction: a voxel is dropped only when it lies inside an exclusion disk (radius D), not the particle radius D/2, so refinement runs to true saturation. Saturation fixes the packing fraction, not N, so a pool of 480 patterns (N = 979–1025) was generated and the first 20 with the most common N (999) kept. φ = 0.5467. A unit test checks no overlap and no room for another disk.
+- **saturated RSA** (`RSA-2D-N999`). `saturated_rsa.py` is a NumPy port of the group's voxel algorithm (`CONFIGURATIONS/SATURATED_RSA/saturated_rsa.py`). One correction: a voxel is dropped only when it lies inside an exclusion disk (radius D), not the particle radius D/2, so refinement runs to true saturation. Saturation fixes the packing fraction, not N. A pool of 2,080 patterns (N = 969–1026) was therefore generated, and the first 100 of the 124 with the most common N (999) kept; φ = 0.5467. A unit test checks no overlap and no room for another disk.
+- **hyperplane (line) intersection process** (`HIP-2D-N1000`; antihyperuniform, S(k) → ∞ as k → 0). `hip.py` is a vectorized port of the group's `CONFIGURATIONS/HYPERPLANE_INTERSECTION/hpp.py` (Klatt et al., Nat. Commun. 10, 811 (2019)). It draws a Poisson number of isotropic lines through the window and keeps their pairwise intersections, at unit intensity in a √1000 window. N varies by ±260, so samples were drawn until 100 had N = 1000 exactly (67,184 drawn). The window is used as a periodic cell (lines end at its edge), as in the group's HPP-2D pack. HIP flows are the slowest: 3,485–4,884 steps at χ = 0.4.
 
 Rectangular cells required one generalization: every script now converts positions with per-axis cell lengths (`cell_lengths`). The valley-floor fiber holds the Cartesian plane fixed in fractional coordinates (`fractional_plane`). Square-cell results are unchanged.
 
-Results that differ from the Poisson starts:
+Results that differ between starts (medians over flows):
 
-| | Poisson | Gaussian | URL | RSA |
-|---|---|---|---|---|
-| per-particle displacement, χ = 0.1 / 0.4 | 0.70 / 0.81 | 0.18 / 0.37 | 0.16 / 0.32 | 0.16 / 0.24 |
-| k₁ share of \|Δr\|², χ = 0.1 | 0.22 | 0.015 | 0.003 | 0.18 |
-| hump ratio, χ = 0.1 / 0.4 | 0.96 / 1.02 | 0.52 / 0.76 | 0.50 / 0.65 | 0.77 / 0.96 |
-| short-wave winding, χ = 0.1 / 0.4 | 0.87 / 1.83 | 0.81 / 1.14 | 0.85 / 1.12 | 0.75 / 0.98 |
-| W₂ geodesic max Φ (median), χ = 0.1 / 0.4 | 207 / 808 | 39 / 411 | 33 / 406 | 13 / 90 |
+| | Poisson | Gaussian | URL | RSA | HIP |
+|---|---|---|---|---|---|
+| per-particle displacement, χ = 0.1 / 0.4 | 0.69 / 0.80 | 0.18 / 0.37 | 0.16 / 0.32 | 0.16 / 0.25 | 2.15 / 2.20 |
+| k₁ share of \|Δr\|², χ = 0.1 | 0.19 | 0.015 | 0.003 | 0.18 | 0.38 |
+| hump ratio, χ = 0.1 / 0.4 | 0.98 / 1.04 | 0.52 / 0.76 | 0.51 / 0.65 | 0.80 / 0.97 | 1.20 / 1.16 |
+| short-wave winding, χ = 0.1 / 0.4 | 0.87 / 1.83 | 0.79 / 1.13 | 0.85 / 1.12 | 0.75 / 0.97 | 1.42 / 3.88 |
+| W₂ geodesic max Φ, χ = 0.1 / 0.4 | 211 / 814 | 38 / 413 | 33 / 397 | 13 / 89 | 958 / 2,370 |
 
 Shared by every start:
 - Exactly Nd − 2M zero modes at the end.
-- About (Nd − 2M)/2 negative directions near the manifold (814/200, 792/197, 809/201, 797/199), fading as √Φ.
+- About (Nd − 2M)/2 negative directions near the manifold (812/201, 795/196, 811/201, 796/199, 798/194 for Poisson, Gaussian, URL, RSA, HIP), fading as √Φ.
 - Zero valley floors on both planes.
 - KL spectra with 82–92% in the bow.
-- A per-particle participation ratio of 0.42–0.50 (a collective Gaussian field).
+- A per-particle participation ratio of 0.43–0.51 (a collective Gaussian field).
 
 ```bash
 # initial conditions
 uv run --no-sync python -I experiments/scripts/make_initial_conditions.py --ensembles url \
     --url-source <CONFIGURATIONS>/TRIANGULAR_URL/TRIANGULAR_URL-N_1024-rho_1.0/TRIANGULAR_URL-N_1024-rho_1.0
-sbatch --cpus-per-task=16 --time=00:30:00 --wrap "uv run --no-sync python -I experiments/scripts/saturated_rsa.py \
-    --n-configs 480 --workers 16 --shard experiments/initial_conditions/rsa_pool/pool_000.npz"
-uv run --no-sync python -I experiments/scripts/saturated_rsa.py --assemble experiments/initial_conditions/rsa_pool/pool_000.npz
-# flows, then the chain of experiments/slurm/batten2008_cc_gpu.slurm steps as for flows2d, per start
-for c in 0.1 0.4; do
-  sbatch --export=ALL,CHI=$c,FLOW_ARGS="--ic experiments/initial_conditions/GAU-2D-N1000 --out experiments/trajectories/gau2d/N1000" \
-      experiments/slurm/flows2d_gpu.slurm   # likewise URL-2D-N1024 -> url2d/N1024, RSA-2D-N999 -> rsa2d/N999
+for k in "480 20261107 000" "1600 20261587 001"; do set -- $k   # 2,080 saturated RSA patterns
+  sbatch --cpus-per-task=32 --time=01:00:00 --wrap "uv run --no-sync python -I experiments/scripts/saturated_rsa.py \
+      --n-configs $1 --seed $2 --workers 32 --shard experiments/initial_conditions/rsa_pool/pool_$3.npz"
 done
-# figures (per start: --prefix gau2d / url2d / rsa2d, --n 1000 / 1024 / 999), then the comparisons
+uv run --no-sync python -I experiments/scripts/saturated_rsa.py --keep 100 \
+    --assemble experiments/initial_conditions/rsa_pool/pool_000.npz experiments/initial_conditions/rsa_pool/pool_001.npz
+uv run --no-sync python -I experiments/scripts/hip.py --keep 100
+# flows (100 per chi; --n-traj 50 for GAU-2D-N1000), then per start the batten2008_cc_gpu.slurm steps:
+# slices, modes, tail, mismatch, wasserstein (one job per chi), hessian (one per chi), winding, floor
+for c in 0.1 0.4; do
+  sbatch --time=06:00:00 --export=ALL,CHI=$c,FLOW_ARGS="--ic experiments/initial_conditions/HIP-2D-N1000 \
+      --out experiments/trajectories/hip2d/N1000 --n-traj 100 --wall-budget 20000" experiments/slurm/flows2d_gpu.slurm
+done   # likewise POS-2D-N1024 -> flows2d/N1024, GAU-2D-N1000 -> gau2d/N1000, URL -> url2d/N1024, RSA -> rsa2d/N999
+sbatch --time=04:00:00 --export=ALL,STEP=winding,STEP_ARGS="--root experiments/trajectories/hip2d --sizes 1000 --chi 0.1 0.4" \
+    experiments/slurm/batten2008_cc_gpu.slurm
+uv run --no-sync python -I experiments/scripts/batten2008_offplane.py --root experiments/trajectories/hip2d --sizes 1000 --chi 0.1 0.4
+# figures per start (--prefix flows2d / gau2d / url2d / rsa2d / hip2d), then the comparisons
+uv run --no-sync python -I experiments/scripts/batten2008_windcv_plot.py --root experiments/trajectories/hip2d --n 1000 \
+    --chi 0.1 0.4 --prefix hip2d --dim 2                                    # winding kymograph
 uv run --no-sync python -I experiments/scripts/batten2008_offplane_plot.py --compare <offplane_chi*.npz, two per system> --labels ...
 uv run --no-sync python -I experiments/scripts/batten2008_offplane_plot.py --kl --compare-name offplane_kl_compare --compare ...
-uv run --no-sync python -I experiments/scripts/batten2008_winding_plot.py --roots experiments/trajectories/{flows2d/N1024,gau2d/N1000,url2d/N1024,rsa2d/N999} \
-    --labels "2D Poisson" "2D Gaussian" "2D URL" "2D RSA"
+uv run --no-sync python -I experiments/scripts/batten2008_winding_plot.py --roots experiments/trajectories/{flows2d/N1024,gau2d/N1000,url2d/N1024,rsa2d/N999,hip2d/N1000} \
+    --labels "2D Poisson" "2D Gaussian" "2D URL" "2D RSA" "2D HIP"
+uv run --no-sync python -I experiments/scripts/batten2008_windcv_plot.py --compare <winding_chi*.npz, two per system> --labels ...
+uv run --no-sync python -I experiments/scripts/batten2008_windcv_plot.py --total --compare-name winding_total --compare ... --labels ...
 ```
 
-**Data.** `trajectories/{gau2d/N1000,url2d/N1024,rsa2d/N999}/` with the same files as `flows2d/N1024`.
+**Data.** `trajectories/{gau2d/N1000,url2d/N1024,rsa2d/N999,hip2d/N1000}/` with the same files as `flows2d/N1024`, plus `winding_chi<tag>.npz` everywhere. The 20-flow runs are kept in `trajectories/<start>/N<N>_n20/`. The tolerance checks are in `trajectories/{batten2008_tight/N1000,flows2d_tight/N1024}/` (flow 0, atol 10⁻¹¹, rtol 10⁻³).
 
-**Figures.** `figures/{gau2d_N1000,url2d_N1024,rsa2d_N999}_*`, plus `figures/offplane_lopsided`, `figures/offplane_kl_compare` and `figures/winding_compare`. All figures are PNG only.
+**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
 
 ### The 1D landscape against χ, in 3D
 

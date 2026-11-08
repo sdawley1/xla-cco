@@ -16,6 +16,7 @@ Samuel J. Dawley
 import sys
 from fractions import Fraction
 from pathlib import Path
+from typing import Tuple
 
 # ----- numerics -----
 import jax
@@ -66,6 +67,13 @@ from batten2008_offplane import (  # noqa: E402
 from batten2008_slices import pair_axes  # noqa: E402
 from batten2008_tail import restart_index, tail_frames  # noqa: E402
 from batten2008_wasserstein import frame_subset, torus_match  # noqa: E402
+from batten2008_winding import (  # noqa: E402
+    cumulative_winding,
+    exact_rhodot,
+    phase_gradient_norm,
+    rates,
+    triad_rhodot,
+)
 from saturated_rsa import covered, saturated_rsa  # noqa: E402
 
 # ============================================================
@@ -558,3 +566,57 @@ def test_covered_needs_all_corners_in_one_disk() -> None:
     corners = lo[:, None, :] + 0.1 * np.array([[0, 0], [1, 0], [0, 1], [1, 1]])
     out = covered(corners, np.array([[0.05, 0.05]]), 10.0, 0.5)
     assert out.tolist() == [True, False]
+
+
+# ============================================================
+# TESTS: WINDING AND THE TRIAD IDENTITY
+# ============================================================
+
+
+def _triad_case(d: int, seed: int) -> Tuple:
+    """A small stealthy system in d = 1 or 2 and a random configuration."""
+    from xla_cco.box import cubic_box
+    from xla_cco.energy import make_stealthy_energy
+    from xla_cco.kvectors import enumerate_kvectors
+
+    n = 12 if d == 1 else 16
+    box = cubic_box(n, d)
+    basis = np.asarray(box.basis)
+    kset = enumerate_kvectors(basis, 0.0, 2.6 if d == 1 else 2.0)
+    energy = make_stealthy_energy(box, kset)
+    s = np.random.default_rng(seed).uniform(size=(n, d))
+    kvec = kset.n.astype(np.float64) @ (2.0 * np.pi * np.linalg.inv(basis)).T
+    return energy, basis, kset.n.astype(np.float64), kvec, s
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize("d", [1, 2])
+def test_triad_sum_equals_drho_dt_from_the_gradient(d: int) -> None:
+    energy, basis, nvec, kvec, s = _triad_case(d, 5)
+    side = np.diag(basis)
+    _, g = energy.value_and_grad(jnp.asarray(s))
+    vel = -np.asarray(g) / side
+    exact = exact_rhodot(s * side, vel, kvec)
+    fn = jax.jit(jax.vmap(collective_density, in_axes=(0, None)))
+    pred, share = triad_rhodot(s, nvec, kvec, fn)
+    assert np.allclose(pred, exact, rtol=1e-9, atol=1e-9 * np.abs(exact).max())
+    assert np.all((share >= 0.0) & (share <= 1.0))
+    # theta' = -grad theta . grad Phi, so |theta'| <= |grad theta| |grad Phi|
+    rho = exact_rhodot(s * side, np.zeros_like(s), kvec)  # zero velocity: zero
+    assert np.allclose(rho, 0.0)
+    fn_rho = np.exp(1j * ((s * side) @ kvec.T)).sum(axis=0)
+    th, _ = rates(fn_rho, exact)
+    bound = phase_gradient_norm(s * side, kvec, fn_rho) * np.linalg.norm(vel)
+    assert np.all(np.abs(th) <= bound * (1.0 + 1e-9))
+
+
+@pytest.mark.medium
+def test_rates_and_cumulative_winding_examples() -> None:
+    rho = np.array([2.0 + 0.0j, 1.0j])
+    th, lr = rates(rho, np.array([-2.0 + 0.0j, -1.0 + 0.0j]))
+    assert th.tolist() == pytest.approx([0.0, 1.0])  # pure decay; pure rotation
+    assert lr.tolist() == pytest.approx([-1.0, 0.0])
+    t = np.linspace(0.0, 1.0, 101)
+    turn = np.exp(2j * np.pi * t)[:, None] * 10.0  # one turn, S = 100 / N
+    w = cumulative_winding(turn, 4)
+    assert w[-1, 0] == pytest.approx(1.0) and w[50, 0] == pytest.approx(0.5)
