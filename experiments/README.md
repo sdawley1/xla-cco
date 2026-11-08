@@ -780,6 +780,43 @@ using |∇Φ|² = 2⟨K⟩_u Φ and |∇θ_k| = |k|/√(2S_k). The product match
 - **Why it dips.** Both the rate and the share fall, to a minimum of about 10⁻⁵ near Φ ≈ 10⁻³.
 - **Why it rises late, which is a selection effect.** winding_cv keeps only waves with S_k > 10⁻⁸, and that set empties: half the constrained waves are gone by Φ ≈ 10⁻¹–10⁻⁴·², and 99% by Φ ≈ 10⁻⁴·²⁵–10⁻⁷·⁵ (panel f). The survivors are the last-relaxing waves, which hold most of the remaining energy (√(S_k/Φ) → 0.7). So their |cos α| rises to 10⁻³–10⁻². Below Φ ≈ 10⁻⁴, the three panels describe only a handful of slow waves, not the constrained set.
 
+#### Can single waves inside the exclusion region be excited independently?
+
+`batten2008_exclusion.py` analyses the coupling matrix K = (2/V)JJᵀ at 5 ground states of every 2D start (NumPy; seconds). `batten2008_exclusion_plot.py` writes `figures/exclusion_mode_control`.
+
+At a ground state, a displacement δr changes the constrained waves by δu = J δr. The energy is Φ = |u|²/V, gradient flow gives u̇ = −K u, and MD (mass 1) gives ü = −K u.
+
+**The question.** The coherent decay of `winding_cv_explained` suggests that, near the manifold, waves in the exclusion region can be excited one at a time, so that S(k) could be raised selectively at chosen |k|. The analysis checks this in three parts.
+
+**1. Statically, yes; it costs extra displacement at large χ (panel c).**
+- *Why it is possible.* For χ < ½, J has full row rank 2M. So any target δu, including one wave alone, is reachable with the least displacement |δr|² = (2/V) δuᵀK⁻¹δu.
+- *The energy cost is the same for every k.* Raising S(k) by s costs ΔΦ = s.
+- *The displacement cost relative to an independent well is |k|²(K⁻¹)_kk.* Its median is:
+
+  | χ | All waves | Long waves (\|k\| < 0.3K) | Marchenko–Pastur mean 1/(1 − 2M/Nd) |
+  |---|---|---|---|
+  | 0.1 | 1.01–1.20 | — | 1.25 |
+  | 0.4 | 4.3–6.3 | 1.6–1.7 | 5.0 |
+
+  At χ = 0.4 the cost rises with |k|.
+
+**2. Coherent decay is not independence (panels a, b).** In the gradient flow, coherent decay means the residual's waves all shrink at one rate.
+- *One stiffness band.* Below Φ ≈ 10⁻¹–10⁻⁵ (start-dependent), more than 95% of |u|² sits in collective modes within 10% of the residual's mean stiffness ⟨K⟩_u ≈ k₁².
+- *The longest waves carry it.* The longest-wave shell |k| = k₁ holds more than 97% of Σ S(k).
+- *Many modes, not one.* The single softest mode of K spans only 1–2 waves and holds 10–40% of the residual. The narrow band is made of the nearly degenerate long-wave modes.
+- *Everything else is slaved.* All other waves decay at the same rate because they are slaved to the long waves (`landscape_floor`). This is the opposite of independent excitation.
+
+**3. At fixed temperature every wave is equally excited, and excitations do not stay put (panels d–f).**
+- *Equipartition.* In the harmonic canonical ensemble, ⟨u uᵀ⟩ = (V T/2) I. So ⟨S(k)⟩ = (2/V)(J H⁺ Jᵀ)_kk · T = T for every constrained k, exactly (to 10⁻¹² at every ground state and start). The coupling K changes the dynamics, not this static distribution. Making S(k) selective at fixed T needs a weighted potential, ⟨S(k)⟩ = T/v(k), or a non-equilibrium drive.
+- *A one-wave excitation leaks.* Under the flow, the share of it still in its own wave after a time |k|²t = 1 is 0.90–0.99 at χ = 0.1 and 0.73–0.74 at χ = 0.4. By |k|²t = 3 it is 0.44–0.93 at χ = 0.1 and 0.37–0.39 at χ = 0.4 (panel e).
+- *In MD, one wave rings at many frequencies.* A single wave's fluctuation is spread over the collective frequencies √λ(K). At χ = 0.1 it is a narrow line at ω ≈ |k|: 9–56 modes, spread 0.11–0.20 of the mean. At χ = 0.4 it is a broad Marchenko–Pastur band: about 370 modes, spread 0.42, mean 0.92|k| (panel f).
+- *What this means for the MD winding experiment.* At χ = 0.4 one wave's phase is driven by hundreds of collective modes; at χ = 0.1 it is close to a single oscillator.
+
+**Verdict.**
+- *Correct:* the constrained waves are independent coordinates, so S(k) can be prepared selectively at small Φ, at a displacement cost that grows as 1/(1 − 2χ).
+- *Not correct, (i):* the coherent decay does not show independent excitation. It shows that everything left is slaved to the longest waves.
+- *Not correct, (ii):* at fixed low T such excitations are not stable or selective. Equipartition sets S(k) = T for every k, and the coupling K moves a single-wave excitation into other waves on its own relaxation time.
+
 ### Other initial conditions: Gaussian, URL, saturated RSA and HIP
 
 The full 2D analysis set (flows, slices, mismatch, modes, tail, Hessians, Wasserstein, valley floors, off-plane, winding and all figures) was repeated from four more starts at χ = 0.1 and 0.4. Every 2D start has 100 flows per χ except Gaussian, which uses all 50 configurations that exist. All 900 2D flows reach Φ < 10⁻²⁰. The starts:
@@ -839,6 +876,8 @@ uv run --no-sync python -I experiments/scripts/batten2008_plateau_plot.py --root
 uv run --no-sync python -I experiments/scripts/batten2008_planes_mean_plot.py --root experiments/trajectories/flows2d/N1024 --prefix flows2d_N1024   # per start
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_hessian_sign_plot.py --roots experiments/trajectories/{flows2d/N1024,...} --labels ...   # hessian_sign_compare, hessian_sign_mechanism
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_windcv_explain_plot.py --roots ... --labels ...   # winding_cv_explained (needs landscape_chi*.npz)
+uv run --no-sync python -I experiments/scripts/batten2008_exclusion.py --roots experiments/trajectories/{flows2d/N1024,...} --flows 5   # exclusion_chi*.npz
+/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_exclusion_plot.py --roots ... --labels ...   # exclusion_mode_control
 uv run --no-sync python -I experiments/scripts/batten2008_landscape.py --roots experiments/trajectories/{flows2d/N1024,...} --flows 10   # CPU, 2-3 min per start
 uv run --no-sync python -I experiments/scripts/batten2008_landscape_plot.py --roots ... --labels ...   # landscape_wells, landscape_floor, landscape_valley
 uv run --no-sync python -I experiments/scripts/batten2008_winding_plot.py --roots experiments/trajectories/{flows2d/N1024,gau2d/N1000,url2d/N1024,rsa2d/N999,hip2d/N1000} \
@@ -849,7 +888,7 @@ uv run --no-sync python -I experiments/scripts/batten2008_windcv_plot.py --total
 
 **Data.** `trajectories/{gau2d/N1000,url2d/N1024,rsa2d/N999,hip2d/N1000}/` with the same files as `flows2d/N1024`, plus `winding_chi<tag>.npz`, `plateau_chi<tag>.npz` and `landscape_chi<tag>.npz` everywhere. The 20-flow runs are kept in `trajectories/<start>/N<N>_n20/`. The tolerance checks are in `trajectories/{batten2008_tight/N1000,flows2d_tight/N1024}/` (flow 0, atol 10⁻¹¹, rtol 10⁻³).
 
-**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `hessian_sign_compare`, `hessian_sign_mechanism`, `winding_cv_explained`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
+**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `hessian_sign_compare`, `hessian_sign_mechanism`, `winding_cv_explained`, `exclusion_mode_control`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
 
 ### The 1D landscape against χ, in 3D
 
