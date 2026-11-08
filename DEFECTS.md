@@ -34,7 +34,7 @@ needed for parity, reproduce the behaviour.
 | D-046 | fixed | `cli/md.py` (`_run_phase`) | Stale in-phase checkpoint left at the path handed to simulate. |
 | D-060 | fixed | `dynamics/run.py` (`begin_segment`) | Frozen `begin_segment` cannot recompute rho_prev (no waves); a scheme switch mixed COM-corrected and raw rho in the first winding step. |
 | D-061 | fixed | `tests/integration/test_md_cli.py` (end to end) | The real-driver end-to-end test ran NVE from random (non-ground) states, which the drift guard correctly aborts. |
-| D-062 | open | `cli/md.py` (`protocol_phases`) | Andersen phases after an NVE segment start without begin_segment: their first winding step compares raw with COM-corrected rho (no effect on written outputs). |
+| D-062 | fixed | `cli/md.py` (`_run_phase`) | Andersen phases after an NVE segment started without begin_segment: their first winding step compared raw with COM-corrected rho. |
 
 ## D-006 — `unit_ball_volume` is not bit-equal to the C++ hard-coded constants
 - **Found:** 2026-11-05, by the T4 auditor's preview parity
@@ -255,16 +255,16 @@ needed for parity, reproduce the behaviour.
 - **Symptom:** with the real driver every lane ended in STATUS_DRIFT: far from a minimum (Phi ~ 4 at T = 1e-4) the Verlet energy error exceeds drift_tol * dof T / 2 ~ 1.5e-6
 - **Repro:** remove the xfail and run the test on the unchanged input -> status_counts == {"STATUS_DRIFT": 4}
 - **Impact:** test only (the drift guard behaved as specified)
-- **Regression test:** tests/integration/test_md_cli.py::test_md_cli_end_to_end_small (now passes on ground states)
+- **Regression test:** tests/integration/test_md_cli.py::test_regression_D061_md_cli_end_to_end_small (renamed from test_md_cli_end_to_end_small; passes on ground states)
 - **Fix:** the test relaxes its three random starts with gradient_flow (Phi < 1e-20) and feeds those ground states, as production does
 
 ## D-062 — Andersen phases after NVE start without begin_segment
 - **Found:** 2026-11-08, while implementing T5 (reading cli/md.py against run.py)
-- **Status:** open
-- **Where:** src/xla_cco/cli/md.py (`protocol_phases`: `Phase(f"andersen{c}", "andersen", n, False, -1)`)
+- **Status:** fixed
+- **Where:** src/xla_cco/cli/md.py (`_run_phase`; phases built by `protocol_phases` with begin=False)
 - **Symptom:** after an NVE segment rho_prev holds raw rho; the next Andersen phase (no begin_segment) compares it with COM-corrected rho in its first step, adding |k . R_cm| (wrapped) to its winding
-- **Repro:** CLI run with cycles >= 2: wind_abs at the end of andersen1 includes one step of size ~|k . R_cm|
-- **Impact:** none on written outputs (Andersen-phase winding and sums are reset by the next NVE begin_segment; snapshots fall in production segments only); left for the CLI owner (begin=True on Andersen phases, or begin_segment(reset_winding=True) there)
-- **Regression test:** none yet (open)
-- **Fix:** —
+- **Repro:** CLI run with cycles >= 2 on ground states: the first step of andersen1 added 3.13 rad (max over waves) more than |angle(rho~(r1) conj rho~(r0))|
+- **Impact:** none on written outputs (Andersen-phase winding and sums are reset by the next NVE begin_segment; snapshots fall in production segments only), but the in-state Andersen winding was wrong
+- **Regression test:** tests/integration/test_md_cli.py::test_regression_D062_andersen_after_nve_restarts_winding (test_md_cli_protocol now checks the restart flags)
+- **Fix:** every phase that does not begin a segment starts (done == 0) with `_rewind`: begin_segment(reset_sums=False, reset_winding=True) with remove_com=False, so rho_prev is recomputed under the phase's COM rule; velocities, sums and step are untouched, resume semantics unchanged
 

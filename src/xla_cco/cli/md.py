@@ -28,7 +28,10 @@ Details:
   ``--n-andersen`` steps, ``run.begin_segment`` (COM removal, e0, sums and
   winding reset) and NVE ``--n-nve`` steps. ``--scheme baoab``: BAOAB
   throughout; each cycle is begin_segment then ``--n-nve`` BAOAB steps
-  (``--n-andersen`` is not used).
+  (``--n-andersen`` is not used). A phase that does not begin a segment
+  (first equilibration half, Andersen phases) starts with
+  begin_segment(reset_sums=False, reset_winding=True) and no COM removal,
+  so its winding uses its own COM rule from the first step (D-062).
 - Snapshots: ``--n-snapshots`` record steps (at most 256), shared between
   the cycles' production segments and log-spaced in the steps since each
   segment began (first step and last step included). They are distinct
@@ -600,6 +603,26 @@ def _begin(state: MDState, settings: MDSettings) -> MDState:
     return out
 
 
+def _rewind(state: MDState, settings: MDSettings) -> MDState:
+    """Winding restart at a phase without begin_segment (D-062).
+
+    begin_segment(reset_sums=False, reset_winding=True) with the COM
+    momentum left as it is: rho_prev is recomputed under the phase's COM
+    rule (an Andersen phase after NVE no longer compares raw with corrected
+    rho); sums, velocities and step are unchanged, e0 is reset (unused
+    outside NVE).
+    """
+    keep = dataclasses.replace(settings, remove_com=False)
+
+    def one(lane: MDState) -> MDState:
+        return md_run.begin_segment(lane, keep, False, True)
+
+    out: MDState = jax.vmap(one)(state)
+    assert isinstance(out, MDState), "begin_segment returns an MDState"
+    assert np.shape(out.step) == np.shape(state.step), "lanes preserved"
+    return out
+
+
 def _capture(state: MDState) -> Dict[str, Any]:
     """JSON-able copy of the per-lane end-of-segment observables."""
     assert isinstance(state, MDState), "need an MDState"
@@ -681,6 +704,8 @@ def _run_phase(ctx: Dict[str, Any], state: MDState, ph: Phase, done: int) -> MDR
     st = ctx["settings"][ph.scheme]
     if ph.begin and done == 0:
         state = _begin(state, st)
+    elif done == 0:
+        state = _rewind(state, st)
     _clear_inphase(ctx)  # never hand simulate an existing file
     result = md_run.simulate(
         ctx["energy"], ctx["waves"], ctx["basis_j"], st, state, ph.n_steps - done,

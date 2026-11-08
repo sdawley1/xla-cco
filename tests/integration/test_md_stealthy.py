@@ -35,7 +35,7 @@ from scipy import stats
 from systems import stealthy_ground_state
 from tolerances import (
     ATOL_MD_WINDING,
-    MD_BLOCK_Z,
+    MD_FAMILY_ALPHA,
     MD_SPECTRUM_BINS,
     MD_SPECTRUM_PEAK_FRAC,
     RTOL_MD_LINEAR,
@@ -89,9 +89,11 @@ def system() -> Dict[str, Any]:
 
 
 def _lane(
-    sys_: Dict[str, Any], temperature: float, seed: int, st: MDSettings
-) -> Tuple[MDState, np.ndarray, np.ndarray]:
-    """Harmonic positions and velocities in the nonzero-mode subspace.
+    sys_: Dict[str, Any], temperature: float, seed: int, st: MDSettings,
+    full_mb: bool = False,
+) -> Tuple[MDState, np.ndarray, np.ndarray]:  # fmt: skip
+    """Harmonic positions; velocities in the nonzero-mode subspace (linear
+    tests) or, with ``full_mb``, full Maxwell-Boltzmann with the COM removed.
 
     Returns the batched one-lane state and the initial (displacement,
     velocity) as flat (N d,) vectors.
@@ -102,6 +104,9 @@ def _lane(
     assert int(nz.sum()) == 2 * sys_["m"], "2M nonzero modes at a ground state"
     r = harmonic_sample(rng, sys_["energy"], sys_["s_gs"], sys_["basis"], temperature)
     v = vec[:, nz] @ (math.sqrt(temperature) * rng.standard_normal(int(nz.sum())))
+    if full_mb:  # flat modes must not start cold (resets would feed them)
+        v = math.sqrt(temperature) * rng.standard_normal((N, D))
+        v = (v - v.mean(axis=0)).reshape(-1)
     lane = run.init_state(
         sys_["energy"], sys_["waves"], jnp.asarray(sys_["basis"]), jnp.asarray(r),
         jnp.asarray(v.reshape(N, D)), jnp.asarray(temperature),
@@ -265,18 +270,25 @@ def _check_snapshot_rho(sys_: Dict[str, Any], state: MDState, scheme: str) -> No
 
 @pytest.mark.high
 def test_equipartition_smoke_andersen(system: Dict[str, Any]) -> None:
-    """<Phi> / (M T) = 1 over 16 Andersen lanes at T = 1e-8 (z-test on lanes)."""
-    temp, n_lanes, n_steps = 1e-8, 16, 4000
+    """<Phi> / (M T) = 1 over 32 Andersen lanes at T = 1e-8 (t-test on lanes).
+
+    Each lane starts canonical (harmonic positions, full MB velocities with
+    the COM removed); a nonzero-mode-only start leaves the flat modes cold
+    and the resets then drain the stiff modes (-7 %, AUDIT-T5). The lane
+    means are independent, so (mean - 1) / SE is Student t with n - 1 dof;
+    the critical value is t_{n-1}(1 - MD_FAMILY_ALPHA / 2) = 3.63 at n = 32.
+    """
+    temp, n_lanes, n_steps = 1e-8, 32, 4000
     st = MDSettings(dt=0.02, scheme="andersen", andersen_p=0.01, chunk_steps=n_steps)
-    lanes = [_lane(system, temp, 100 + i, st)[0] for i in range(n_lanes)]
+    lanes = [_lane(system, temp, 100 + i, st, full_mb=True)[0] for i in range(n_lanes)]
     batch: MDState = jax.tree_util.tree_map(lambda *x: jnp.concatenate(x), *lanes)
     out = run.simulate(system["energy"], system["waves"], jnp.asarray(system["basis"]),
                        st, batch, n_steps).state  # fmt: skip
     ratio = np.asarray(out.sum_phi) / np.asarray(out.n_sum) / (system["m"] * temp)
     se = float(np.std(ratio, ddof=1) / math.sqrt(n_lanes))
-    z = (float(ratio.mean()) - 1.0) / se
-    p_t = 2.0 * stats.t.sf(abs(z), df=n_lanes - 1)
+    t_stat = (float(ratio.mean()) - 1.0) / se
+    t_crit = float(stats.t.ppf(1.0 - MD_FAMILY_ALPHA / 2.0, df=n_lanes - 1))
     assert np.all(np.asarray(out.n_sum) == n_steps) and se < 0.1
-    assert abs(z) < MD_BLOCK_Z, (ratio.mean(), se, p_t)
+    assert abs(t_stat) < t_crit, (ratio.mean(), se, t_crit)
     # power: the same data reject a 30 % temperature error
-    assert abs((float(ratio.mean()) * 1.0 / 1.3 - 1.0) / se) > MD_BLOCK_Z
+    assert abs((float(ratio.mean()) / 1.3 - 1.0) / se) > t_crit

@@ -25,8 +25,19 @@ Details:
   the current positions with the COM rule of its scheme before the first
   step (D-060). The constrained rows of rho_prev are otherwise always the
   current rho; the unconstrained rows date from the last cadence step.
-- Snapshots and the trace store the latest rho (rho_prev after the step),
-  COM-corrected when the scheme is not "verlet".
+- "Latest rho" is rho_prev after the step: every row of the constrained
+  set is fresh each step; an unconstrained row is fresh on cadence steps
+  and otherwise repeats its value from the last cadence step. Snapshots,
+  the trace and the running sums all use it (sum_s accumulates
+  |rho_latest|^2 / N over every tracked row, every step), COM-corrected
+  when the scheme is not "verlet".
+- A NaN (pending) rho_prev survives in the state only for a lane frozen
+  at begin_segment or after simulate(n_steps=0); the next chunk repairs it.
+- Drift guard ("verlet"): drift_tol bounds |E - e0| at every step, i.e.
+  the bounded Verlet energy oscillation (~ (omega dt)^2 / 8 relative, per
+  mode) as well as any secular drift, so dt must keep (omega_max dt)^2
+  well below drift_tol (dt = 0.04 trips the default 1e-3 at N = 32,
+  chi ~ 0.2).
 
 Samuel J. Dawley
 11/2026

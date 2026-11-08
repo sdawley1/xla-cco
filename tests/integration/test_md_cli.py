@@ -484,9 +484,14 @@ def test_md_cli_protocol(
     _write_input(tmp_path)
     assert md.main(_argv(tmp_path, *extra)) == 0
     assert driver.calls == calls
-    assert counters["begin"].n == n_begin and counters["harmonic"].n == 4
-    # every begin_segment resets both the sums and the winding
-    assert all(a[2:] == (True, True) for a in counters["begin"].args)
+    flags = [a[2:] for a in counters["begin"].args]
+    assert counters["harmonic"].n == 4 and len(flags) == len(calls)
+    # a segment begin resets both the sums and the winding; every other phase
+    # restarts only the winding, without COM removal (D-062)
+    assert flags.count((True, True)) == n_begin
+    assert flags.count((False, True)) == len(calls) - n_begin
+    restarts = [a[1] for a in counters["begin"].args if a[2:] == (False, True)]
+    assert all(not st.remove_com for st in restarts)
 
 
 @pytest.mark.critical
@@ -832,9 +837,14 @@ def _ground_states(b: int = 3, seed: int = 3) -> np.ndarray:
 
 @pytest.mark.high
 @pytest.mark.slow
-def test_md_cli_end_to_end_small(
+def test_regression_D061_md_cli_end_to_end_small(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """D-061: the real-driver end-to-end run starts from ground states.
+
+    From random states every NVE lane drifted (STATUS_DRIFT); on ground
+    states all lanes stay running, and a crash + resume is bitwise.
+    """
     ref_dir, run_dir = tmp_path / "ref", tmp_path / "run"
     s_final = _ground_states()
     for root in (ref_dir, run_dir):
@@ -865,6 +875,44 @@ def test_md_cli_end_to_end_small(
     got = _load(run_dir / "out.npz")
     for k in ref:
         assert ref[k].tobytes() == got[k].tobytes(), k
+
+
+def _com_rho(r: np.ndarray, kvec: np.ndarray) -> np.ndarray:
+    """COM-corrected rho_k per lane: (lanes, n, d) positions -> (lanes, w)."""
+    rho = np.exp(1j * np.einsum("lnd,wd->lnw", r, kvec)).sum(1)
+    return np.asarray(rho * np.exp(-1j * (r.mean(1) @ kvec.T)))
+
+
+@pytest.mark.critical
+@pytest.mark.slow
+def test_regression_D062_andersen_after_nve_restarts_winding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-062: an Andersen phase after NVE winds from COM-corrected rho.
+
+    Every Andersen phase's first step must add exactly |angle(rho~(r1)
+    conj rho~(r0))| (rho~ COM-corrected, as the scheme stores it); before
+    the fix the stored raw NVE rho made that step jump by ~|k . R_cm|.
+    """
+    _write_input(tmp_path, s_final=_ground_states())
+    real = md_run.simulate
+    errors: List[float] = []
+
+    def spy(energy: Any, waves: Any, basis: Any, settings: Any, state: Any,
+            n_steps: int, **kw: Any) -> Any:  # fmt: skip
+        if settings.scheme == "andersen":
+            one = real(energy, waves, basis, settings, state, 1).state
+            kv = np.asarray(waves.kvec)
+            r0, r1 = np.asarray(state.r), np.asarray(one.r)
+            step = np.abs(np.angle(_com_rho(r1, kv) * np.conj(_com_rho(r0, kv))))
+            inc = np.asarray(one.wind_abs) - np.asarray(state.wind_abs)
+            errors.append(float(np.max(np.abs(np.nan_to_num(inc) - step))))
+        return real(energy, waves, basis, settings, state, n_steps, **kw)
+
+    monkeypatch.setattr(md_run, "simulate", spy)
+    assert md.main(_argv(tmp_path)) == 0
+    assert len(errors) >= 4  # equil halves (x2 if extended), andersen0, andersen1
+    assert max(errors) < 1e-9, errors
 
 
 # ============================================================

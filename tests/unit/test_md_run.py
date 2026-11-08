@@ -490,6 +490,57 @@ def test_wind_every_constrained_always_unconstrained_on_multiples() -> None:
                                atol=1e-13)  # fmt: skip
 
 
+@pytest.mark.critical
+def test_sum_s_is_the_mean_latest_s_of_every_row() -> None:
+    """sum_s / n_sum = mean over steps of |rho_latest|^2 / N, every tracked row.
+
+    rho_latest: constrained rows fresh each step; unconstrained rows fresh on
+    cadence steps (wind_every = 3) and repeated in between. The reference is
+    the direct sum at the snapshot positions of every step.
+    """
+    n_steps, every = 12, 3
+    st_ = _settings(
+        scheme="andersen", andersen_p=0.3, wind_every=every,
+        record_steps=tuple(range(1, n_steps + 1)), record_rho_every=1,
+        max_rho_records=n_steps,
+    )  # fmt: skip
+    system = _system()
+    lanes = _random_lanes([6], st_, system=system)
+    out = run.simulate(*system, st_, lanes, n_steps)
+    kv, nc = np.asarray(system[1].kvec), system[1].n_constrained
+    r = np.concatenate([np.asarray(lanes.r), np.asarray(out.state.snap.r[0])])
+    rho = np.exp(1j * np.einsum("tnd,wd->tnw", r, kv)).sum(1)  # steps 0..n
+    steps = np.arange(1, n_steps + 1)
+    latest = rho[1:].copy()
+    latest[:, nc:] = rho[steps - steps % every][:, nc:]
+    s_ref = np.mean(np.abs(latest) ** 2, axis=0) / N
+    got = np.asarray(out.state.sum_s[0]) / int(out.state.n_sum[0])
+    assert int(out.state.n_sum[0]) == n_steps and np.all(s_ref[nc:] > 0.0)
+    np.testing.assert_allclose(got, s_ref, rtol=RTOL_MD_FORCE, atol=0)
+    trace = np.asarray(out.state.trace.rho[0])
+    off = [k for k in range(1, n_steps) if (k + 1) % every != 0]
+    for k in off:  # trace row k is step k + 1; off-cadence rows repeat
+        assert trace[k, nc:].tobytes() == trace[k - 1, nc:].tobytes(), k
+
+
+@pytest.mark.critical
+def test_count_mode_reset_acc_carried_across_chunks() -> None:
+    """Count-mode Andersen: chunks of 4 (4 p = 1.4) and calls 3 + 7 equal one
+    chunk of 10 bitwise; the accumulator ends at 10 p - 3 = 0.5."""
+    p, n_steps = 0.35, 10
+    one = _settings(scheme="andersen", andersen_p=p, andersen_mode="count",
+                    chunk_steps=n_steps)  # fmt: skip
+    four = dataclasses.replace(one, chunk_steps=4)
+    system = _system()
+    lanes = _random_lanes([8, 9], one, system=system)
+    ref = run.simulate(*system, one, lanes, n_steps).state
+    got = run.simulate(*system, four, lanes, n_steps).state
+    split = run.simulate(*system, four, lanes, 3).state
+    split = run.simulate(*system, four, split, n_steps - 3).state
+    assert leaves_bitwise_equal(got, ref) and leaves_bitwise_equal(split, ref)
+    np.testing.assert_allclose(np.asarray(ref.reset_acc), 0.5, atol=1e-12)
+
+
 @pytest.mark.high
 def test_md_chunk_under_vmap_matches_simulate() -> None:
     st_ = _settings(
