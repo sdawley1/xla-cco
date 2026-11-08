@@ -242,3 +242,20 @@ MD_CONTROL_T_FACTOR: float = 1.1
 # predicted bias stays below a quarter of the SE: it then shifts t by < 0.25 (and the
 # family false-alarm rate from 1e-3 to < 2e-3).
 MD_SHADOW_BIAS_FRAC: float = 0.25
+# V3 benchmark (benchmarks/md_bench.py). Offline winding against the device rule
+# (observables.winding_update in a loop): both sum <= 12 atan2 values of O(1)
+# arguments, each correctly rounded (~1e-16 relative), in the same order; the jax
+# and numpy atan2 may differ by 1-2 ulp, so 1e-12 relative (+1e-12 absolute for
+# near-zero sums) leaves > 1e3 headroom.
+RTOL_MD_BENCH_WIND: float = 1e-12
+# Ratio-of-means null test (D-070): |Delta| / SE of n = 4000 matched iid lognormal
+# pairs is asymptotically N(0, 1) (delta method; skew ~ 1/sqrt(n) negligible). A
+# bound of 5 sigma fails a correct estimator with probability 6e-7 per example
+# (< 2e-4 over the 300-example ci profile), while the mean of per-pair ratios is
+# biased by ~CV^2 = 0.09, i.e. > 100 SE, so the test separates the two.
+MD_BENCH_NULL_Z: float = 5.0
+# Offline vs device winding (D-072): a rho component below 1e-100 gives S = |rho|^2/N
+# below ~1e-200 / 4, still normal; smaller ones reach the subnormal range (< 2.2e-308)
+# that XLA on CPU flushes to zero while NumPy keeps it, so S > floor = 0 differs.
+# The test zeroes such components; production rho is >= ~0.03 (floor 1e-16).
+MD_BENCH_TINY_RHO: float = 1e-100
