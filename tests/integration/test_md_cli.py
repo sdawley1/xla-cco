@@ -3,10 +3,9 @@
 """
 Integration tests of the MD driver CLI (``xla_cco.cli.md``).
 
-Until ``xla_cco.dynamics.run`` and ``thermal`` are implemented, the protocol,
-outputs and resume logic run against ``md_states.FakeDriver`` (monkeypatched
-into those modules); the end-to-end test on the real driver is a strict
-xfail that flips to a failure once they land.
+The protocol, outputs and resume logic run against ``md_states.FakeDriver``
+(monkeypatched into ``xla_cco.dynamics.run`` and ``thermal``); the
+end-to-end test runs the real driver on relaxed ground states.
 
 Samuel J. Dawley
 11/2026
@@ -28,6 +27,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 # ----- numerics -----
+import jax.numpy as jnp
 import numpy as np
 import pytest
 from hypothesis import example, given, settings
@@ -41,12 +41,14 @@ from md_states import (
     fake_make_waves,
     fake_maxwell_boltzmann,
 )
+from systems import small_system
 
 # ----- project -----
 from xla_cco.cli import md
 from xla_cco.cli import relax as relax_cli
 from xla_cco.dynamics import run as md_run
 from xla_cco.dynamics import thermal
+from xla_cco.minimize.flow import FlowSettings, gradient_flow
 
 # ============================================================
 # CONSTANTS
@@ -811,20 +813,33 @@ def test_md_cli_damaged_checkpoint_exits_1(
 # ============================================================
 
 
+def _ground_states(b: int = 3, seed: int = 3) -> np.ndarray:
+    """(b, N, d) fractional ground states (gradient flow from _write_input's starts).
+
+    The real driver aborts NVE lanes whose energy drifts by more than
+    drift_tol * dof T / 2; far from a minimum (random states) the Verlet
+    energy error exceeds that at T = 1e-4, so the end-to-end run starts from
+    ground states, as production does.
+    """
+    box, _, energy = small_system(N, D, K)
+    starts = np.random.default_rng(seed).uniform(size=(b, N, D))
+    fs = FlowSettings(energy_tol=1e-20, max_steps=100_000)
+    out = np.stack([np.asarray(gradient_flow(energy, s, box.basis, fs).s)
+                    for s in jnp.asarray(starts)])  # fmt: skip
+    assert out.shape == (b, N, D) and np.all(np.isfinite(out)), "bad flow"
+    return out
+
+
 @pytest.mark.high
 @pytest.mark.slow
-@pytest.mark.xfail(
-    raises=NotImplementedError,
-    strict=True,
-    reason="run.py / thermal.py not implemented yet (T1, T5)",
-)
 def test_md_cli_end_to_end_small(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ref_dir, run_dir = tmp_path / "ref", tmp_path / "run"
+    s_final = _ground_states()
     for root in (ref_dir, run_dir):
         root.mkdir()
-        _write_input(root)
+        _write_input(root, s_final=s_final)
     ref_args = md.build_parser().parse_args(_argv(ref_dir))
     summary = md.run(ref_args)
     ref = _load(ref_dir / "out.npz")

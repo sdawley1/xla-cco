@@ -170,3 +170,39 @@ ATOL_MD_WIND_ONE_STEP: float = 2e-15
 # |theta|); with the test floor S > 1e-4 (|rho| >= 1e-2) each step's angle moves
 # by <= 5e-10 and 8 steps by <= 4e-9; 1e-8 leaves 2.5x headroom.
 ATOL_MD_COM_WIND: float = 1e-8
+
+# ----- MD driver (T5) -----
+# make_waves kvec = n @ 2 pi inv(B)^T vs the same product in another summation order
+# (KSet.k, NumPy matmul): <= d roundings of eps |k| with |k| <= 60 in the tests,
+# i.e. <= 3 * 1.1e-16 * 60 = 2e-14; 1e-12 (absolute; scaled by max|k| against KSet).
+RTOL_MD_KVEC: float = 1e-12
+# Force/Phi/rho of make_force_fn vs jax.grad of the direct Cartesian sum: the phases
+# 2 pi n . (r inv(B)) and k . r differ by a few eps |theta| (|theta| <= ~200 for the
+# unwrapped test positions), so each of the M N terms (|term| <= |k|) is off by
+# <= ~1e-13 relative; sums of M N <= 600 terms: <= 6e-11 relative to the largest
+# term, below 1e-10 (times max(1, max|F|), or N for rho).
+RTOL_MD_FORCE: float = 1e-10
+# Galilean boost V = (0.3, -0.17) over 50 Verlet steps (t = 0.5): the forces at r and
+# r + V t agree to the phase rounding above (~1e-13 relative); the positions then
+# differ by <= 50 steps * dt^2 * 1e-13 * |F| plus the rounding of r + V t (~1e-15),
+# and each winding step differs by the rounding of two atan2 of O(1) rho (~1e-14);
+# 50 steps: <= 1e-12. 1e-9 bounds both with 1000x headroom and stays 1e3 below the
+# smallest boost phase |k . V| t (>= 0.07) asserted by the test.
+ATOL_MD_GALILEAN: float = 1e-9
+# Linearized dynamics (N = 32 ground state, T = 1e-10, t <= 50): the reference is
+# the exact discrete Verlet solution of the Hessian modes mapped through J, so the
+# only differences are (i) the second-order term of rho, -1/2 sum_j (k . dr_j)^2
+# exp(i k . r0_j), relative to the first-order term ~ K |dr| sqrt(N) / 2 with
+# |dr| ~ sqrt(T / lambda_min) = 1.1e-5 (lambda_min = 0.86), i.e. ~1e-4, and its
+# effect on the mode frequencies (relative ~ (K |dr|)^2, negligible over t = 50),
+# and (ii) roundoff (|rho| ~ 2e-4 vs N eps ~ 1e-14). Measured 1.0e-4; the plan's
+# criterion 1e-3 leaves 10x headroom.
+RTOL_MD_LINEAR: float = 1e-3
+# Power spectrum: a Hann-windowed peak of a pure tone lies within half a bin of the
+# tone; two modes closer than ~2 bins merge into one peak between them, so a peak
+# must lie within 2 bins (2 pi / t_total each) of some sqrt(eig K).
+MD_SPECTRUM_BINS: float = 2.0
+# Peaks considered: local maxima above 1e-3 of the largest; the Hann sidelobes of
+# the strongest line fall below 1e-3 (-31 dB first sidelobe, then 18 dB/octave)
+# beyond ~2 bins, where they would count as (wrongly placed) peaks.
+MD_SPECTRUM_PEAK_FRAC: float = 1e-3
