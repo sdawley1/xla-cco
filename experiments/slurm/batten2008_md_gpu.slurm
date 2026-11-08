@@ -7,7 +7,7 @@
 #SBATCH --constraint=nomig
 #SBATCH --mem=64G
 #SBATCH --time=01:00:00
-#SBATCH --output=experiments/trajectories/slurm-%x-%j.out
+#SBATCH --output=experiments/md_winding/logs/slurm-%x-%j.out
 #
 # Low-temperature MD jobs (plan "MD winding"): one full A100, guarded (nomig:
 # a MIG 3g.40gb slice is billed as one GPU but is much slower). STEP picks the
@@ -19,7 +19,9 @@
 # The code is taken from the submit directory (PYTHONPATH=$PWD/src, so a git
 # worktree runs its own package); the CUDA environment is the main checkout's
 # .venv-cuda (override with MD_VENV). Job names start with mdw_ (budget ledger:
-# sacct --name=mdw_%). From the repository (or worktree) root:
+# sacct --name=mdw_%). Logs go to experiments/md_winding/logs/ (the directory is
+# tracked through .gitkeep, so it exists in every checkout; slurm-*.out files are
+# git-ignored). From the repository (or worktree) root:
 #   env -u JAX_PLATFORMS sbatch -J mdw_bench --time=00:30:00 \
 #     --export=ALL,STEP=bench,STEP_ARGS="--mode calib --chi 1-10 --out X.json" \
 #     experiments/slurm/batten2008_md_gpu.slurm

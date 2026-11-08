@@ -21,7 +21,7 @@ import math
 import sys
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 # ----- numerics -----
 import jax.numpy as jnp
@@ -32,7 +32,7 @@ from hypothesis import strategies as st
 from hypothesis.extra import numpy as hnp
 
 # ----- project -----
-from tolerances import MD_BENCH_NULL_Z, RTOL_MD_BENCH_WIND
+from tolerances import MD_BENCH_NULL_Z, MD_BENCH_TINY_RHO, RTOL_MD_BENCH_WIND
 from xla_cco.dynamics.observables import winding_update
 
 # ============================================================
@@ -97,9 +97,14 @@ RHO = hnp.arrays(
 
 @pytest.mark.high
 @given(rho=RHO, floor=st.sampled_from([0.0, 0.05]))
-def test_offline_winding_every_step_matches_device_rule(
+@example(rho=np.full((1, 1, 1, 2), -1.04e-158), floor=0.0)  # D-072
+def test_regression_D072_offline_winding_every_step_matches_device_rule(
     rho: np.ndarray, floor: float
 ) -> None:
+    # components below MD_BENCH_TINY_RHO are set to 0: their S = |rho|^2 / N would
+    # be subnormal, which NumPy keeps (> 0, counted) and XLA on CPU flushes to 0
+    # (masked), so the two rules legitimately differ there (D-072)
+    rho = np.where(np.abs(rho) < MD_BENCH_TINY_RHO, 0.0, rho)
     rho0 = rho[:, 0] * 0.5 + 0.1
     got = MB.offline_winding(rho, rho0, 1, floor, 4)
     ref = _device_winding(rho, rho0, floor)
@@ -230,3 +235,227 @@ def test_lane_rate_interpolates_time_per_step(
     assert rate > 0.0
     if lanes >= 10:
         assert rate <= r10 * (1.0 + 1e-12)
+
+
+# ============================================================
+# SELECTION (choose_dt, confirm_dt, compare_pooled)
+# ============================================================
+
+
+def _ladder(
+    drift: Dict[float, float], std: Dict[float, float], wind_ok: Dict[float, bool]
+) -> Dict[str, Any]:
+    """Synthetic dt_ladder result: per-dt drift/std maxima and (c) verdicts."""
+    res: Dict[str, Any] = {"drift": {}, "wind": {}}
+    for dt in MB.LADDER:
+        for name in MB.CALIB_SYSTEMS:
+            res["drift"][f"{name}/{dt:g}"] = {
+                "drift_rel": [0.1 * drift[dt], drift[dt]],
+                "std_rel": [std[dt], 0.5 * std[dt]],
+                "max_dev_dof": [1e-5, 2e-5],
+            }
+        res["wind"][f"{dt:g}"] = {
+            f"{t:g}": {"pass": wind_ok[dt] or t < 1e-3, "max_abs_delta": 0.0,
+                       "max_excess": 0.0, "all_wave_rel": 0.0}
+            for t in MB.TEMPS
+        }  # fmt: skip
+    return res
+
+
+OK_DRIFT = {dt: 1e-6 for dt in MB.LADDER}
+OK_STD = {dt: 1e-5 for dt in MB.LADDER}
+OK_WIND = {dt: True for dt in MB.LADDER}
+
+
+@pytest.mark.high
+def test_choose_dt_picks_largest_passing() -> None:
+    dt, verdict = MB.choose_dt(_ladder(OK_DRIFT, OK_STD, OK_WIND))
+    assert dt == max(MB.LADDER)
+    assert all(v["pass"] for v in verdict.values())
+
+
+@pytest.mark.high
+@pytest.mark.parametrize("gate", ["drift", "std", "wind"])
+def test_choose_dt_each_gate_vetoes(gate: str) -> None:
+    drift, std, wind = dict(OK_DRIFT), dict(OK_STD), dict(OK_WIND)
+    if gate == "drift":
+        drift[0.04] = 2.0 * MB.DRIFT_REL
+    elif gate == "std":
+        std[0.04] = 2.0 * MB.STD_REL
+    else:
+        wind[0.04] = False
+    dt, verdict = MB.choose_dt(_ladder(drift, std, wind))
+    assert dt == 0.02
+    assert not verdict["0.04"]["pass"] and verdict["0.02"]["pass"]
+
+
+@pytest.mark.high
+def test_choose_dt_none_when_no_dt_passes() -> None:
+    dt, verdict = MB.choose_dt(_ladder(OK_DRIFT, OK_STD, dict.fromkeys(OK_WIND, False)))
+    assert dt is None
+    assert not any(v["pass"] for v in verdict.values())
+
+
+@pytest.mark.high
+def test_confirm_dt_skips_failing_full_length(monkeypatch: pytest.MonkeyPatch) -> None:
+    # full-length drift fails at 0.04, passes at 0.02; 0.01 is never tried
+    tried: List[float] = []
+
+    def fake_trial(sysd: Any, st: Any, dt: float, n: int) -> Dict[str, Any]:
+        tried.append(dt)
+        bad = dt == 0.04
+        return {"drift_rel": [2.0 * MB.DRIFT_REL if bad else 1e-6], "std_rel": [1e-5]}
+
+    monkeypatch.setattr(MB, "drift_trial", fake_trial)
+    monkeypatch.setattr(MB, "first_lanes", lambda st, n: st)
+    systems = [{"system": n} for n in MB.CALIB_SYSTEMS]
+    verdict = {f"{dt:g}": {"pass": True} for dt in MB.LADDER}
+    dt, trials = MB.confirm_dt(systems, [None, None], verdict, 1000)
+    assert dt == 0.02 and set(trials) == set(MB.CALIB_SYSTEMS)
+    assert 0.01 not in tried
+    verdict["0.02"]["pass"] = False  # ladder-failed dts are skipped
+    dt, _ = MB.confirm_dt(systems, [None, None], verdict, 1000)
+    assert dt == 0.01
+
+
+def _bin_entries(delta: float, se: float, n: int) -> Tuple[np.ndarray, np.ndarray]:
+    """(a, b) of one bin with ratio of means 1 + delta and delta-method SE se:
+    b = 1, a = 1 + delta + eps s_i with s_i = +-1 (mean 0), eps = se sqrt(n - 1)."""
+    assert n % 2 == 0, "alternating signs need an even count"
+    s = np.where(np.arange(n) % 2 == 0, 1.0, -1.0)
+    return 1.0 + delta + se * math.sqrt(n - 1) * s, np.ones(n)
+
+
+def _pooled(bins: Dict[int, Tuple[float, float, int]]) -> Dict[str, Any]:
+    """compare_pooled on one lane per T with the given {bin: (delta, se, n)}."""
+    ka, kb, kk = [], [], []
+    for b, (delta, se, n) in bins.items():
+        a_b, b_b = _bin_entries(delta, se, n)
+        ka.append(a_b)
+        kb.append(b_b)
+        kk.append(np.full(n, (b + 0.5) * 2.0 / MB.N_BINS))
+    wa = np.tile(np.concatenate(ka), (len(MB.TEMPS), 1))
+    wb = np.tile(np.concatenate(kb), (len(MB.TEMPS), 1))
+    temps = np.asarray(MB.TEMPS)
+    return MB.compare_pooled([(wa, wb, np.concatenate(kk), temps)])["1e-06"]
+
+
+@pytest.mark.high
+def test_compare_pooled_bin_statistics_closed_form() -> None:
+    r = _pooled({3: (0.02, 0.008, 50), 7: (-0.004, 0.002, 400)})
+    assert r["delta"][3] == pytest.approx(0.02, abs=1e-12)
+    assert r["se"][3] == pytest.approx(0.008, rel=1e-9)
+    assert r["delta"][7] == pytest.approx(-0.004, abs=1e-12)
+    assert r["se"][7] == pytest.approx(0.002, rel=1e-9)
+
+
+@pytest.mark.high
+def test_compare_pooled_noisy_bin_judged_with_its_se() -> None:
+    # noisy bin (SE 0.8 % > NOISE_SE): |Delta| = 2 % passes since 2 - 2 * 0.8 < 1;
+    # |Delta| = 3 % fails (3 - 1.6 > 1); a large quiet bin keeps the all-wave < 1 %
+    quiet = (0.0, 0.0, 2000)
+    ok = _pooled({3: (0.02, 0.008, 50), 12: quiet})
+    assert ok["pass"] and ok["n_noise_dominated"] == 1
+    assert ok["max_excess"] == pytest.approx(0.02 - 0.016, abs=1e-9)
+    bad = _pooled({3: (0.03, 0.008, 50), 12: quiet})
+    assert not bad["pass"]
+
+
+@pytest.mark.high
+def test_compare_pooled_resolved_bin_judged_on_point_estimate() -> None:
+    # resolved bin (SE 0.2 % <= NOISE_SE): 1.2 % fails although 1.2 - 0.4 < 1
+    quiet = (0.0, 0.0, 2000)
+    bad = _pooled({3: (0.012, 0.002, 400), 12: quiet})
+    assert not bad["pass"] and bad["n_noise_dominated"] == 0
+    assert bad["max_excess"] == pytest.approx(0.012, abs=1e-9)
+    assert _pooled({3: (0.008, 0.002, 400), 12: quiet})["pass"]
+
+
+@pytest.mark.high
+def test_compare_pooled_all_wave_check_alone_fails() -> None:
+    # every bin noisy with Delta 1.5 %, SE 0.8 %: each bin passes (1.5 - 1.6 < 1)
+    # but the summed winding changes by 1.5 % > 1 %
+    r = _pooled({b: (0.015, 0.008, 50) for b in (2, 5, 9, 14)})
+    assert r["max_excess"] < MB.WIND_DT_REL
+    assert r["all_wave_rel"] == pytest.approx(0.015, rel=1e-9)
+    assert not r["pass"]
+
+
+# ============================================================
+# COST PROJECTION
+# ============================================================
+
+INIT_S = 0.7
+
+
+def _rows(rate_2k: float, rate_c: float) -> List[Dict[str, Any]]:
+    """Synthetic throughput rows: every 2K configuration at rate_2k steps/s,
+    constrained-only at rate_c (both chi, 10 and 40 lanes)."""
+    rows: List[Dict[str, Any]] = []
+    for tag in MB.CHI_TAGS:
+        for lanes in (10, 40):
+            for scheme, wes in (("verlet", (1, 2, 5, 10)), ("andersen", (1,)),
+                                ("baoab", (1,))):  # fmt: skip
+                for we in wes:
+                    rows.append({"tag": tag, "lanes": lanes, "waves": "2K",
+                                 "scheme": scheme, "wind_every": we,
+                                 "k_chunk": None, "steps_per_s": rate_2k,
+                                 "peak_bytes": 10**9, "W": 3000, "M": 800})  # fmt: skip
+            rows.append({"tag": tag, "lanes": lanes, "waves": "constrained",
+                         "scheme": "verlet", "wind_every": 1, "k_chunk": None,
+                         "steps_per_s": rate_c, "peak_bytes": 10**8, "W": 800,
+                         "M": 800})  # fmt: skip
+    return rows
+
+
+def _cal(dt: float, we: int) -> Dict[str, Any]:
+    """Synthetic calibration result of one chi."""
+    return {"dt": dt, "wind_every": we, "init_s_per_lane": [INIT_S, 0.5 * INIT_S]}
+
+
+CALS = {"1-10": _cal(0.04, 5), "2-5": _cal(0.02, 2)}
+
+
+def _e1_closed(rate: float, n_nve: int, lanes: int) -> float:
+    """Hours of one E1 job: 2 equilibrations + cycles x (Andersen + NVE)."""
+    steps = 2 * 200_000 + 2 * (100_000 + n_nve)
+    return (steps / rate * 1.05 * 1.25 + lanes * INIT_S + 120.0) / 3600.0
+
+
+@pytest.mark.high
+@given(rate=st.floats(10.0, 1e5), n_nve=st.sampled_from([500_000, 1_000_000]),
+       n_gs=st.sampled_from([6, 10]), n_t=st.sampled_from([3, 4]))  # fmt: skip
+def test_e1_job_hours_closed_form(rate: float, n_nve: int, n_gs: int, n_t: int) -> None:
+    out = MB.e1_job_hours(_rows(rate, 10 * rate), CALS["2-5"], "2-5", n_nve, n_gs, n_t)
+    assert out["hours"] == pytest.approx(_e1_closed(rate, n_nve, n_gs * n_t), rel=1e-9)
+    assert out["lanes"] == n_gs * n_t
+    assert out["steps_per_lane_worst"] == 600_000 + 2 * n_nve
+
+
+@pytest.mark.high
+def test_e1b_and_e4_job_hours_closed_form() -> None:
+    rows = _rows(500.0, 4000.0)
+    e1b = MB.e1b_job_hours(rows, CALS["1-10"], "1-10")
+    steps = 2 * 200_000 + 100_000 + 5000  # t = 200 at dt 0.04
+    want = (steps / 4000.0 * 1.05 * 1.25 + 2 * INIT_S + 120.0) / 3600.0
+    assert e1b["hours"] == pytest.approx(want, rel=1e-9)
+    assert e1b["max_rho_records"] == steps // 5
+    e4 = MB.e4_job_hours(rows, CALS["1-10"], "1-10", 1_000_000)
+    want = ((400_000 + 2_000_000) / 500.0 * 1.05 * 1.25 + 10 * INIT_S + 120.0) / 3600
+    assert e4["hours"] == pytest.approx(want, rel=1e-9)
+
+
+@pytest.mark.high
+@pytest.mark.parametrize(
+    ("rate", "label"),
+    [(1e4, "none"), (150.0, "n_nve=5e5"),
+     (30.0, "n_nve=5e5, 6 ground states, drop T=1e-5")],
+)  # fmt: skip
+def test_production_plan_applies_reduction_order(rate: float, label: str) -> None:
+    plan = MB.production_plan(_rows(rate, 1e6), CALS)
+    assert plan["reduction_applied"] == label
+    first = plan["tried"][0]
+    n_jobs = len(MB.SYSTEMS) * len(MB.CHI_TAGS)
+    assert first["E1_hours"] == pytest.approx(n_jobs * _e1_closed(rate, 10**6, 40))
+    assert plan["production_within_budget"] == (plan["production_hours"] <= 60.0)
+    assert [t["reduction"] for t in plan["tried"]][-1] == label

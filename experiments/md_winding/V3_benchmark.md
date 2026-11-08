@@ -1,6 +1,6 @@
 # V3: GPU benchmark, time step, winding cadence and production cost
 
-Samuel J. Dawley, 11/2026. Code: `benchmarks/md_bench.py` (modes `throughput`, `grid`, `calib`, `omega`, `project`); SLURM: `experiments/slurm/batten2008_md_gpu.slurm` (STEP=bench). The machine-readable results, including every measurement, are in `experiments/md_winding/bench.json`. Raw outputs are in `/scratch/gpfs/TORQUATO/sd2402/xla_cco_runs/v3/`:
+Samuel J. Dawley, 11/2026. Code: `benchmarks/md_bench.py` (modes `throughput`, `grid`, `calib`, `omega`, `project`); SLURM: `experiments/slurm/batten2008_md_gpu.slurm` (STEP=bench). The machine-readable results, including every measurement, are in `experiments/md_winding/bench.json`. The V3 jobs logged to `/scratch/gpfs/TORQUATO/sd2402/xla_cco_runs/v3/` (overriding `--output`); copies of all 8 logs are in `experiments/md_winding/logs/` (git-ignored `slurm-*.out`), which is now the script's default `--output`. Raw outputs are in `/scratch/gpfs/TORQUATO/sd2402/xla_cco_runs/v3/`:
 - `throughput.jsonl`, `omega.json`;
 - `calib2/calib_<tag>.json` and `_wind.npz` (the ladders and raw winding);
 - `calib3/calib_<tag>.json` (the final calibration).
@@ -75,11 +75,12 @@ Steps/s of the whole batch (lane-steps/s = steps/s × lanes), mean of flows2d an
 The first call takes 2–4.5 s, including one step; later cadences of the same group take ≈ 1 s.
 
 ### k-chunk
-**Unchunked (`--k-chunk` omitted) is fastest in every configuration** and fits easily, so it is the choice.
+**Unchunked (`--k-chunk` omitted) is fastest in every configuration that tracks the 2K waves** (production), by 0.05–39 % (median 13 %) over the best chunked variant, and fits easily, so it is the choice. The one exception is constrained-only at χ = 0.1 with 40 lanes, where k-chunk 256 is 0.8 % faster (1745 against 1731 steps/s, within run-to-run noise).
 
 ### Memory
-- The heaviest production configuration peaks at 11.2 GiB: χ = 0.4, 40 lanes, 2K waves, 200 snapshots and the 1300-row A4 trace. The trace alone is 40 × 1300 × 3278 × 16 B = 2.7 GB.
-- Even the ≤ 14.7 GiB upper bound fits a 40 GB A100 with room to spare, so **40 lanes per job** (no fallback to 20).
+- At χ = 0.4, 40 lanes, 2K waves, 200 snapshots and the 1300-row A4 trace, the wind_every = 1 row peaks at 11.2 GiB. The trace alone is 40 × 1300 × 3278 × 16 B = 2.7 GB.
+- The chosen χ = 0.4 setting (wind_every = 2) is bounded by ≤ 14.7 GiB (`bench.json` `peak_bytes_40` = 15.8e9 B; that row carries the process peak of the earlier wind_every = 1 run). The PCIe-40GB sanity run at wind_every = 5 also peaked at 15.8 GB.
+- Either way it fits a 40 GB A100 with room to spare, so **40 lanes per job** (no fallback to 20).
 
 ### Unconstrained waves
 Tracking the waves with K < |k| < 2K costs a factor of 2.2–2.7 at wind_every = 1. Cadence recovers much of this: at χ = 0.4 and 40 lanes, wind_every = 2 gives 1.43× and wind_every = 5 gives 1.93×.
@@ -146,22 +147,39 @@ The ladder used 2e5 NVE steps for every dt, with 2 ground states × 4 T × 2 sys
 | 0.4 | 0.01 | 0.01 / 0.01 | 0.01 / 0.01 | 1.18 / 0.59 | 0.88 / 0.64 | pass |
 | 0.4 | 0.005 | 0.00 / 0.00 | 0.00 / 0.00 | 0.81 / 0.81 | 0.71 / 0.71 | pass |
 
-**Coherent regime.** Where trajectories stay coherent (all T ≤ 1e-4 at χ = 0.1; T ≤ 1e-5 at χ = 0.4), the dt effect is resolved to < 0.01 %. It scales as dt² and is at most 0.18 % (χ = 0.4, dt = 0.04).
+**Coherent regime.** Where trajectories stay coherent (all T ≤ 1e-4 at χ = 0.1; T ≤ 1e-5 at χ = 0.4), the dt effect is resolved to < 0.01 % precision. It falls roughly as dt² and is at most 0.18 % (χ = 0.4, dt = 0.04).
 
 **Decorrelated regime.** At T = 1e-3, and at T = 1e-4 for χ = 0.4, the dt and dt/2 runs decorrelate within t = 400.
 - **Noise floor:** per-bin SE reaches 0.4–0.9 %, so |Δ_b| ≈ 0.6–1.2 % at every dt, down to 0.005.
-- **Systematic part:** what is left is resolved only at χ = 0.4, dt = 0.04, T = 1e-3: −2.25 ± 0.59 % in bin 10 (|k| ≈ K). That run fails.
+- **χ = 0.4, dt = 0.04 fails the pre-set rule on one bin**: T = 1e-3, bin 10 (|k| ≈ K), Δ = −2.25 ± 0.59 % (z = −3.8 with the delta-method SE).
+  - With a lane-cluster jackknife SE (0.82 %, from the audit) z is −2.7, and the bin would pass (excess 0.61 %).
+  - The sign is opposite to the expected Verlet bias (the effective frequency rises, so winding should increase). In the same bin, dt = 0.02, 0.01 and 0.005 scatter by +0.58, +0.48 and −0.67 %.
+  - Over 120 near-null decorrelated bins the largest |z| is already 3.68, so this is consistent with a noise excursion.
+  - The rejection is therefore conservative. We keep dt = 0.02 at χ = 0.4 as the conservative choice, since the cost fits the budget (orchestrator decision).
+  - The trade-off: in the coherent regime the dt effect at dt = 0.04 is only 0.14–0.18 %, and dt = 0.02 halves the physical NVE time (2e4 instead of 4e4 per segment) at the same cost.
+- **Power limit of the rule:** in noise-dominated bins the burden of proof is reversed. A pass means "no bin shift above about 1 % + 2 SE detected", not "below 1 % demonstrated".
+  - From the audit's injected-shift tests: a uniform ≥ 1 % shift fails at T = 1e-4 and 1e-3 (the all-wave check catches it), as does a ≥ 1 % shift confined to the unconstrained waves.
+  - A single-bin shift is caught at ≥ 1 % in quiet bins, but in the noisiest bins (10, 19) only at 2–3 %. So at T = 1e-3 single-bin shifts of up to 2–3 % can pass.
+  - The harmonic temperatures are covered: the dt effect there is resolved in the coherent regime at ≤ 0.18 % (dt = 0.04, χ = 0.4) and ≤ 0.05 % (chosen dts).
 
 **History of criterion (c).** The criterion changed twice after looking at data; both changes are recorded here and in `V3_jobs.md`.
 1. **Per-system binned means** (8 lanes, t = 200; jobs 17117177/8).
    - This chose dt = 0.02 at χ = 0.1.
    - At χ = 0.4 no dt passed. The bins with few waves are noisy once trajectories decorrelate.
 2. **Pooled matched pairs with an SE-aware threshold** (16 lanes per system, t = 400; jobs 17119585/6).
-   - This used the *mean of per-wave ratios*. At χ = 0.4 it again failed every dt, with Δ_b ≈ +1–4 % in all unconstrained bins at T ≥ 1e-4, for every dt.
-   - That offset is a Jensen bias (D-070): E[a/b] − 1 ≈ CV(b)² for noisy, slowly winding unconstrained waves. It is positive and does not shrink with dt.
+   - This used the *mean of per-wave ratios*.
+   - **At χ = 0.1 it chose dt = 0.01** (job 17119585, confirmed at 1e6 steps). dt = 0.04 failed at excess 1.04 % and dt = 0.02 at 1.17 %, both at T = 1e-3.
+   - So the χ = 0.1 choice went 0.02 (criterion 1), then 0.01 (criterion 2), then 0.04 (criterion 3, final).
+   - At χ = 0.4 it again failed every dt, with Δ_b ≈ +1–4 % in all unconstrained bins at T ≥ 1e-4, for every dt.
+   - That offset is a Jensen bias (D-070): E[a/b] − 1 ≈ CV(b)² for noisy, slowly winding unconstrained waves.
+     - It is positive in both directions: E[a/b] − 1 and E[b/a] − 1 are both ≈ +0.7–0.9 % at dt = 0.005.
+     - It shrinks only partly with dt, because smaller-dt pairs decorrelate later. At χ = 0.4, T = 1e-4 it goes 1.78 → 1.56 → 1.21 → 0.72 % down the ladder.
+     - It persists at the near-null pair 0.005 against 0.0025, where the true dt effect is < 0.01 %.
    - The ratio-of-means estimator above is unbiased to first order and removes it. The same raw winding gives max |Δ_b| ≤ 2.25 %, and only χ = 0.4, dt = 0.04 fails.
    - Both ladders were re-evaluated from the saved winding (`--ladder-from`), with no new GPU time.
-3. **For the record:** the first, coherent χ = 0.1 run (t = 200, before decorrelation) measured the T = 1e-3 change at dt = 0.04 as 0.84–1.09 % (per system, no SE), scaling as dt² (0.16–0.23 % at 0.02).
+3. **For the record:** the first χ = 0.1 run (t = 200, only partly decorrelated) measured the largest per-bin T = 1e-3 change at dt = 0.04 as 0.84–1.09 % (per system, no SE), against 0.16–0.23 % at 0.02.
+   - The dt² reading is weakly supported. The outlier bins at dt = 0.04 (flows bin 11; hip bins 12–13) are not where the dt = 0.02 maxima are, and the all-wave change is only 0.002–0.03 %.
+   - It looks more like partial-decorrelation noise growing with dt than a band-limited systematic.
    - So dt = 0.04 at χ = 0.1 is close to the 1 % line at T = 1e-3, the anharmonic temperature the plan reports only descriptively.
    - At the harmonic temperatures (T ≤ 1e-4) the change is ≤ 0.05 %.
    - If E2 needs T = 1e-3 rates at < 1 % systematic, rerun that temperature at dt = 0.02. The cost is the same, since the protocol is fixed in steps.

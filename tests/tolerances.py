@@ -218,3 +218,8 @@ RTOL_MD_BENCH_WIND: float = 1e-12
 # (< 2e-4 over the 300-example ci profile), while the mean of per-pair ratios is
 # biased by ~CV^2 = 0.09, i.e. > 100 SE, so the test separates the two.
 MD_BENCH_NULL_Z: float = 5.0
+# Offline vs device winding (D-072): a rho component below 1e-100 gives S = |rho|^2/N
+# below ~1e-200 / 4, still normal; smaller ones reach the subnormal range (< 2.2e-308)
+# that XLA on CPU flushes to zero while NumPy keeps it, so S > floor = 0 differs.
+# The test zeroes such components; production rho is >= ~0.03 (floor 1e-16).
+MD_BENCH_TINY_RHO: float = 1e-100

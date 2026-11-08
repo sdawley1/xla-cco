@@ -37,6 +37,7 @@ needed for parity, reproduce the behaviour.
 | D-062 | fixed | `cli/md.py` (`_run_phase`) | Andersen phases after an NVE segment started without begin_segment: their first winding step compared raw with COM-corrected rho. |
 | D-070 | fixed | `benchmarks/md_bench.py` (`_bin_stats`) | V3 winding criterion (c) used the mean of per-wave ratios, biased by ~CV^2 for decorrelated waves; no dt passed at chi = 0.4. |
 | D-071 | fixed | `benchmarks/md_bench.py` (`round_up_125`) | log10 rounding put x just below 10^k in the next decade (assertion error). |
+| D-072 | fixed | `tests/unit/test_md_bench.py` (offline vs device winding) | Flaky high-tier test: subnormal S = rho^2/N counted by NumPy, flushed to 0 by XLA on CPU. |
 
 ## D-006 — `unit_ball_volume` is not bit-equal to the C++ hard-coded constants
 - **Found:** 2026-11-05, by the T4 auditor's preview parity
@@ -274,7 +275,7 @@ needed for parity, reproduce the behaviour.
 - **Found:** 2026-11-08, while implementing V3 (job 17119586, chi = 0.4 calibration)
 - **Status:** fixed
 - **Where:** benchmarks/md_bench.py (`_bin_stats`, used by `compare_pooled`)
-- **Symptom:** every dt in {0.04, ..., 0.005} failed criterion (c) at chi = 0.4. The per-bin change was Delta_b = +1-4 % in all unconstrained bins at T >= 1e-4, positive, and did not shrink with dt.
+- **Symptom:** every dt in {0.04, ..., 0.005} failed criterion (c) at chi = 0.4. The per-bin change was Delta_b = +1-4 % in all unconstrained bins at T >= 1e-4, positive, and shrank only partly with dt (1.78 -> 0.72 % at T = 1e-4 down the ladder, as smaller-dt pairs decorrelate later); it persisted at the near-null pair 0.005 vs 0.0025.
 - **Repro:** matched iid lognormal pairs (CV 0.3, n = 4000, no dt effect): mean(a / b) - 1 = +0.09 (> 100 SE), while mean(a) / mean(b) - 1 is within its delta-method SE.
 - **Cause:** a Jensen bias. E[a / b] - 1 ~ CV(b)^2 for waves whose dt and dt/2 runs decorrelate (slow, noisy unconstrained winding).
 - **Impact:** one failed calibration job (0.51 GPU-h). No production setting was taken from it.
@@ -290,3 +291,13 @@ needed for parity, reproduce the behaviour.
 - **Impact:** none on outputs (drift_tol inputs were 4e-4 and 1e-3).
 - **Regression test:** tests/unit/test_md_bench.py::test_regression_D071_round_up_125_property (@example pins the repro)
 - **Fix:** step the base down one decade when it exceeds x.
+
+## D-072 — Flaky offline-winding test on subnormal |rho|^2
+- **Found:** 2026-11-08, by the V3 auditor (3 of 15 runs failed under the default `dev` Hypothesis profile)
+- **Status:** fixed
+- **Where:** tests/unit/test_md_bench.py (`test_offline_winding_every_step_matches_device_rule`, now `test_regression_D072_...`)
+- **Symptom:** rho = [[[[-1.04e-158, -1.04e-158]]]] with floor 0: NumPy gives pi, the device rule gives 0.
+- **Cause:** S = |rho|^2/N ~ 5e-317 is subnormal. NumPy keeps it (> 0, the step is counted); XLA on CPU flushes it to zero (the step is masked). The tolerance derivation assumed O(1) arguments, but the strategy drew any float in [-3, 3].
+- **Impact:** test only. Production uses phase_floor = 1e-16 and |rho| >= ~0.03.
+- **Regression test:** the same test, renamed test_regression_D072_offline_winding_every_step_matches_device_rule, with @example pinning the repro.
+- **Fix:** the test zeroes rho components below MD_BENCH_TINY_RHO = 1e-100 (tests/tolerances.py), so S is never subnormal. Checked with 20 consecutive passes under the default profile.
