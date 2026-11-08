@@ -697,6 +697,46 @@ The mean curve is coloured by log₁₀ Φ, and 20 aligned flows are drawn in gr
   so the winding rate θ̇_k = Im(ρ_k* ρ̇_k)/|ρ_k|² comes entirely from three-wave (triad) terms. Equivalently, θ̇_k = −∇θ_k · ∇Φ = −|∇θ_k| |∇Φ| cos α_k. A wave winds when the force has a component along its own phase direction, and that component is pure mode coupling: it vanishes for separable, harmonic relaxation. The identity holds to 10⁻⁹–10⁻¹⁴ along the flows (`winding_cv` (d), 2D Poisson χ = 0.1, flow 0).
 - **The coupling runs through the unconstrained waves.** Below Φ ≈ 0.1, essentially all of each wave's phase torque (median share 0.95–1.00) comes from triads whose partner k ± q lies outside the exclusion region, |k ± q| > K. Those density fluctuations are free (S ~ 1), so they act as a bath that pushes the constrained waves around. Panel (e) shows the share per |k|.
 
+#### Why every start leaves the plateau at the same energy
+
+The x-axis of `hessian_sign_starts` is Φ, not time. Within one χ the starts change their sign counts at the same energies, but they reach those energies at times up to 100× apart: Φ = 3 is reached at t/τ₁ ≈ 0.03 (URL, RSA) and at 2.6 (HIP) for χ = 0.1. `batten2008_sign_universal_plot.py` writes `figures/hessian_sign_universal`, which explains the shared energies with three scales. None of them depends on the start.
+
+**1. The plateau is reached as √Φ (panels a–d).** Write H = G + R, where R is block-diagonal with weights w_jq = Re(ρ_q* e^{iq·r_j}).
+- The trace of R is set by the sum rule Σ_j w_jq = |ρ_q|²: tr R = −(2/V) Σ_q |q|² |ρ_q|² ∝ Φ.
+- The per-particle spread of R is ∝ √Φ, because each w_jq has a random phase.
+- The soft spectrum is therefore symmetric to leading order, with a negative bias relative to its width of
+
+  μ = −⟨tr R_j⟩ / σ(tr R_j) = f √(2Φ/N),   f = Σ|q|²S / √(Σ|q|⁴S · ΣS) ≤ 1.
+
+  The shape factor f reflects how the residual is spread over |q|. It equals 1 when one shell holds the residual (Cauchy–Schwarz).
+- Panel (c) confirms the law with no fitted parameter over seven decades of μ, for every start and both χ.
+- The bias sits in the (1 − c)Nd soft directions, with c = 2M/(Nd). The negative excess n₋/[(Nd−2M)/2] − 1 then follows μ/(1 − c):
+  - the measured ratio is 0.7–1.5 for every start and χ at 10⁻² ≤ Φ ≤ 1;
+  - without the (1 − c) factor it would be 0.9–1.9 at χ = 0.1 and 3.8–7.2 at χ = 0.4;
+  - panel (d) shows the collapse.
+- **What this sets.** The excess falls below 5% at Φ ≈ 2–3 for χ = 0.1 and at Φ ≈ 0.1–0.6 for χ = 0.4. The starts enter only through f:
+  - χ = 0.1: f = 0.4 (HIP) to 0.8 (Gaussian, URL) at Φ = 1;
+  - χ = 0.4: f = 0.14 (HIP) to 0.78 (URL).
+  - Since μ ∝ f√Φ, this spread moves the onset by at most one decade in Φ.
+- The early rise of soft + and fall of soft − are the same √Φ approach to symmetry, seen from the two sides.
+
+**2. The bands separate (panel e).** The largest soft |λ| (∝ √Φ) falls below the smallest stiff eigenvalue λ₂ₘ ≈ k₁² near Φ ≈ 1–10.
+- Before that point soft and stiff directions mix, and the counts are not yet those of two separate bands.
+- The crossing again depends only on the soft prefactor a and on λ₂ₘ:
+  - a = (1.0–2.3)·10⁻³ at χ = 0.1 and (1.2–1.8)·10⁻² at χ = 0.4;
+  - λ₂ₘ/k₁² = 0.95–1.0 at χ = 0.1 and 0.83–0.91 at χ = 0.4.
+
+**3. The final drop is the counting cut (panel f).** The soft branches go to zero as a√Φ and are counted only while a√Φ > c·λ_max, with c = 10⁻⁹.
+- With Φ_× = (c λ_max/a)², the drops of every start fall onto one curve centred at Φ/Φ_× = 1.
+- Φ_× = (0.9–2.9)·10⁻¹¹ at χ = 0.1 and (0.3–0.8)·10⁻¹¹ at χ = 0.4.
+- In exact arithmetic the plateau n₋ = (Nd−2M)/2 holds for every Φ > 0.
+
+**The starts are not funnelled to one place.** The shared energies come from self-averaging over N ≈ 1000 particles and M waves, which makes μ, a and λ₂ₘ functions of (N, d, χ, Φ) and of the shape factor f. They do not show that the flows converge.
+- *χ = 0.4:* the ground states share one local landscape. The coupling spectrum C = D^{-1/2} K D^{-1/2} is the same Marchenko–Pastur-like distribution for every start (10–90%: 0.08–0.12 to 1.87–1.90; panel g).
+- *χ = 0.1:* the local landscapes differ. The 10–90% widths of C are 0.88–1.12 (RSA), 0.71–1.29 (Gaussian, URL), 0.60–1.40 (Poisson) and 0.50–1.50 (HIP).
+- *End states (panel h):* they keep their origin outside the exclusion region. At 1.05–1.5 K and χ = 0.1, S(k) is 0.08 (RSA), 0.46–0.49 (URL, Gaussian), 1.02 (Poisson) and 1.80 (HIP). At χ = 0.4 these values are 0.96–1.22, and URL keeps a Bragg-like peak S ≈ 7 at |k| ≈ 1.5 K.
+- *Summary:* the flows reach different points of the ground-state manifold. Near any of them the Hessian looks statistically the same because it is a sum over many random-phase waves.
+
 #### The triad identity in detail
 
 **Derivation.** With ρ_k = Σ_j exp(ik·r_j) and Φ = (1/N) Σ_{q∈C} |ρ_q|² (C the constrained set), the force on particle j is −∇_jΦ = −(1/N) Σ_q [iq ρ_q* e^{iq·r_j} − iq ρ_q e^{−iq·r_j}]. Along the flow, dρ_k/dt = Σ_j ik·ṙ_j e^{ik·r_j}. Substituting the force and using Σ_j e^{i(k±q)·r_j} = ρ_{k±q} gives
@@ -899,7 +939,8 @@ uv run --no-sync python -I experiments/scripts/batten2008_kl_plot.py --roots exp
 uv run --no-sync python -I experiments/scripts/batten2008_plateau.py --roots experiments/trajectories/{flows2d/N1024,...} --flows 10   # CPU, ~2 min per chi
 uv run --no-sync python -I experiments/scripts/batten2008_plateau_plot.py --roots ... --labels ...   # hessian_negative_compare, hessian_plateau_mechanism
 uv run --no-sync python -I experiments/scripts/batten2008_planes_mean_plot.py --root experiments/trajectories/flows2d/N1024 --prefix flows2d_N1024   # per start
-/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_hessian_sign_plot.py --roots experiments/trajectories/{flows2d/N1024,...} --labels ...   # hessian_sign_compare, hessian_sign_mechanism
+/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_hessian_sign_plot.py --roots experiments/trajectories/{flows2d/N1024,...} --labels ...   # hessian_sign_compare, hessian_sign_mechanism, hessian_sign_starts
+/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_sign_universal_plot.py --roots experiments/trajectories/{flows2d/N1024,...} --labels ...   # hessian_sign_universal
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_windcv_explain_plot.py --roots ... --labels ...   # winding_cv_explained (needs landscape_chi*.npz)
 uv run --no-sync python -I experiments/scripts/batten2008_exclusion.py --roots experiments/trajectories/{flows2d/N1024,...} --flows 5   # exclusion_chi*.npz
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_exclusion_plot.py --roots ... --labels ...   # exclusion_mode_control
@@ -914,7 +955,7 @@ uv run --no-sync python -I experiments/scripts/batten2008_windcv_plot.py --total
 
 **Data.** `trajectories/{gau2d/N1000,url2d/N1024,rsa2d/N999,hip2d/N1000}/` with the same files as `flows2d/N1024`, plus `winding_chi<tag>.npz`, `plateau_chi<tag>.npz` and `landscape_chi<tag>.npz` everywhere. The 20-flow runs are kept in `trajectories/<start>/N<N>_n20/`. The tolerance checks are in `trajectories/{batten2008_tight/N1000,flows2d_tight/N1024}/` (flow 0, atol 10⁻¹¹, rtol 10⁻³).
 
-**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `hessian_sign_compare`, `hessian_sign_mechanism`, `hessian_sign_starts`, `winding_cv_explained`, `exclusion_mode_control`, `exclusion_mode_spectra`, `exclusion_drive`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
+**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `hessian_sign_compare`, `hessian_sign_mechanism`, `hessian_sign_starts`, `hessian_sign_universal`, `winding_cv_explained`, `exclusion_mode_control`, `exclusion_mode_spectra`, `exclusion_drive`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
 
 ### The 1D landscape against χ, in 3D
 
