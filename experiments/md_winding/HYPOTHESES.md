@@ -54,3 +54,9 @@ These changes were made after a synthetic dry run of the analysis pipeline and b
    - *Significance-test parts* (H4 mean net rate \|z\| < 3; H8 part 2, Mann–Whitney p < 0.01): a miss is FAIL. There is no INCONCLUSIVE for these.
 3. **Normalized unsigned rate.** H5 and H7 use, per ground state, ν = the mean over constrained waves of (unsigned rate)/(\|k\|/2π).
 4. **H6.** The t√T collapse and the exponent β use the harmonic temperatures only. Values including T = 1e-3 are reported descriptively.
+
+## Amendment A2 (2026-11-08, before any production MD job)
+
+Under A1, a start-independent set still passes the η²_H part of H5 in all 6 harmonic cells with probability only ≈ 0.85⁶ ≈ 0.37. Each cell passes when H < 6.7, i.e. P(χ²₄ < 6.7) = 0.847; this was measured on synthetic null sets (E2 dry run). H5 part 1 is therefore evaluated on the mean of η²_H over the 6 harmonic (χ, T) cells: PASS if mean η²_H < 0.06. Under the null this mean has expectation 0 and standard error ≈ √(2(k−1))/(n−k)/√6 ≈ 0.026, so the null pass rate is ≈ 0.99. Per-cell η²_H values are reported descriptively.
+
+H5 part 2 is unchanged: in every harmonic cell, the largest pairwise difference of the per-start medians of ν must be below 3%.
