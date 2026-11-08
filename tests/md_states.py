@@ -23,7 +23,7 @@ Samuel J. Dawley
 # ----- standard library -----
 import dataclasses
 from pathlib import Path
-from typing import Any, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 
 # ----- numerics -----
 import jax
@@ -208,13 +208,26 @@ class FakeDriver:
 
     ``crash_at`` (call index) raises RuntimeError at that simulate call;
     with ``inphase`` the call first advances half its steps and saves them
-    to the ``checkpoint`` path it was given.
+    to the ``checkpoint`` path it was given. ``phi_factor`` (step array ->
+    factor array) makes Phi = m T factor(step), to drive the equilibration
+    gate. ``always_write`` saves every call's final state to ``checkpoint``
+    (a simulate that checkpoints on its own clock). ``existed`` logs whether
+    the checkpoint path already existed when each simulate call began (the
+    CLI must never hand over an existing file).
     """
 
-    def __init__(self, crash_at: Optional[int] = None, inphase: bool = False):
+    def __init__(
+        self, crash_at: Optional[int] = None, inphase: bool = False,
+        phi_factor: Optional[Callable[[np.ndarray], np.ndarray]] = None,
+        m: int = 4, always_write: bool = False,
+    ) -> None:  # fmt: skip
         self.calls: List[Tuple[str, int]] = []
+        self.existed: List[bool] = []
         self.crash_at = crash_at
         self.inphase = inphase
+        self.phi_factor = phi_factor
+        self.m = m
+        self.always_write = always_write
 
     def _step(self, settings: MDSettings, state: MDState) -> MDState:
         """One composable step: consumes the key and the accumulator."""
@@ -226,6 +239,9 @@ class FakeDriver:
         v = state.v * jnp.cos(acc)[:, None, None] + 1e-3 * noise
         r = state.r + settings.dt * v
         phi = jnp.sum(jnp.sin(r) ** 2, axis=(1, 2))
+        if self.phi_factor is not None:
+            factor = self.phi_factor(np.asarray(state.step) + 1)
+            phi = self.m * state.temperature * jnp.asarray(factor, dtype=jnp.float64)
         dw = jnp.abs(jnp.sin(jnp.sum(r, axis=(1, 2))))[:, None] * (1.0 + state.sum_s)
         new = dataclasses.replace(
             state, r=r, v=v, phi=phi, key=keys[:, 0], reset_acc=acc % 1.0,
@@ -253,10 +269,13 @@ class FakeDriver:
         assert n_steps >= 1, "the CLI never asks for an empty phase"
         index = len(self.calls)
         self.calls.append((settings.scheme, int(n_steps)))
+        self.existed.append(checkpoint is not None and Path(checkpoint).exists())
         if index == self.crash_at:
             if self.inphase and checkpoint is not None and n_steps >= 2:
                 half = self._advance(settings, state, n_steps // 2)
                 save_state(checkpoint, half, {"source": "simulate"})
             raise RuntimeError("simulated crash")
         out = self._advance(settings, state, n_steps)
+        if self.always_write and checkpoint is not None:
+            save_state(checkpoint, out, {"source": "simulate"})
         return MDResult(state=out, snapshots=out.snap, trace=None)

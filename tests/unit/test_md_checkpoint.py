@@ -29,7 +29,7 @@ from md_states import leaves_bitwise_equal, random_state
 
 # ----- project -----
 from xla_cco.dynamics import checkpoint
-from xla_cco.dynamics.checkpoint import load_state, save_state, tmp_path_of
+from xla_cco.dynamics.checkpoint import load_state, read_meta, save_state, tmp_path_of
 
 # ============================================================
 # CONSTANTS
@@ -200,3 +200,68 @@ def test_rejects_non_checkpoint_and_bad_meta(tmp_path: Path) -> None:
     assert not (tmp_path / "x.npz").exists()
     with pytest.raises(OSError):
         load_state(tmp_path / "missing.npz", state)
+
+
+@pytest.mark.high
+@settings(max_examples=60)
+@given(cut=st.floats(0.0, 1.0, exclude_max=True))
+@example(cut=0.5)
+@example(cut=0.0)
+def test_regression_D040_truncated_checkpoint_raises_value_error(cut: float) -> None:
+    """D-040: a truncated checkpoint raised zipfile.BadZipFile, not ValueError."""
+    state = random_state(7, 3, 2, 2, 1, 1, batch=2)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "ckpt.npz"
+        save_state(path, state, {"a": 1})
+        raw = path.read_bytes()
+        path.write_bytes(raw[: int(cut * len(raw))])
+        with pytest.raises(ValueError, match="truncated or corrupt|not an MD"):
+            load_state(path, state)
+        with pytest.raises(ValueError, match="truncated or corrupt|not an MD"):
+            read_meta(path)
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize(
+    "case, match",
+    [
+        ("garbage", "truncated or corrupt"),
+        ("no_meta", "not an MD checkpoint"),
+        ("meta_not_json", "truncated or corrupt"),
+        ("meta_not_object", "not a JSON object"),
+        ("missing_leaf", "truncated or corrupt"),
+    ],
+)
+def test_damaged_checkpoint_raises_value_error(
+    tmp_path: Path, case: str, match: str
+) -> None:
+    state = random_state(8, 2, 1, 1, 1, 1)
+    path = tmp_path / "ckpt.npz"
+    save_state(path, state, {"a": 1})
+    with np.load(path) as z:
+        arrays = {k: np.asarray(z[k]) for k in z.files}
+    if case == "garbage":
+        path.write_bytes(b"\x00\x01 not a zip file" * 10)
+    else:
+        if case == "no_meta":
+            del arrays[checkpoint.META_KEY]
+        elif case == "meta_not_json":
+            arrays[checkpoint.META_KEY] = np.asarray("{not json")
+        elif case == "meta_not_object":
+            arrays[checkpoint.META_KEY] = np.asarray("[1, 2]")
+        else:
+            del arrays[checkpoint.LEAF_FORMAT.format(3)]
+        np.savez(path, **arrays)
+    with pytest.raises(ValueError, match=match):
+        load_state(path, state)
+    if case != "missing_leaf":  # the metadata alone is still readable there
+        with pytest.raises(ValueError, match=match):
+            read_meta(path)
+
+
+@pytest.mark.high
+def test_read_meta_matches_load_state(tmp_path: Path) -> None:
+    state = random_state(9, 2, 2, 2, 2, 1, batch=2)
+    path = tmp_path / "ckpt.npz"
+    save_state(path, state, META)
+    assert read_meta(path) == META == load_state(path, state)[1]

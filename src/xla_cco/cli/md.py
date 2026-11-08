@@ -19,18 +19,30 @@ Details:
 - Lanes are (ground state x temperature), ground state major. Each lane
   starts at ``thermal.harmonic_sample`` positions and Maxwell-Boltzmann
   velocities (zero total momentum) drawn from ``--seed``.
-- ``--scheme andersen-nve``: Andersen equilibration, then per cycle Andersen
+- Equilibration (Andersen, or BAOAB) runs in two halves; begin_segment
+  starts the second, so the gate <Phi>/(M T) (E1: within GATE_TOL = 5 %)
+  sees only the second half. If any lane fails, equilibration is extended
+  once by --n-equil steps (again in halves) and re-checked; the run never
+  aborts on the gate, which is recorded per lane (``equil_gate*``).
+- ``--scheme andersen-nve``: equilibration, then per cycle Andersen
   ``--n-andersen`` steps, ``run.begin_segment`` (COM removal, e0, sums and
   winding reset) and NVE ``--n-nve`` steps. ``--scheme baoab``: BAOAB
   throughout; each cycle is begin_segment then ``--n-nve`` BAOAB steps
   (``--n-andersen`` is not used).
-- Snapshots: ``--n-snapshots`` record steps, shared between the cycles'
-  production segments and log-spaced in the steps since each segment began
-  (the segment's last step included), deduplicated and sorted (at most 256).
-- ``--checkpoint PATH`` writes the state after every phase (atomic, see
-  ``dynamics.checkpoint``) and passes ``PATH.inphase.npz`` to
-  ``run.simulate`` for checkpoints inside a phase; an existing checkpoint
-  of the same run settings is resumed, any other one is an error.
+- Snapshots: ``--n-snapshots`` record steps (at most 256), shared between
+  the cycles' production segments and log-spaced in the steps since each
+  segment began (first step and last step included). They are distinct
+  integers by construction, so a segment gets exactly its share unless it
+  is shorter than that (``segment_offsets``).
+- ``--checkpoint PATH`` writes the state at the start and after every
+  phase (atomic, see ``dynamics.checkpoint``) and passes
+  ``PATH.inphase.npz`` to ``run.simulate``, which only WRITES checkpoints
+  there. The CLI deletes that file before each simulate call and after each
+  phase checkpoint; on resume a newer in-phase file is folded into PATH.
+  A checkpoint is resumed only if its fingerprint (all run settings, the
+  input's SHA-256, M and K) matches; anything else is an error.
+- Exit codes: 0 on success and --help; 1 on a usage error or any
+  ValueError / TypeError / RuntimeError / OSError (message on stderr).
 
 Samuel J. Dawley
 11/2026
@@ -43,6 +55,7 @@ Samuel J. Dawley
 # ----- standard library -----
 import argparse
 import dataclasses
+import hashlib
 import json
 import math
 import sys
@@ -60,7 +73,7 @@ from xla_cco.box import Box
 from xla_cco.cli.relax import STATUS_NAMES, select_device
 from xla_cco.dynamics import run as md_run
 from xla_cco.dynamics import thermal
-from xla_cco.dynamics.checkpoint import load_state, save_state
+from xla_cco.dynamics.checkpoint import load_state, read_meta, save_state
 from xla_cco.dynamics.state import MDResult, MDSettings, MDState, Waves
 from xla_cco.energy import StealthyEnergy, make_stealthy_energy
 from xla_cco.kvectors import chi_from_count, enumerate_kvectors
@@ -84,8 +97,14 @@ FINGERPRINT_ARGS: Tuple[str, ...] = (
     "indices", "temperature", "dt", "n_equil", "n_andersen", "n_nve", "cycles",
     "andersen_p", "andersen_mode", "scheme", "gamma", "wind_every",
     "n_snapshots", "chunk_steps", "seed", "k_outer", "k_track",
-    "record_rho_every", "max_rho_records", "phase_floor", "drift_tol",
+    "record_rho_every", "max_rho_records", "phase_floor", "drift_tol", "k_chunk",
 )  # fmt: skip
+META_FIELDS: Tuple[str, ...] = ("fingerprint", "next_phase", "partial", "records")
+RECORDS_FIELDS: Tuple[str, ...] = ("cycles", "phase_seconds", "gate", "extended")
+GATE_TOL: float = 0.05  # E1 gate: <Phi>/(M T) within 5 % after equilibration
+MAX_PHASES: int = 10_000  # bound of the phase loop (2 * cycles + 4 phases)
+HASH_BLOCK: int = 1 << 20
+MAX_HASH_BLOCKS: int = 1 << 24  # inputs up to 16 TiB
 
 
 @dataclasses.dataclass(frozen=True)
@@ -97,6 +116,7 @@ class Phase:
     n_steps: int
     begin: bool
     cycle: int
+    gate: bool = False
 
 
 # ============================================================
@@ -151,6 +171,8 @@ def _add_system_args(p: argparse.ArgumentParser) -> None:
         help="track all waves with |k| < k-track (default 2K)",
     )
     p.add_argument("--k-chunk", type=int, default=None, help="energy k-chunk")
+    assert p.get_default("indices") is None, "default: all ground states"
+    assert p.get_default("k_track") is None, "default: 2K"
 
 
 def _add_protocol_args(p: argparse.ArgumentParser) -> None:
@@ -175,6 +197,8 @@ def _add_protocol_args(p: argparse.ArgumentParser) -> None:
         "--gamma", type=float, default=0.0, help="BAOAB friction (--scheme baoab only)"
     )
     p.add_argument("--seed", type=int, default=0)
+    assert p.get_default("n_equil") > 0, "equilibration on by default"
+    assert p.get_default("cycles") >= 1, "at least one production segment"
 
 
 def _add_output_args(p: argparse.ArgumentParser) -> None:
@@ -202,6 +226,8 @@ def _add_output_args(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument("--checkpoint-every-s", type=float, default=1800.0)
     p.add_argument("--device", choices=("gpu", "cpu"), default="gpu")
+    assert p.get_default("n_snapshots") <= MAX_SNAPSHOTS, "default within cap"
+    assert p.get_default("device") == "gpu", "GPU unless asked otherwise"
 
 
 def _require(ok: bool, message: str) -> None:
@@ -262,7 +288,8 @@ def validate_args(args: argparse.Namespace) -> None:
             min(args.indices) >= 0 and len(set(args.indices)) == len(args.indices),
             f"--indices must be distinct and >= 0, got {args.indices}",
         )
-    total = sum(ph.n_steps for ph in protocol_phases(args))
+    _require(args.cycles <= MAX_PHASES // 4, f"--cycles must be <= {MAX_PHASES // 4}")
+    total = sum(ph.n_steps for ph in protocol_phases(args, extended=True))
     _require(total <= MAX_TOTAL_STEPS, f"{total} steps exceed {MAX_TOTAL_STEPS}")
 
 
@@ -271,14 +298,32 @@ def validate_args(args: argparse.Namespace) -> None:
 # ============================================================
 
 
-def protocol_phases(args: argparse.Namespace) -> List[Phase]:
-    """The phases in run order (empty equilibration/Andersen phases dropped)."""
+def _equil_phases(args: argparse.Namespace, extended: bool) -> List[Phase]:
+    """Equilibration halves (a: transient, b: gated), twice when extended."""
+    assert args.n_equil >= 0, "n_equil must be >= 0"
+    if args.n_equil == 0:
+        return []
+    scheme = "baoab" if args.scheme == "baoab" else "andersen"
+    half = args.n_equil // 2
+    out: List[Phase] = []
+    for tag in ("equil", "ext")[: 2 if extended else 1]:
+        if half > 0:
+            out.append(Phase(f"{tag}_a", scheme, half, False, -1))
+        out.append(Phase(f"{tag}_b", scheme, args.n_equil - half, True, -1, True))
+    assert sum(ph.n_steps for ph in out) == args.n_equil * (2 if extended else 1)
+    return out
+
+
+def protocol_phases(args: argparse.Namespace, extended: bool = False) -> List[Phase]:
+    """The phases in run order (empty equilibration/Andersen phases dropped).
+
+    Equilibration is split into a first half and a second half that starts
+    with begin_segment (sums reset), so the gate sees only the second half;
+    ``extended`` appends one more equilibration of the same length.
+    """
     assert args.cycles >= 1 and args.n_nve >= 1, "need a production segment"
     baoab = args.scheme == "baoab"
-    phases: List[Phase] = []
-    if args.n_equil > 0:
-        phases.append(Phase("equil", "baoab" if baoab else "andersen",
-                            args.n_equil, False, -1))  # fmt: skip
+    phases = _equil_phases(args, extended)
     for c in range(args.cycles):
         if not baoab and args.n_andersen > 0:
             phases.append(Phase(f"andersen{c}", "andersen", args.n_andersen, False, -1))
@@ -288,13 +333,40 @@ def protocol_phases(args: argparse.Namespace) -> List[Phase]:
     return phases
 
 
+def segment_offsets(length: int, n: int) -> np.ndarray:
+    """min(n, length) distinct log-spaced steps in [1, length], ending at length.
+
+    Greedy: each step is the geometric step that reaches ``length`` in the
+    remaining number of points, rounded, but at least one more than the
+    previous step and leaving room for the points still to come.
+    """
+    assert length >= 1 and n >= 0, "need length >= 1 and n >= 0"
+    count = min(n, length)
+    if count == length:
+        return np.arange(1, length + 1, dtype=np.int64)
+    out = np.empty(count, dtype=np.int64)
+    prev = 0
+    for i in range(count):
+        if i == 0:
+            x = 1 if count > 1 else length
+        else:
+            target = prev * (length / prev) ** (1.0 / (count - i))
+            x = max(prev + 1, int(round(target)))
+        x = min(x, length - (count - 1 - i))
+        out[i], prev = x, x
+    assert count == 0 or (out[-1] == length and np.all(np.diff(out) > 0))
+    return out
+
+
 def record_schedule(phases: List[Phase], n_snapshots: int) -> Tuple[int, ...]:
     """Absolute record steps, log-spaced within every production segment.
 
     The ``n_snapshots`` are split as evenly as possible between the
-    production segments; within a segment of length L starting at step s0
-    they are round(geomspace(1, L, n)) + s0 (n = 1: the last step only).
-    The union is deduplicated and sorted.
+    production segments (earlier segments get the remainder); a segment of
+    length L starting at step s0 gets s0 + segment_offsets(L, n_c), i.e.
+    exactly min(n_c, L) distinct steps (fewer than requested only when the
+    segment is shorter than its share). Segments are disjoint and in run
+    order, so the concatenation is strictly increasing (asserted).
     """
     assert 1 <= n_snapshots <= MAX_SNAPSHOTS, "n_snapshots out of range"
     starts = np.cumsum([0] + [ph.n_steps for ph in phases])[:-1]
@@ -302,14 +374,14 @@ def record_schedule(phases: List[Phase], n_snapshots: int) -> Tuple[int, ...]:
             if ph.cycle >= 0]  # fmt: skip
     assert len(prod) >= 1, "need a production segment"
     parts: List[np.ndarray] = []
+    expected = 0
     for c, (s0, length) in enumerate(prod):
         n_c = n_snapshots // len(prod) + (1 if c < n_snapshots % len(prod) else 0)
-        if n_c == 0:
-            continue
-        grid = np.geomspace(1.0, float(length), n_c) if n_c > 1 else [length]
-        parts.append(s0 + np.rint(np.asarray(grid)).astype(np.int64))
-    steps = np.unique(np.concatenate(parts))
-    assert steps.size <= n_snapshots, "at most n_snapshots record steps"
+        parts.append(s0 + segment_offsets(length, n_c))
+        expected += min(n_c, length)
+    steps = np.concatenate(parts)  # segments are disjoint and in order
+    assert np.all(np.diff(steps) > 0), "record steps are distinct and sorted"
+    assert steps.size == expected <= n_snapshots, "as many steps as asked"
     return tuple(int(x) for x in steps)
 
 
@@ -330,6 +402,29 @@ def make_settings(
     schemes = {ph.scheme for ph in protocol_phases(args)}
     assert schemes, "the protocol has phases"
     return {s: dataclasses.replace(base, scheme=s) for s in sorted(schemes)}
+
+
+def apply_schedule(ctx: Dict[str, Any], extended: bool) -> None:
+    """Set ctx phases, record steps and settings (extended equilibration or not).
+
+    Extending shifts the production segments, so the record steps move by
+    n_equil; their number (the snapshot capacity) does not change.
+    """
+    args = ctx["args"]
+    phases = protocol_phases(args, extended)
+    steps = record_schedule(phases, args.n_snapshots)
+    if "record_steps" in ctx:
+        assert len(steps) == len(ctx["record_steps"]), "snapshot capacity is fixed"
+    settings = make_settings(args, steps)
+    any_settings = next(iter(settings.values()))
+    settings_json = {
+        f.name: getattr(any_settings, f.name)
+        for f in dataclasses.fields(any_settings)
+        if f.name != "scheme"
+    }
+    ctx.update(phases=phases, record_steps=steps, settings=settings,
+               settings_json=json.loads(json.dumps(settings_json)))  # fmt: skip
+    assert len(phases) >= 1 and len(steps) >= 1, "empty protocol"
 
 
 # ============================================================
@@ -443,6 +538,7 @@ def _stack(states: List[MDState]) -> MDState:
     """Stack single-lane states along a new leading axis."""
     assert len(states) >= 1, "need at least one lane"
     out: MDState = jax.tree_util.tree_map(lambda *x: jnp.stack(x), *states)
+    assert np.shape(out.step) == (len(states),), "leading lane axis"
     return out
 
 
@@ -472,19 +568,20 @@ def init_lanes(
     return _stack(lanes)
 
 
-def lane_template(
-    energy: StealthyEnergy, waves: Waves, basis: np.ndarray, s_gs: np.ndarray,
-    n_lanes: int, settings: MDSettings,
-) -> MDState:  # fmt: skip
+def lane_template(ctx: Dict[str, Any]) -> MDState:
     """A state with the batch's structure, shapes and dtypes (for load_state)."""
+    n_lanes = len(ctx["indices"]) * len(ctx["args"].temperature)
     assert n_lanes >= 1, "need at least one lane"
-    r0 = jnp.asarray(s_gs[0] @ basis)
-    one = md_run.init_state(energy, waves, jnp.asarray(basis), r0,
+    basis = ctx["basis"]
+    r0 = jnp.asarray(ctx["s_gs"][0] @ basis)
+    settings = ctx["settings"][ctx["phases"][0].scheme]
+    one = md_run.init_state(ctx["energy"], ctx["waves"], jnp.asarray(basis), r0,
                             jnp.zeros_like(r0), jnp.asarray(1.0),
                             jax.random.PRNGKey(0), settings)  # fmt: skip
     out: MDState = jax.tree_util.tree_map(
         lambda x: jnp.broadcast_to(x, (n_lanes, *jnp.shape(x))), one
     )
+    assert np.shape(out.step) == (n_lanes,), "leading lane axis"
     return out
 
 
@@ -498,11 +595,14 @@ def _begin(state: MDState, settings: MDSettings) -> MDState:
     out: MDState = jax.vmap(lambda s: md_run.begin_segment(s, settings, True, True))(
         state
     )
+    assert isinstance(out, MDState), "begin_segment returns an MDState"
+    assert np.shape(out.step) == np.shape(state.step), "lanes preserved"
     return out
 
 
 def _capture(state: MDState) -> Dict[str, Any]:
     """JSON-able copy of the per-lane end-of-segment observables."""
+    assert isinstance(state, MDState), "need an MDState"
     out = {k: np.asarray(getattr(state, k)).tolist() for k in RECORD_FIELDS}
     assert len(out) == len(RECORD_FIELDS), "one entry per field"
     return out
@@ -518,74 +618,178 @@ def _max_step(state: MDState) -> int:
     return int(np.max(np.asarray(state.step)))
 
 
+def gate_values(state: MDState, m: int) -> np.ndarray:
+    """<Phi> / (M T) per lane over the sums since the last begin_segment."""
+    assert m >= 1, "need M >= 1"
+    n_sum = np.asarray(state.n_sum)
+    mean = np.asarray(state.sum_phi) / np.maximum(n_sum, 1)
+    out = np.where(n_sum > 0, mean, np.nan) / (m * np.asarray(state.temperature))
+    assert out.shape == n_sum.shape, "one value per lane"
+    return np.asarray(out, dtype=np.float64)
+
+
+def gate_pass(values: np.ndarray) -> np.ndarray:
+    """|gate - 1| <= GATE_TOL per lane (False for NaN)."""
+    assert 0.0 < GATE_TOL < 1.0, "gate tolerance is a fraction"
+    out = np.abs(np.asarray(values, dtype=np.float64) - 1.0) <= GATE_TOL
+    assert out.shape == np.shape(values), "one flag per lane"
+    return out
+
+
+def _clear_inphase(ctx: Dict[str, Any]) -> None:
+    """Remove the in-phase file (consumed or stale): simulate only writes it."""
+    path = ctx["inphase"]
+    assert path is None or path.suffix == ".npz", "in-phase checkpoints are npz"
+    if path is not None and path.is_file():
+        path.unlink()
+    assert path is None or not path.exists(), "in-phase file removed"
+
+
+def _save_phase(
+    ctx: Dict[str, Any], state: MDState, next_phase: int, partial: int,
+    records: Dict[str, Any],
+) -> None:  # fmt: skip
+    """Write the checkpoint (if any), then drop the now-older in-phase file."""
+    args = ctx["args"]
+    assert 0 <= next_phase <= len(ctx["phases"]) and partial >= 0, "bad position"
+    if args.checkpoint is None:
+        return
+    meta = {"fingerprint": ctx["fingerprint"], "next_phase": next_phase,
+            "partial": partial, "records": records}  # fmt: skip
+    save_state(args.checkpoint, state, meta)
+    assert Path(args.checkpoint).is_file(), "checkpoint written"
+    _clear_inphase(ctx)
+
+
+def _check_gate(ctx: Dict[str, Any], state: MDState, records: Dict[str, Any]) -> None:
+    """Record the equilibration gate; extend equilibration once if it fails."""
+    assert any(ph.gate for ph in ctx["phases"]), "a gated phase just ran"
+    values = gate_values(state, ctx["info"]["M"])
+    records["gate"].append(values.tolist())
+    ok = gate_pass(values)
+    print(f"gate <Phi>/(MT): {np.round(values, 4).tolist()}", flush=True)
+    if not ok.all() and not records["extended"]:
+        records["extended"] = True
+        apply_schedule(ctx, True)
+        print(f"gate failed in {int((~ok).sum())} lanes: extending", flush=True)
+    assert len(records["gate"]) <= 2, "at most one extension"
+
+
+def _run_phase(ctx: Dict[str, Any], state: MDState, ph: Phase, done: int) -> MDResult:
+    """begin_segment (unless resumed inside the phase), then run.simulate."""
+    assert 0 <= done < ph.n_steps, "partial progress inside the phase"
+    st = ctx["settings"][ph.scheme]
+    if ph.begin and done == 0:
+        state = _begin(state, st)
+    _clear_inphase(ctx)  # never hand simulate an existing file
+    result = md_run.simulate(
+        ctx["energy"], ctx["waves"], ctx["basis_j"], st, state, ph.n_steps - done,
+        checkpoint=ctx["inphase"], checkpoint_every_s=ctx["args"].checkpoint_every_s,
+    )  # fmt: skip
+    assert isinstance(result, MDResult), "simulate returns an MDResult"
+    print(f"phase {ph.name} ({ph.n_steps - done} steps) done", flush=True)
+    return result
+
+
 def run_phases(
     ctx: Dict[str, Any], state: MDState, start: int, partial: int,
     records: Dict[str, Any],
 ) -> Tuple[MDState, Optional[MDResult]]:  # fmt: skip
     """Run phases[start:] (the first one already ``partial`` steps in).
 
-    Updates ``records`` (cycle observables, Phi mean after equilibration,
-    phase timings) and writes the checkpoint after every phase.
+    Updates ``records`` (cycle observables, gate values, phase timings),
+    may extend the equilibration (ctx phases change) and writes the
+    checkpoint after every phase.
     """
-    phases, settings, args = ctx["phases"], ctx["settings"], ctx["args"]
-    assert 0 <= start <= len(phases), "phase index out of range"
+    assert 0 <= start <= len(ctx["phases"]), "phase index out of range"
     result: Optional[MDResult] = None
-    for i in range(start, len(phases)):
-        ph, t0 = phases[i], time.perf_counter()
-        st = settings[ph.scheme]
-        done = partial if i == start else 0
-        assert 0 <= done < ph.n_steps, "partial progress inside the phase"
-        if ph.begin and done == 0:
-            state = _begin(state, st)
-        result = md_run.simulate(
-            ctx["energy"], ctx["waves"], ctx["basis_j"], st, state,
-            ph.n_steps - done,
-            checkpoint=ctx["inphase"], checkpoint_every_s=args.checkpoint_every_s,
-        )  # fmt: skip
+    i = start
+    for _ in range(MAX_PHASES):
+        if i >= len(ctx["phases"]):
+            break
+        ph, t0 = ctx["phases"][i], time.perf_counter()
+        result = _run_phase(ctx, state, ph, partial if i == start else 0)
         state = result.state
         if ph.cycle >= 0:
             records["cycles"].append(_capture(state))
-        if ph.name == "equil":
-            mean = np.asarray(state.sum_phi) / np.maximum(np.asarray(state.n_sum), 1)
-            records["equil_phi_mean"] = mean.tolist()
+        if ph.gate:
+            _check_gate(ctx, state, records)
         records["phase_seconds"].append([ph.name, time.perf_counter() - t0])
-        print(f"phase {ph.name} ({ph.n_steps - done} steps) done", flush=True)
-        if args.checkpoint is not None:
-            meta = {"fingerprint": ctx["fingerprint"], "next_phase": i + 1,
-                    "records": records}  # fmt: skip
-            save_state(args.checkpoint, state, meta)
+        i += 1
+        _save_phase(ctx, state, i, 0, records)
+    assert i == len(ctx["phases"]), "every phase ran"
     return state, result
 
 
-def fingerprint(args: argparse.Namespace, info: Dict[str, Any]) -> Dict[str, Any]:
+def input_digest(path: Path) -> str:
+    """SHA-256 of the input file's bytes (hex)."""
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for _ in range(MAX_HASH_BLOCKS):
+            block = fh.read(HASH_BLOCK)
+            if not block:
+                break
+            h.update(block)
+        else:
+            raise ValueError(f"{path} is too large to hash")
+    out = h.hexdigest()
+    assert len(out) == 64, "sha256 hex digest"
+    return out
+
+
+def fingerprint(
+    args: argparse.Namespace, info: Dict[str, Any], digest: str
+) -> Dict[str, Any]:
     """Run settings a checkpoint must match (JSON-normalized)."""
+    assert len(digest) == 64, "need the input's sha256"
     fp = {k: getattr(args, k) for k in FINGERPRINT_ARGS}
-    fp.update(input=str(Path(args.input).resolve()), M=info["M"], K=info["K"])
+    fp.update(input_sha256=digest, M=info["M"], K=info["K"])
     out: Dict[str, Any] = json.loads(json.dumps(fp))
     assert out.keys() == fp.keys(), "fingerprint keys survive JSON"
     return out
 
 
-def resume(
-    ctx: Dict[str, Any], like: MDState
-) -> Tuple[MDState, int, int, Dict[str, Any]]:
-    """Load (state, next phase, steps done in it, records) from the checkpoint.
-
-    An in-phase checkpoint is used when it is ahead of the phase checkpoint
-    by fewer steps than the phase has.
-    """
-    path = ctx["args"].checkpoint
-    state, meta = load_state(path, like)
+def _check_meta(path: Path, meta: Dict[str, Any], ctx: Dict[str, Any]) -> None:
+    """Raise ValueError unless the checkpoint metadata belongs to this run."""
     if meta.get("fingerprint") != ctx["fingerprint"]:
         raise ValueError(f"{path} was written by a run with other settings")
-    start, records = int(meta["next_phase"]), meta["records"]
-    _require(0 <= start <= len(ctx["phases"]), f"{path}: bad next_phase {start}")
-    partial = 0
-    if start < len(ctx["phases"]) and ctx["inphase"].is_file():
+    missing = [k for k in META_FIELDS if k not in meta]
+    _require(not missing, f"{path}: checkpoint metadata lacks {missing}")
+    records = meta["records"]
+    lacking = [k for k in RECORDS_FIELDS if k not in records]
+    _require(isinstance(records, dict) and not lacking,
+             f"{path}: checkpoint records lack {lacking}")  # fmt: skip
+
+
+def resume(ctx: Dict[str, Any]) -> Tuple[MDState, int, int, Dict[str, Any]]:
+    """Load (state, next phase, steps done in it, records) from the checkpoint.
+
+    A newer in-phase checkpoint (ahead by fewer steps than remain in the
+    phase) is folded into the phase checkpoint and removed.
+    """
+    path = ctx["args"].checkpoint
+    meta = read_meta(path)
+    _check_meta(path, meta, ctx)
+    records = meta["records"]
+    apply_schedule(ctx, bool(records["extended"]))
+    like = lane_template(ctx)
+    state, _ = load_state(path, like)
+    phases, start, partial = (
+        ctx["phases"],
+        int(meta["next_phase"]),
+        int(meta["partial"]),
+    )
+    _require(0 <= start <= len(phases) and partial >= 0
+             and (partial == 0 or partial < phases[start].n_steps),
+             f"{path}: bad position phase {start} + {partial} steps")  # fmt: skip
+    if start < len(phases) and ctx["inphase"].is_file():
         later, _ = load_state(ctx["inphase"], like)
         ahead = _max_step(later) - _max_step(state)
-        if 0 < ahead < ctx["phases"][start].n_steps:
-            state, partial = later, ahead
+        if ahead > 0 and partial + ahead < phases[start].n_steps:
+            state, partial = later, partial + ahead
+            _save_phase(ctx, state, start, partial, records)
+    _clear_inphase(ctx)
+    assert np.shape(state.step) == np.shape(like.step), "resumed lanes"
     print(f"resuming {path} at phase {start} (+{partial} steps)", flush=True)
     return state, start, partial, records
 
@@ -595,11 +799,26 @@ def resume(
 # ============================================================
 
 
+def _gate_arrays(records: Dict[str, Any], n_lanes: int) -> Dict[str, np.ndarray]:
+    """First and final gate values per lane, pass flags, extension flag."""
+    nan = np.full(n_lanes, np.nan)
+    assert n_lanes >= 1 and len(records["gate"]) <= 2, "at most two gate checks"
+    gates = [np.asarray(g, dtype=np.float64) for g in records["gate"]]
+    first, last = (gates[0], gates[-1]) if gates else (nan, nan)
+    assert first.shape == last.shape == (n_lanes,), "one gate value per lane"
+    return {
+        "equil_gate_first": first, "equil_gate": last,
+        "equil_gate_pass": gate_pass(last),
+        "equil_extended": np.asarray(bool(records["extended"])),
+    }  # fmt: skip
+
+
 def output_arrays(
     state: MDState, result: Optional[MDResult], records: Dict[str, Any],
     ctx: Dict[str, Any],
 ) -> Dict[str, np.ndarray]:  # fmt: skip
     """All arrays of ``<save>.npz`` (documented in the JSON 'npz_keys')."""
+    assert len(records["cycles"]) == ctx["args"].cycles, "one record per cycle"
     snaps = state.snap if result is None else result.snapshots
     trace = state.trace if result is None else result.trace
     out = {f"snap_{k}": np.asarray(getattr(snaps, k)) for k in SNAP_FIELDS}
@@ -613,9 +832,9 @@ def output_arrays(
                    trace_count=np.asarray(trace.count))  # fmt: skip
     rows, lane_t = lane_table(len(ctx["indices"]), list(ctx["args"].temperature))
     waves = ctx["waves"]
+    out.update(_gate_arrays(records, rows.size))
     out.update(
         r_final=np.asarray(state.r), v_final=np.asarray(state.v),
-        equil_phi_mean=np.asarray(records["equil_phi_mean"], dtype=np.float64),
         temperatures=np.asarray(ctx["args"].temperature, dtype=np.float64),
         indices=np.asarray(ctx["indices"], dtype=np.int64),
         lane_index=np.asarray(ctx["indices"], dtype=np.int64)[rows],
@@ -635,6 +854,7 @@ def write_outputs(
 ) -> None:
     """Write ``<prefix>.npz`` and ``<prefix>.json``."""
     assert arrays and summary, "nothing to write"
+    assert set(summary["npz_keys"]) == set(arrays), "summary lists the npz keys"
     Path(prefix).parent.mkdir(parents=True, exist_ok=True)
     with open(str(prefix) + ".npz", "wb") as fh:
         np.savez(fh, **arrays)
@@ -649,12 +869,12 @@ def summarize(
     status = arrays["status"]
     counts = {STATUS_NAMES.get(int(c), f"STATUS_{int(c)}"): int((status == c).sum())
               for c in np.unique(status)}  # fmt: skip
-    lane_t = arrays["lane_temperature"]
-    ratio = arrays["equil_phi_mean"] / (ctx["info"]["M"] * lane_t)
     args = ctx["args"]
-    assert ratio.shape == status.shape, "one gate value per lane"
+    assert arrays["equil_gate"].shape == status.shape, "one gate value per lane"
+    assert sum(counts.values()) == status.size, "every lane counted"
     return {
         **ctx["info"], "input": str(args.input), "indices": ctx["indices"],
+        "input_sha256": ctx["fingerprint"]["input_sha256"],
         "temperatures": list(args.temperature), "n_lanes": int(status.size),
         "args": {k: (str(v) if isinstance(v, Path) else v)
                  for k, v in vars(args).items()},
@@ -663,7 +883,9 @@ def summarize(
         "n_record_steps": len(ctx["record_steps"]),
         "status_counts": counts,
         "n_running": int((status == STATUS_RUNNING).sum()),
-        "equil_phi_over_MT": ratio.tolist() if args.n_equil > 0 else None,
+        "gate_tol": GATE_TOL, "equil_gate": records["gate"],
+        "equil_gate_pass": arrays["equil_gate_pass"].tolist(),
+        "equil_extended": bool(records["extended"]),
         "phase_seconds": records["phase_seconds"], "wall_seconds": timings,
         "npz_keys": sorted(arrays), "device": ctx["platform"],
         "jax_version": jax.__version__,
@@ -678,53 +900,41 @@ def summarize(
 def setup(args: argparse.Namespace) -> Dict[str, Any]:
     """Validate, select the device, load the input, build energy and settings."""
     validate_args(args)
-    platform = select_device(args.device)
+    platform = select_device(args.device)  # before touching the input
     s_gs, basis, indices = load_input(args.input, args.indices)
     energy, waves, info = build_system(args, basis, int(s_gs.shape[1]))
-    phases = protocol_phases(args)
-    record_steps = record_schedule(phases, args.n_snapshots)
-    settings = make_settings(args, record_steps)
-    any_settings = next(iter(settings.values()))
-    settings_json = {
-        f.name: getattr(any_settings, f.name)
-        for f in dataclasses.fields(any_settings)
-        if f.name != "scheme"
-    }
-    ctx = {
+    ctx: Dict[str, Any] = {
         "args": args, "platform": platform, "s_gs": s_gs, "basis": basis,
-        "basis_j": jnp.asarray(basis),
-        "indices": indices, "energy": energy, "waves": waves, "info": info,
-        "phases": phases, "record_steps": record_steps, "settings": settings,
-        "settings_json": json.loads(json.dumps(settings_json)),
-        "fingerprint": fingerprint(args, info),
+        "basis_j": jnp.asarray(basis), "indices": indices, "energy": energy,
+        "waves": waves, "info": info,
+        "fingerprint": fingerprint(args, info, input_digest(args.input)),
         "inphase": None if args.checkpoint is None else inphase_path(args.checkpoint),
     }  # fmt: skip
-    assert len(phases) >= 1 and len(record_steps) >= 1, "empty protocol"
+    apply_schedule(ctx, False)
+    assert ctx["phases"] and ctx["record_steps"], "empty protocol"
+    assert platform in ("cpu", "gpu", "cuda", "rocm"), f"platform {platform}"
     return ctx
 
 
 def start_state(ctx: Dict[str, Any]) -> Tuple[MDState, int, int, Dict[str, Any]]:
-    """Fresh lanes, or the resumed (state, phase, steps done, records)."""
+    """Fresh lanes (checkpointed at once), or the resumed run's position."""
     args = ctx["args"]
+    assert ctx["phases"], "a protocol to start"
+    if args.checkpoint is not None and Path(args.checkpoint).is_file():
+        return resume(ctx)
     first = ctx["settings"][ctx["phases"][0].scheme]
     n_lanes = len(ctx["indices"]) * len(args.temperature)
-    assert n_lanes >= 1, "need at least one lane"
-    if args.checkpoint is not None and Path(args.checkpoint).is_file():
-        like = lane_template(ctx["energy"], ctx["waves"], ctx["basis"],
-                             ctx["s_gs"], n_lanes, first)  # fmt: skip
-        return resume(ctx, like)
-    if ctx["inphase"] is not None and ctx["inphase"].is_file():
-        ctx["inphase"].unlink()  # stale, from an earlier run
     state = init_lanes(ctx["energy"], ctx["waves"], ctx["basis"], ctx["s_gs"],
                        list(args.temperature), args.seed, first)  # fmt: skip
-    records = {"cycles": [], "phase_seconds": [],
-               "equil_phi_mean": [float("nan")] * n_lanes}  # fmt: skip
+    records = {"cycles": [], "phase_seconds": [], "gate": [], "extended": False}
     assert np.asarray(state.step).shape == (n_lanes,), "batched lanes"
+    _save_phase(ctx, state, 0, 0, records)  # also drops a stale in-phase file
     return state, 0, 0, records
 
 
 def run(args: argparse.Namespace) -> Dict[str, Any]:
     """Run the driver; write ``<save>.npz`` / ``<save>.json``; return the summary."""
+    assert isinstance(args, argparse.Namespace), "parsed arguments"
     t0 = time.perf_counter()
     ctx = setup(args)
     resumed = args.checkpoint is not None and Path(args.checkpoint).is_file()
@@ -747,11 +957,15 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    """Parse, validate, select the device, run; returns the exit code."""
+    """Parse, validate, select the device, run; returns the exit code.
+
+    0 on success and for --help; 1 on a usage error (argparse) or a
+    ValueError / TypeError / RuntimeError / OSError (message on stderr).
+    """
     try:
         args = build_parser().parse_args(argv)
-    except SystemExit as exc:  # --help (0) or a usage error (2)
-        return exc.code if isinstance(exc.code, int) else 0
+    except SystemExit as exc:  # --help (code 0) or a usage error (code 2)
+        return 0 if exc.code in (0, None) else 1
     try:
         summary = run(args)
     except (ValueError, TypeError, RuntimeError, OSError) as exc:
@@ -759,6 +973,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 1
     assert isinstance(summary, dict), "run returns the summary"
     brief = {k: summary[k] for k in ("N", "M", "n_lanes", "status_counts")}
+    assert all(v is not None for v in brief.values()), "summary is complete"
     print(json.dumps(brief), flush=True)
     return 0
 
