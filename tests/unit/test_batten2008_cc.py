@@ -48,6 +48,7 @@ from batten2008_hessian import (  # noqa: E402
     tenfold_distance,
     wavelength_power,
 )
+from batten2008_landscape import overlap, soft_count, spectra, wave_matrix  # noqa: E402
 from batten2008_modes import (  # noqa: E402
     mode_indices,
     phase_stats,
@@ -64,6 +65,7 @@ from batten2008_offplane import (  # noqa: E402
     remove_bow,
     tangent_correlation,
 )
+from batten2008_plateau import analyze, block_diag, hessian_parts  # noqa: E402
 from batten2008_slices import pair_axes  # noqa: E402
 from batten2008_tail import restart_index, tail_frames  # noqa: E402
 from batten2008_wasserstein import frame_subset, torus_match  # noqa: E402
@@ -620,3 +622,75 @@ def test_rates_and_cumulative_winding_examples() -> None:
     turn = np.exp(2j * np.pi * t)[:, None] * 10.0  # one turn, S = 100 / N
     w = cumulative_winding(turn, 4)
     assert w[-1, 0] == pytest.approx(1.0) and w[50, 0] == pytest.approx(0.5)
+
+
+@pytest.mark.medium
+@settings(deadline=None, max_examples=10)
+@given(seed=st.integers(0, 2**31 - 1), d=st.sampled_from([1, 2]))
+def test_hessian_split_is_exact_and_obeys_the_sum_rule(seed: int, d: int) -> None:
+    energy, basis, _, kvec, s = _triad_case(d, seed)
+    side = np.diag(basis)
+    x = s * side
+    jac, blocks, w, phi = hessian_parts(x, kvec, float(np.prod(side)))
+    h = 2.0 / np.prod(side) * jac.T @ jac + block_diag(blocks)
+    scale = np.tile(side, x.shape[0])  # fractional -> Cartesian, per axis
+    ref = np.asarray(jax.hessian(energy)(jnp.asarray(s))).reshape(h.shape)
+    ref = ref / np.outer(scale, scale)
+    assert np.allclose(h, ref, rtol=1e-9, atol=1e-9 * np.abs(ref).max())
+    assert phi == pytest.approx(float(energy(jnp.asarray(s))), rel=1e-12)
+    rho = np.exp(1j * (x @ kvec.T)).sum(axis=0)
+    assert np.allclose(w.sum(axis=0), np.abs(rho) ** 2)  # sum_j w_jq = |rho_q|^2
+
+
+@pytest.mark.medium
+def test_analyze_spectra_have_the_tangent_sizes() -> None:
+    _, basis, _, kvec, s = _triad_case(2, 3)
+    side = np.diag(basis)
+    out = analyze(s * side, kvec, float(np.prod(side)))
+    nd = s.size
+    assert out["rank"] == min(2 * kvec.shape[0], nd)
+    assert out["lam"].shape == (nd,) and out["lam_r"].shape == (nd,)
+    assert out["lam_pr"].shape == (nd - out["rank"],)
+    assert out["trace_j"].shape == (s.shape[0],)
+    assert np.all(np.diff(out["lam"]) >= 0.0) and 0.0 <= out["balance"] <= 1.0
+
+
+@pytest.mark.medium
+def test_block_diag_places_each_block() -> None:
+    blocks = np.arange(8, dtype=float).reshape(2, 2, 2)
+    out = block_diag(blocks)
+    assert np.array_equal(out[:2, :2], blocks[0])
+    assert np.array_equal(out[2:, 2:], blocks[1])
+    assert not out[:2, 2:].any() and not out[2:, :2].any()
+
+
+@pytest.mark.medium
+@settings(deadline=None, max_examples=10)
+@given(seed=st.integers(0, 2**31 - 1))
+def test_waves_obey_udot_equals_minus_k_u(seed: int) -> None:
+    energy, basis, _, kvec, s = _triad_case(2, seed)
+    side = np.diag(basis)
+    x = s * side
+    wm = wave_matrix(x, kvec, float(np.prod(side)))
+    _, g = energy.value_and_grad(jnp.asarray(s))
+    proj = (-np.asarray(g) / side) @ kvec.T  # k . dr_j/dt, (N, M)
+    ph = x @ kvec.T
+    udot = np.concatenate([(-np.sin(ph) * proj).sum(0), (np.cos(ph) * proj).sum(0)])
+    assert np.allclose(udot, -wm["k"] @ wm["u"], atol=1e-10 * np.abs(udot).max())
+    assert wm["phi"] == pytest.approx(float(wm["u"] @ wm["u"]) / np.prod(side))
+    assert np.all(np.linalg.eigvalsh(wm["k"]) > -1e-9)  # K = (2/V) J J^T is PSD
+
+
+@pytest.mark.medium
+def test_spectra_of_a_diagonal_k_are_independent_wells() -> None:
+    kmag = np.array([1.0, 1.0, 2.0, 3.0])
+    k = np.diag(np.concatenate([kmag, kmag]) ** 2)
+    u = np.arange(1.0, 9.0)
+    out = spectra(k, u, np.log(np.concatenate([kmag, kmag])), 4)
+    assert np.allclose(out["c_eig"], 1.0) and out["coupling"] == 0.0
+    assert out["ray_k"] == pytest.approx(out["ray_d"])
+    assert out["o_wells"] == pytest.approx(1.0)  # soft modes = the k_1 waves
+    assert np.allclose(out["spread"], 0.0) and out["weight"].sum() == pytest.approx(1.0)
+    assert soft_count(kmag) == 4  # the whole k_1 shell, Re and Im
+    q = np.linalg.qr(np.random.default_rng(0).normal(size=(6, 2)))[0]
+    assert overlap(q, q) == pytest.approx(1.0)

@@ -40,11 +40,7 @@ linear prediction 2 S0(k) / |k|^2; (f) per flow, the measured hump ratio
 against the model's; (g) against the k_1 share of |Delta r|^2; (h) linear
 theory in d = 1, 2, 3 for S0 = 1 and S0 ~ k^2.
 
-With --compare and --kl: per chi row, flow 0's KL eigenfunctions of each
-system, measured and from the linear relaxation model, stacked against
-sin(k pi s), with the median overlap |<phi_k, phi_k^model>| over flows; the
-interior nodes of every flow's eigenfunctions against the sine nodes j/k;
-and the KL spectra (median), measured and model.
+(The KL-eigenfunction comparison across systems is batten2008_kl_plot.py.)
 
 Needs matplotlib (plot extra, or the plottime environment).
 
@@ -518,114 +514,6 @@ def figure_lopsided(
     finish(fig, out / name, dpi)
 
 
-def interior_zeros(s: np.ndarray, f: np.ndarray) -> np.ndarray:
-    """Sign changes of f(s) strictly inside (0.02, 0.98), linearly interpolated."""
-    inside = (s > 0.02) & (s < 0.98)
-    ss, ff = s[inside], f[inside]
-    k = np.flatnonzero(np.sign(ff[:-1]) * np.sign(ff[1:]) < 0)
-    out: np.ndarray = ss[k] - ff[k] * (ss[k + 1] - ss[k]) / (ff[k + 1] - ff[k])
-    return out
-
-
-def kl_overlay(ax: plt.Axes, z: Dict[str, np.ndarray], color: str, slot: int) -> None:
-    """Flow 0's KL eigenfunctions, measured (solid) and model (dashed), stacked.
-
-    At the right: the median over flows of |<phi_k, phi_k^model>| (unit
-    vectors), one column per system (``slot``).
-    """
-    s = z["s"]
-    g, n_phi = s.shape[0], z["kl_phi"].shape[2]
-    meas, model = z["kl_phi"], z["lin_kl_phi"]
-    overlap = np.median(np.abs(np.einsum("bgk,bgk->bk", meas, model)), axis=0)
-    for k in range(n_phi):
-        base = -STACK * k
-        ax.plot(s, meas[0, :, k] * np.sqrt(g / 2.0) + base, color=color, lw=1.8)
-        ax.plot(s, model[0, :, k] * np.sqrt(g / 2.0) + base, color=color, lw=1.0,
-                ls="--")  # fmt: skip
-        if slot == 0:
-            ax.plot(s, np.sin((k + 1) * np.pi * s) + base, color=GUIDE, lw=0.8,
-                    ls=":")  # fmt: skip
-            ax.axhline(base, color=GUIDE, lw=0.5, zorder=0)
-        ax.text(1.02 + 0.09 * slot, base, f"{overlap[k]:.2f}", color=color,
-                fontsize=9, va="center",
-                transform=ax.get_yaxis_transform())  # fmt: skip
-    ax.set_yticks([-STACK * k for k in range(n_phi)],
-                  [f"$k = {k + 1}$" for k in range(n_phi)])  # fmt: skip
-
-
-def kl_nodes(ax: plt.Axes, z: Dict[str, np.ndarray], color: str, marker: str) -> None:
-    """Interior zeros of each flow's eigenfunctions against the sine nodes j/k.
-
-    Small points: every flow (measured); large: their mean, filled for the
-    flow and open for the linear model. Eigenfunctions without k - 1 interior
-    zeros (mode-order swaps) are skipped.
-    """
-    s = z["s"]
-    for key, fill in (("kl_phi", color), ("lin_kl_phi", "none")):
-        for k in range(1, z[key].shape[2]):
-            nodes = np.arange(1, k + 1) / (k + 1)
-            rows = [zs for zs in (interior_zeros(s, f) for f in z[key][:, :, k])
-                    if zs.shape[0] == k]  # fmt: skip
-            if not rows:
-                continue
-            if key == "kl_phi":
-                for zs in rows:
-                    ax.plot(nodes, zs, ls="", marker=".", ms=2, color=color,
-                            alpha=0.3)  # fmt: skip
-            ax.plot(nodes, np.mean(rows, axis=0), ls="", marker=marker, ms=6,
-                    color=color, mfc=fill)  # fmt: skip
-
-
-def figure_kl_compare(
-    paths: List[Path], labels: List[str], out: Path, name: str, dpi: int
-) -> None:
-    """KL eigenfunctions of several systems, measured and linear model, per chi."""
-    fig, axes = plt.subplots(2, 3, figsize=(18.0, 13.0), constrained_layout=True,
-                             gridspec_kw={"width_ratios": [1.4, 1.0, 1.0]})  # fmt: skip
-    handles, names = [], []
-    for i, (path, label) in enumerate(zip(paths, labels, strict=True)):
-        z = load(path)
-        row, color = i % 2, SYSTEM_COLORS[(i // 2) % len(SYSTEM_COLORS)]
-        marker = "osD^vP"[(i // 2) % 6]
-        kl_overlay(axes[row, 0], z, color, i // 2)
-        kl_nodes(axes[row, 1], z, color, marker)
-        k = np.arange(1, z["kl_frac"].shape[1] + 1)
-        axes[row, 2].plot(k, np.median(z["kl_frac"], axis=0), color=color, lw=2.0,
-                          marker=marker, ms=5)  # fmt: skip
-        axes[row, 2].plot(k, np.median(z["lin_kl_frac"], axis=0), color=color,
-                          lw=1.0, ls="--")  # fmt: skip
-        if row == 0:
-            handles.append(Line2D([], [], color=color, lw=2.0, marker=marker))
-            names.append(label.split(",")[0])
-        axes[row, 0].set_title(f"({'ad'[row]}) {label.split(', ')[-1]}: KL "
-                               "eigenfunctions of flow 0; overlap with the model "
-                               "at right", loc="left", fontsize=13)  # fmt: skip
-    for row in range(2):
-        ax = axes[row, 0]
-        ax.set_xlabel(r"Fraction of Path, $s$")
-        ax.set_ylabel(r"Eigenfunction, $\phi_k(s)$ (offset)")
-        ax = axes[row, 1]
-        ax.plot([0, 1], [0, 1], color=GUIDE, lw=0.8, zorder=0)
-        ax.set_title(f"({'be'[row]}) nodes of $\\phi_k$ vs $j/k$", loc="left",
-                     fontsize=13)  # fmt: skip
-        ax.set_xlabel(r"Sine Node, $j/k$")
-        ax.set_ylabel(r"Node of $\phi_k$, $s$")
-        ax = axes[row, 2]
-        ax.set_xscale("log")
-        ax.set_yscale("log")
-        ax.set_title(f"({'cf'[row]}) KL spectrum", loc="left", fontsize=13)
-        ax.set_xlabel(r"Mode, $k$")
-        ax.set_ylabel(r"Variance Fraction, $\lambda_k/\sum\lambda$")
-    handles += [Line2D([], [], color="0.3", lw=1.8),
-                Line2D([], [], color="0.3", lw=1.0, ls="--"),
-                Line2D([], [], color=GUIDE, lw=0.8, ls=":"),
-                Line2D([], [], color="0.3", ls="", marker="o", mfc="none")]  # fmt: skip
-    names += ["measured", "linear relaxation model", r"$\sin k\pi s$",
-              "(b, e) mean node: filled flow, open model"]  # fmt: skip
-    legend_below(fig, handles, names, 4)
-    finish(fig, out / name, dpi)
-
-
 # ============================================================
 # __main__
 # ============================================================
@@ -648,17 +536,13 @@ if __name__ == "__main__":
     )
     parser.add_argument("--labels", nargs="+", default=None)
     parser.add_argument("--compare-name", default="offplane_lopsided")
-    parser.add_argument(
-        "--kl",
-        action="store_true",
-        help="with --compare: the KL-eigenfunction comparison",
-    )
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     if args.compare:
         assert args.labels and len(args.labels) == len(args.compare), "one label each"
-        maker = figure_kl_compare if args.kl else figure_lopsided
-        maker(args.compare, args.labels, args.out, args.compare_name, args.dpi)
+        figure_lopsided(
+            args.compare, args.labels, args.out, args.compare_name, args.dpi
+        )
         sys.exit(0)
     configure(args.chi, args.prefix, args.dim)
     root = args.root / f"N{args.n}"
