@@ -3,7 +3,7 @@
 """
 Figures comparing the periodic Wasserstein-2 distance with the proximity metric.
 
-Mirror figure (<out>_w2.{png,pdf}), the Wasserstein analogue of
+Mirror figure (<out>_w2.png), the Wasserstein analogue of
 plot_figure.py:
 (a) W_2(r(0), r(inf)) vs p_0(inf), one point per trajectory, with y = x;
 (b) W_0(inf) - W_0(t) (solid) and W_inf(t) = W_2(r(t), r(inf)) (dashed)
@@ -11,7 +11,7 @@ plot_figure.py:
 (c) Phi(t) vs t/T;
 (d) Phi vs [W_0(inf) - W_0(t)]^2 (solid) and vs W_inf(t)^2 (dashed).
 
-Overlay figure (<out>_w2_vs_p0.{png,pdf}), exact assignment on ~200
+Overlay figure (<out>_w2_vs_p0.png), exact assignment on ~200
 log-spaced frames per trajectory:
 (a) W_0(inf) - W_0(t) (solid) and p_0(inf) - p_0(t) (dashed);
 (b) W_inf(t) (solid) and q_inf(t) = rho^{1/2}|r(t) - r(inf)| (dashed);
@@ -144,9 +144,8 @@ def finish(fig: plt.Figure, axes: np.ndarray, out: str, dpi: int) -> None:
     for ax, tag in zip(axes.flat, "abcd", strict=True):
         ax.set_title(f"({tag})", loc="left")
     fig.tight_layout()
-    for ext in ("png", "pdf"):
-        fig.savefig(f"{out}.{ext}", dpi=dpi, bbox_inches="tight")
-    print(f"wrote {out}.png/.pdf", flush=True)
+    fig.savefig(f"{out}.png", dpi=dpi, bbox_inches="tight")  # PNG only
+    print(f"wrote {out}.png", flush=True)
 
 
 # ============================================================

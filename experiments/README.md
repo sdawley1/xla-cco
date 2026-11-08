@@ -8,9 +8,9 @@ Only scripts are tracked. All generated data lives in git-ignored directories:
 
 | Directory | Contents |
 |---|---|
-| `initial_conditions/` | `POS-2D-N1024` (100 Poisson configs, seed 20251106); `GAU-2D-N1000` (50 configs copied from `CONFIGURATIONS/N1000_configs_GaussianPairStat`, basis rescaled to unit volume); `provenance.json` |
+| `initial_conditions/` | `POS-2D-N1024` (100 Poisson configs, seed 20251106); `GAU-2D-N1000` (50 configs copied from `CONFIGURATIONS/N1000_configs_GaussianPairStat`, basis rescaled to unit volume); `URL-2D-N1024` (100 uniformly randomized triangular lattices copied from `CONFIGURATIONS/TRIANGULAR_URL`, rectangular cell); `RSA-2D-N999` (20 saturated RSA packings, `saturated_rsa.py`); `provenance.json` |
 | `trajectories/chi<χ>/<ENS>/` | `traj_XXXX.{positions.f64,npz,json}` for each trajectory, plus `manifest.json`; `trajectories/chi<χ>/summary.npz` (ensemble statistics); SLURM logs |
-| `figures/` | `chi<χ>_pos_gau.{png,pdf}` (S(k) of initial conditions; distance and energy vs t/T, log-log) and `chi<χ>_ground_state_sk.{png,pdf}` (S(k) of the converged ground states) |
+| `figures/` | `chi<χ>_pos_gau.png` (S(k) of initial conditions; distance and energy vs t/T, log-log) and `chi<χ>_ground_state_sk.png` (S(k) of the converged ground states) |
 
 ### Pipeline (run from the repository root)
 
@@ -123,7 +123,7 @@ uv run --no-sync python -I experiments/scripts/plot_wasserstein.py \
 
 ### Figures
 
-The figures are `figures/chi<χ>_w2.{png,pdf}` (the Wasserstein mirror of `chi<χ>_pos_gau`) and `figures/chi<χ>_w2_vs_p0.{png,pdf}` (exact W against labelled p on the same frames). The docstring of `plot_wasserstein.py` lists the panels.
+The figures are `figures/chi<χ>_w2.png` (the Wasserstein mirror of `chi<χ>_pos_gau`) and `figures/chi<χ>_w2_vs_p0.png` (exact W against labelled p on the same frames). The docstring of `plot_wasserstein.py` lists the panels.
 
 ## Batten, Stillinger & Torquato (2008) appendix: landscapes and gradient flows
 
@@ -335,4 +335,95 @@ uv run --no-sync python -I experiments/scripts/batten2008_offplane_plot.py --roo
 
 **Data.** `trajectories/{batten2008/N1000,flows2d/N1024}/offplane_chi<a-b>.npz`.
 
-**Figures.** `figures/{batten2008_N1000,flows2d_N1024}_offplane_{particles,modes,3d}`.
+**Figures.** `figures/{batten2008_N1000,flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999}_offplane_{particles,modes,3d}`.
+
+### Why the humps are lopsided: linear relaxation of density waves
+
+`figures/offplane_lopsided` compares all ten ensembles (1D Poisson; 2D Poisson, Gaussian, URL and saturated RSA, each at two χ). `batten2008_offplane.py` also stores a linear relaxation model with no fitted parameter. In the linearized flow, density wave n relaxes as ρ(kₙ) ∝ exp(−|kₙ|²t). Cancelling it from the start takes squared displacement 2S(kₙ, 0)/|kₙ|², the least motion that zeroes ρ(kₙ). The model is the path y(t) = Σₙ √(2S(kₙ,0))/|kₙ| (1 − e^{−|kₙ|²t}) êₙ along orthogonal directions êₙ, analysed exactly like the flows.
+
+- **The model reproduces the shape flow by flow** (panels a, b, f). Median hump ratio, first/second, measured against model:
+
+  | Ensemble | χ = 0.1 (1D: 1/3) | χ = 0.4 (1D: 2/3) |
+  |---|---|---|
+  | 1D Poisson | 1.74 / 1.75 | 1.75 / 1.76 |
+  | 2D Poisson | 0.96 / 0.84 | 1.02 / 0.88 |
+  | 2D Gaussian | 0.52 / 0.49 | 0.76 / 0.48 |
+  | 2D URL | 0.50 / 0.47 | 0.65 / 0.47 |
+  | 2D RSA | 0.77 / 0.76 | 0.96 / 0.69 |
+
+  The per-flow correlation is 0.99 in 1D. The model also predicts the net displacement: |Δr| = 274.2 against 274.3 in 1D, 22.0 against 22.4 for 2D Poisson χ = 0.1, and 5.7 against 5.8 for Gaussian χ = 0.1. The worst agreement is for the hyperuniform starts at χ = 0.4, which move furthest from linear behavior.
+- **The mechanism: where along the path the displacement is spent.** Waves relax in order of |k|, short first, because their rates are |k|². The path runs straight while one rate dominates the motion still to come, and turns while that motion is shared among different rates. So the turning sits where the displacement weight 2S₀(k)/k², summed over the waves at each |k|, is spread across scales (panel h):
+  - *1D Poisson.* Σ 1/n² is dominated by n = 1: the longest wave carries 57% of |Δr|² (59% predicted) and relaxes last along a fixed phase. The second half of the path is nearly straight k₁ motion: 0.84 of the remaining motion lies on k₁ at s = 1/2, against 0.98 at 3/4. The turning is front-loaded (86–97% done by s = 1/2), so the first hump is larger.
+  - *2D Poisson.* The number of waves per shell grows as k, so the weight per shell scales as k·(1/k²) = 1/k, equal per octave. Turning is uniform in arclength (46–48% by s = 1/2), and the humps are equal. In d = 2 this logarithmic case is marginal; d = 1 is dominated by the longest waves and d = 3 by the shortest.
+  - *Hyperuniform starts (Gaussian, URL).* S₀(k) ∝ k² at small k removes almost all long-wave displacement: k₁ carries 0.1–1.5%. The motion is spent early on short waves, which relax at nearly one rate (a straight start), and the turning crowds into the end (12–28% by s = 1/2). The second hump is the larger.
+  - *Saturated RSA.* It is not hyperuniform: S₀ is small but roughly flat at small k, like a scaled Poisson. Its weights are Poisson-like (k₁ share 0.18, as predicted), and so is its shape (ratio 0.77–0.96).
+
+### KL eigenfunctions: where they come from, and Poisson against Gaussian
+
+`figures/offplane_kl_compare` overlays the KL (principal-component) eigenfunctions φ_k(s) of the path off its chord for 2D Poisson and Gaussian starts, at both χ. φ_k are the eigenvectors over s of the Gram matrix P(s)·P(s′). They are the temporal shapes of the path's independent bends: φ₁ is the bow, φ₂ the S-bend, and so on. The variance λ_k measures how much bending each carries.
+
+- **Sines are the signature of uniform turning.** For a path whose direction decorrelates at a constant rate in arclength, the Gram kernel depends only on s − s′ (with pinned ends), and its eigenfunctions are sin(kπs). That holds for 2D Poisson: overlaps 1.00/1.00/0.99/0.97 for k = 1–4, with nodes on j/k.
+- **Hyperuniform starts compress the eigenfunctions toward the end.** For Gaussian χ = 0.1, φ₄ overlaps sin(4πs) at only 0.04, and its nodes sit after j/k (panels b, e), because the turning is concentrated late. In regions where the path turns faster, the eigenfunctions oscillate faster.
+- **The linear model predicts them.** Flow by flow, the model's eigenfunctions overlap the measured ones at 0.97 or more for k ≤ 4 in every ensemble except the hyperuniform χ = 0.4 runs (0.91, 0.64, 0.23 for k = 2–4). The model's spectra also match the measured ones at small k. Re-parametrizing by the turning angle does not turn the eigenfunctions into sines (the overlaps drop), so their shape is set by the distribution of relaxation rates, not by a simple change of clock.
+
+### Windiness of the mode-plane trajectories
+
+`batten2008_winding_plot.py` (`figures/winding_compare`) quantifies how much each density wave's trajectory winds in its mode plane (`*_mode_planes_full`). The metric is the total winding T_n = (1/2π) Σ_t |Δ arg ρ(kₙ)|, counted while S(kₙ) > 10⁻¹⁶. ρ(kₙ) sums over all particles, so T_n already averages over the particles of a flow. Also stored per mode (`batten2008_modes.py`): the net winding |Σ Δ arg ρ|/2π, and T_n split by log₁₀ S at each step.
+
+- **At χ = 0.4 the difference is physical, not statistical.** For |k| > 0.25K the Poisson waves wind 1.1–1.9 turns (rising with |k|), against 0.9–1.2 for Gaussian and URL and 0.85–1.0 for RSA. In every |k| bin above 0.25K, all 20 Poisson flows exceed all 20 Gaussian flows (Mann–Whitney p = 6.8 × 10⁻⁸, the smallest value possible for 20 against 20). The net (coherent) winding differs the same way.
+- **What sets it.** The short-wave winding tracks how far the particles move, |Δr|/√N: Spearman 0.89 over all 80 flows and 0.80 within the 20 Poisson flows alone. The within-ensemble correlation cannot come from comparing different kinds of start. The extra Poisson winding happens while S(k) of the short wave is already 10⁻²–10⁻⁶ (panel g): the wave has nearly cancelled but its particles are still being carried by the slow, long-wave relaxation. That transport slides the residual short-wave pattern, rotating arg ρ(k) without changing |ρ(k)| (the near-circular arcs in the Poisson mode planes). Hyperuniform and RSA starts need little long-wave motion (per-particle displacement 0.24–0.37, against 0.81), so their short waves slide less.
+- **At χ = 0.1 the starts differ little.** All four wind 0.75–0.9 turns at large |k|. The 2–10% Poisson–Gaussian differences are statistically real (p = 4 × 10⁻³ to 2 × 10⁻⁷ per bin), but winding is not correlated with displacement within Poisson (Spearman 0.04), so displacement is not what sets it at this χ.
+
+### Other initial conditions: Gaussian, URL and saturated RSA
+
+The full 2D analysis set (flows, slices, mismatch, modes, tail, Hessians, Wasserstein, valley floors, off-plane and all figures) was repeated from three more starts, 20 flows each at χ = 0.1 and 0.4. All 120 flows reach Φ < 10⁻²⁰:
+
+- **Gaussian pair statistics** (`GAU-2D-N1000`; hyperuniform, S ≈ k²/4π at small k);
+- **uniformly randomized triangular lattice** (`URL-2D-N1024`; the group's patterns, rectangular cell 32 × 16√3, rescaled to density 1);
+- **saturated RSA** (`RSA-2D-N999`). `saturated_rsa.py` is a NumPy port of the group's voxel algorithm (`CONFIGURATIONS/SATURATED_RSA/saturated_rsa.py`). One correction: a voxel is dropped only when it lies inside an exclusion disk (radius D), not the particle radius D/2, so refinement runs to true saturation. Saturation fixes the packing fraction, not N, so a pool of 480 patterns (N = 979–1025) was generated and the first 20 with the most common N (999) kept. φ = 0.5467. A unit test checks no overlap and no room for another disk.
+
+Rectangular cells required one generalization: every script now converts positions with per-axis cell lengths (`cell_lengths`). The valley-floor fiber holds the Cartesian plane fixed in fractional coordinates (`fractional_plane`). Square-cell results are unchanged.
+
+Results that differ from the Poisson starts:
+
+| | Poisson | Gaussian | URL | RSA |
+|---|---|---|---|---|
+| per-particle displacement, χ = 0.1 / 0.4 | 0.70 / 0.81 | 0.18 / 0.37 | 0.16 / 0.32 | 0.16 / 0.24 |
+| k₁ share of \|Δr\|², χ = 0.1 | 0.22 | 0.015 | 0.003 | 0.18 |
+| hump ratio, χ = 0.1 / 0.4 | 0.96 / 1.02 | 0.52 / 0.76 | 0.50 / 0.65 | 0.77 / 0.96 |
+| short-wave winding, χ = 0.1 / 0.4 | 0.87 / 1.83 | 0.81 / 1.14 | 0.85 / 1.12 | 0.75 / 0.98 |
+| W₂ geodesic max Φ (median), χ = 0.1 / 0.4 | 207 / 808 | 39 / 411 | 33 / 406 | 13 / 90 |
+
+Shared by every start:
+- Exactly Nd − 2M zero modes at the end.
+- About (Nd − 2M)/2 negative directions near the manifold (814/200, 792/197, 809/201, 797/199), fading as √Φ.
+- Zero valley floors on both planes.
+- KL spectra with 82–92% in the bow.
+- A per-particle participation ratio of 0.42–0.50 (a collective Gaussian field).
+
+```bash
+# initial conditions
+uv run --no-sync python -I experiments/scripts/make_initial_conditions.py --ensembles url \
+    --url-source <CONFIGURATIONS>/TRIANGULAR_URL/TRIANGULAR_URL-N_1024-rho_1.0/TRIANGULAR_URL-N_1024-rho_1.0
+sbatch --cpus-per-task=16 --time=00:30:00 --wrap "uv run --no-sync python -I experiments/scripts/saturated_rsa.py \
+    --n-configs 480 --workers 16 --shard experiments/initial_conditions/rsa_pool/pool_000.npz"
+uv run --no-sync python -I experiments/scripts/saturated_rsa.py --assemble experiments/initial_conditions/rsa_pool/pool_000.npz
+# flows, then the chain of experiments/slurm/batten2008_cc_gpu.slurm steps as for flows2d, per start
+for c in 0.1 0.4; do
+  sbatch --export=ALL,CHI=$c,FLOW_ARGS="--ic experiments/initial_conditions/GAU-2D-N1000 --out experiments/trajectories/gau2d/N1000" \
+      experiments/slurm/flows2d_gpu.slurm   # likewise URL-2D-N1024 -> url2d/N1024, RSA-2D-N999 -> rsa2d/N999
+done
+# figures (per start: --prefix gau2d / url2d / rsa2d, --n 1000 / 1024 / 999), then the comparisons
+uv run --no-sync python -I experiments/scripts/batten2008_offplane_plot.py --compare <offplane_chi*.npz, two per system> --labels ...
+uv run --no-sync python -I experiments/scripts/batten2008_offplane_plot.py --kl --compare-name offplane_kl_compare --compare ...
+uv run --no-sync python -I experiments/scripts/batten2008_winding_plot.py --roots experiments/trajectories/{flows2d/N1024,gau2d/N1000,url2d/N1024,rsa2d/N999} \
+    --labels "2D Poisson" "2D Gaussian" "2D URL" "2D RSA"
+```
+
+**Data.** `trajectories/{gau2d/N1000,url2d/N1024,rsa2d/N999}/` with the same files as `flows2d/N1024`.
+
+**Figures.** `figures/{gau2d_N1000,url2d_N1024,rsa2d_N999}_*`, plus `figures/offplane_lopsided`, `figures/offplane_kl_compare` and `figures/winding_compare`. All figures are PNG only.
+
+### The 1D landscape against χ, in 3D
+
+`batten2008_landscape3d.py` (`figures/batten2008_N6_landscape3d`) stacks the 1D landscape Φ(x₂, x₃) at heights z = χ, with Blues filled contours on a shared scale and no trajectories. N = 3 allows only χ = 1/3 and 2/3, so the figure uses N = 6 (χ = 1/6 to 5/6, M = 1–5) and slices its five-dimensional landscape at x₁ = 0 with x₄, x₅, x₆ on their lattice sites. The landscape's corrugation and depth grow with χ: Φ ≤ 2.3 at χ = 1/6 and up to 6.5 at χ = 5/6.

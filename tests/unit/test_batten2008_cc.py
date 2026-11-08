@@ -33,11 +33,12 @@ from xla_cco.minimize.lbfgs import LBFGSSettings
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "experiments" / "scripts"))
 from batten2008_floor import (  # noqa: E402
     FiberEnergy,
+    fractional_plane,
     grid_starts,
     plane_offsets,
     relax_points,
 )
-from batten2008_flows import build_energy, load_system  # noqa: E402
+from batten2008_flows import build_energy, cell_lengths, load_system  # noqa: E402
 from batten2008_hessian import (  # noqa: E402
     density_wave_stiffness,
     level_frames,
@@ -55,6 +56,7 @@ from batten2008_modes import (  # noqa: E402
 from batten2008_offplane import (  # noqa: E402
     arclength_path,
     kl_modes,
+    linear_model_path,
     participation,
     per_particle,
     plane_residual,
@@ -64,6 +66,7 @@ from batten2008_offplane import (  # noqa: E402
 from batten2008_slices import pair_axes  # noqa: E402
 from batten2008_tail import restart_index, tail_frames  # noqa: E402
 from batten2008_wasserstein import frame_subset, torus_match  # noqa: E402
+from saturated_rsa import covered, saturated_rsa  # noqa: E402
 
 # ============================================================
 # HELPERS
@@ -316,6 +319,12 @@ def test_phase_stats_radial_decay_and_one_turn() -> None:
     assert out["turns"][1] == pytest.approx(1.0, rel=1e-9)
     assert out["s_lock"][0] == pytest.approx(1e-4)  # locked from the start
     assert out["unresolved"].tolist() == [0.0, 0.0]
+    assert out["net_turns"][1] == pytest.approx(1.0, rel=1e-9)
+    assert out["band_turns"][1].tolist() == pytest.approx([0.0, 1.0, 0.0, 0.0])
+    back = 1e-2 * np.exp(1j * 0.5 * np.sin(2.0 * np.pi * t))  # out and back
+    stats = phase_stats(back[:, None].real, back[:, None].imag)
+    assert stats["net_turns"][0] == pytest.approx(0.0, abs=1e-12)
+    assert stats["turns"][0] == pytest.approx(2.0 / (2.0 * np.pi), rel=1e-3)
 
 
 # ============================================================
@@ -473,3 +482,79 @@ def test_participation_and_tangent_examples() -> None:
     assert np.allclose(participation(one), 1.0 / 8.0)
     line = np.outer(np.arange(10.0), np.ones(3))
     assert np.allclose(tangent_correlation(line, 4), 1.0)
+
+
+# ============================================================
+# TESTS: RECTANGULAR CELLS
+# ============================================================
+
+
+@pytest.mark.medium
+def test_cell_lengths_rectangular_and_rejects_shear() -> None:
+    assert cell_lengths(np.diag([3.0, 2.0])).tolist() == [3.0, 2.0]
+    with pytest.raises(AssertionError):
+        cell_lengths(np.array([[3.0, 0.0], [1.0, 2.0]]))
+
+
+@pytest.mark.medium
+def test_qvectors_rectangular_reciprocal_spacing() -> None:
+    q = qvectors(12, 2, np.array([4.0, 3.0]))
+    on_x = q[np.isclose(q[:, 1], 0.0)][:, 0]
+    on_y = q[np.isclose(q[:, 0], 0.0)][:, 1]
+    assert np.isclose(on_x.min(), 2.0 * np.pi / 4.0)
+    assert np.isclose(on_y.min(), 2.0 * np.pi / 3.0)
+    assert np.allclose(qvectors(12, 2, 4.0), qvectors(12, 2, np.array([4.0, 4.0])))
+
+
+@pytest.mark.medium
+def test_linear_model_equal_rates_is_straight_and_ends_at_weights() -> None:
+    w = np.array([4.0, 1.0, 9.0])
+    y = linear_model_path(w, np.full(3, 0.5), 50)
+    assert np.allclose(y[-1], np.sqrt(w), rtol=1e-6)
+    pr = plane_residual(y)  # one rate: a straight line, nothing off the chord
+    assert np.linalg.norm(pr["p"], axis=1).max() < 1e-9 * np.linalg.norm(y[-1])
+    bent = linear_model_path(w, np.array([0.1, 1.0, 10.0]), 50)
+    assert np.linalg.norm(plane_residual(bent)["p"], axis=1).max() > 0.01
+
+
+@pytest.mark.medium
+def test_fractional_plane_holds_cartesian_coordinates() -> None:
+    rng = np.random.default_rng(3)
+    n, side = 5, np.array([4.0, 2.0])
+    e = np.linalg.qr(rng.normal(size=(2 * n, 2)))[0].T  # Cartesian plane rows
+    q = fractional_plane((np.zeros(2 * n), e[0], e[1]), side, n).reshape(2, -1)
+    assert np.allclose(q @ q.T, np.eye(2))
+    step = rng.normal(size=2 * n)
+    step -= q.T @ (q @ step)  # a move the fiber allows, in fractional space
+    cart = (step.reshape(n, 2) * side).reshape(-1)
+    assert np.allclose(e @ cart, 0.0, atol=1e-12)  # Cartesian plane untouched
+
+
+# ============================================================
+# TESTS: SATURATED RSA
+# ============================================================
+
+
+@pytest.mark.medium
+@settings(deadline=None, max_examples=5)
+@given(st.integers(0, 2**31 - 1))
+def test_saturated_rsa_no_overlap_and_no_room(seed: int) -> None:
+    side, diam = 6.0, 0.8
+    p = saturated_rsa(np.random.default_rng(seed), side, diam)
+    q = p[:, None, :] - p[None, :, :]
+    q -= side * np.round(q / side)
+    d2 = np.einsum("ijk,ijk->ij", q, q)
+    np.fill_diagonal(d2, np.inf)
+    assert d2.min() > diam**2  # hard disks: no overlap
+    probe = np.random.default_rng(seed + 1).random((20000, 2)) * side
+    g = probe[:, None, :] - p[None, :, :]
+    g -= side * np.round(g / side)
+    assert np.einsum("ijk,ijk->ij", g, g).min(axis=1).max() <= diam**2  # saturated
+
+
+@pytest.mark.medium
+def test_covered_needs_all_corners_in_one_disk() -> None:
+    lo = np.array([[0.0, 0.0], [0.9, 0.0]])
+    corners = lo[:, None, :] + 0.1 * np.array([[0, 0], [1, 0], [0, 1], [1, 1]])
+    out = covered(corners, np.array([[0.05, 0.05]]), 10.0, 0.5)
+    assert out.tolist() == [True, False]

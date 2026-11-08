@@ -8,9 +8,14 @@ Build the initial-condition ensembles for the Dawley & Torquato (2025) runs.
 - GAU: hyperuniform patterns with Gaussian pair statistics,
   h(r) = -exp(-pi rho r^2), copied from an existing ConfigPack and
   normalized to a unit-volume basis (positions unchanged, wrapped).
+- URL: uniformly randomized triangular lattices (each site of a triangular
+  lattice displaced uniformly within a fundamental triangle, in one of six
+  orientations), copied the same way; the cell is rectangular, 32 x 16 sqrt(3)
+  lattice constants for N = 1024.
 
-Writes ``<out>/POS-2D-N<N>.ConfigPack``, ``<out>/GAU-2D-N<N>.ConfigPack`` and
-``<out>/provenance.json``. All outputs are git-ignored data.
+Writes ``<out>/<NAME>-2D-N<N>.ConfigPack`` for the ensembles named in
+--ensembles (default POS and GAU) and updates ``<out>/provenance.json``.
+All outputs are git-ignored data.
 
 Samuel J. Dawley
 11/2026
@@ -79,24 +84,23 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def provenance(
-    pos_prefix: Path, gau_prefix: Path, gau_source: Path, seed: int
-) -> Dict[str, object]:
-    """Return a provenance record for both ensembles."""
-    src = Path(f"{gau_source}.ConfigPack")
+def copied_record(prefix: Path, source: Path) -> Dict[str, object]:
+    """Provenance of an ensemble copied from an existing ConfigPack."""
     return {
-        "POS": {
-            "file": str(pos_prefix),
-            "generator": "numpy default_rng",
-            "seed": seed,
-        },
-        "GAU": {
-            "file": str(gau_prefix),
-            "source": str(gau_source),
-            "source_sha256": sha256(src),
-            "transform": "basis scaled to unit volume; positions wrapped mod 1",
-        },
+        "file": str(prefix),
+        "source": str(source),
+        "source_sha256": sha256(Path(f"{source}.ConfigPack")),
+        "transform": "basis scaled to unit volume; positions wrapped mod 1",
     }
+
+
+def copy_ensemble(source: Path, name: str, out: Path) -> Path:
+    """Unit-cell copy of a ConfigPack as <out>/<name>-2D-N<N>; returns the prefix."""
+    configs = unit_cell_copy(read_configpack(source))
+    prefix = out / f"{name}-2D-N{configs[0].relative.shape[0]}"
+    write_configpack(prefix, configs)
+    print(f"wrote {len(configs)} {name} configs -> {prefix}", flush=True)
+    return prefix
 
 
 # ============================================================
@@ -108,9 +112,20 @@ if __name__ == "__main__":
 
     # ----- inputs -----
     parser.add_argument(
+        "--ensembles", nargs="+", choices=("pos", "gau", "url"), default=["pos", "gau"]
+    )
+    parser.add_argument(
+        "--url-source",
+        type=Path,
+        default=None,
+        help="ConfigPack prefix of the uniformly randomized triangular lattices "
+        "(the group copy is CONFIGURATIONS/TRIANGULAR_URL/"
+        "TRIANGULAR_URL-N_1024-rho_1.0/TRIANGULAR_URL-N_1024-rho_1.0; read-only)",
+    )
+    parser.add_argument(
         "--gau-source",
         type=Path,
-        required=True,
+        default=None,
         help="ConfigPack prefix of the Gaussian-pair-statistics configurations "
         "(the group copy is CONFIGURATIONS/N1000_configs_GaussianPairStat/"
         "GAUSSIAN-2D-N_1000 under the TORQUATO scratch space; read-only)",
@@ -131,25 +146,35 @@ if __name__ == "__main__":
     # SLURM writes the trajectory-job logs here, so it must exist up front.
     (args.out.parent / "trajectories").mkdir(parents=True, exist_ok=True)
 
+    record_path = args.out / "provenance.json"
+    record: Dict[str, object] = (
+        json.loads(record_path.read_text()) if record_path.exists() else {}
+    )
+
     # =========================================================
     # POISSON
     # =========================================================
-    pos = poisson_ensemble(args.n_pos, args.n_particles_pos, 2, args.seed)
-    pos_prefix = args.out / f"POS-2D-N{args.n_particles_pos}"
-    write_configpack(pos_prefix, pos)
-    print(f"wrote {len(pos)} POS configs -> {pos_prefix}", flush=True)
+    if "pos" in args.ensembles:
+        pos = poisson_ensemble(args.n_pos, args.n_particles_pos, 2, args.seed)
+        pos_prefix = args.out / f"POS-2D-N{args.n_particles_pos}"
+        write_configpack(pos_prefix, pos)
+        print(f"wrote {len(pos)} POS configs -> {pos_prefix}", flush=True)
+        record["POS"] = {"file": str(pos_prefix), "generator": "numpy default_rng",
+                         "seed": args.seed}  # fmt: skip
 
     # =========================================================
-    # GAUSSIAN PAIR STATISTICS
+    # COPIED ENSEMBLES (GAUSSIAN PAIR STATISTICS, URL)
     # =========================================================
-    gau = unit_cell_copy(read_configpack(args.gau_source))
-    gau_prefix = args.out / f"GAU-2D-N{gau[0].relative.shape[0]}"
-    write_configpack(gau_prefix, gau)
-    print(f"wrote {len(gau)} GAU configs -> {gau_prefix}", flush=True)
+    for name, source in (("GAU", args.gau_source), ("URL", args.url_source)):
+        if name.lower() not in args.ensembles:
+            continue
+        if source is None:
+            parser.error(f"--{name.lower()}-source is required for {name}")
+        prefix = copy_ensemble(source, name, args.out)
+        record[name] = copied_record(prefix, source)
 
     # =========================================================
     # PROVENANCE
     # =========================================================
-    record = provenance(pos_prefix, gau_prefix, args.gau_source, args.seed)
-    (args.out / "provenance.json").write_text(json.dumps(record, indent=1))
+    record_path.write_text(json.dumps(record, indent=1))
     print("Done.", flush=True)

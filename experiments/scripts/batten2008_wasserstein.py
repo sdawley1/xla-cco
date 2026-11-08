@@ -58,7 +58,7 @@ from xla_cco.analysis.transport import periodic_assignment_1d
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from analyze_wasserstein import band  # noqa: E402
-from batten2008_flows import chi_tag, load_system  # noqa: E402
+from batten2008_flows import cell_lengths, chi_tag, load_system  # noqa: E402
 from batten2008_slices import pair_axes, pca_axes, project, start_end_axes  # noqa: E402
 
 # ============================================================
@@ -101,7 +101,9 @@ def match(reference: np.ndarray, x: np.ndarray, length: float) -> Dict[str, np.n
     """Exact assignment of every frame of ``x`` (F, N, d) to ``reference`` (N, d)."""
     if x.shape[2] == 1:  # exact O(N log N) cyclic-shift solver on the circle
         parts = [
-            periodic_assignment_1d(reference[:, 0], x[a : a + CHUNK, :, 0], length)
+            periodic_assignment_1d(
+                reference[:, 0], x[a : a + CHUNK, :, 0], float(np.ravel(length)[0])
+            )
             for a in range(0, x.shape[0], CHUNK)
         ]
         perm = np.concatenate([p.perm for p in parts])
@@ -255,7 +257,7 @@ if __name__ == "__main__":
             with np.load(root / f"flows_chi{tag}.npz") as z:
                 flows = {k: z[k] for k in z.files}
             energy, basis, _, _ = load_system(root, tag)
-            length, d = float(basis[0, 0]), basis.shape[0]
+            length, d = cell_lengths(basis), basis.shape[0]
             energy_of = jax.jit(jax.vmap(energy))
             per: Dict[str, List[np.ndarray]] = {}
             for b in range(flows["s0"].shape[0]):

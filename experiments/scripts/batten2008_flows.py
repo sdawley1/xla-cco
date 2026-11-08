@@ -86,6 +86,20 @@ def build_energy(n: int, chi: Fraction) -> Tuple[StealthyEnergy, np.ndarray, int
     return make_stealthy_energy(box, kset), basis, m
 
 
+def cell_lengths(basis: np.ndarray) -> np.ndarray:
+    """Side lengths (d,) of a rectangular cell: the diagonal of its basis.
+
+    Cartesian positions are then x = s * cell_lengths(basis) for fractional
+    s (..., N, d). Sheared cells are rejected.
+    """
+    b = np.asarray(basis, dtype=np.float64)
+    assert b.ndim == 2 and b.shape[0] == b.shape[1], "basis must be (d, d)"
+    assert np.allclose(b, np.diag(np.diag(b))), "rectangular (diagonal) cells only"
+    out: np.ndarray = np.diag(b).copy()
+    assert np.all(out > 0.0), "cell lengths must be positive"
+    return out
+
+
 def chi_tag(chi: Fraction) -> str:
     """File-name tag, e.g. '1-3' for chi = 1/3."""
     return f"{chi.numerator}-{chi.denominator}"

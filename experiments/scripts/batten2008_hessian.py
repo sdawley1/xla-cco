@@ -59,7 +59,7 @@ import numpy as np
 from xla_cco.cli.relax import select_device
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from batten2008_flows import chi_tag, load_system  # noqa: E402
+from batten2008_flows import cell_lengths, chi_tag, load_system  # noqa: E402
 from batten2008_slices import make_evaluator  # noqa: E402
 from batten2008_tail import tail_frames  # noqa: E402
 
@@ -102,22 +102,25 @@ def density_wave_stiffness(
     return out
 
 
-def qvectors(n: int, d: int, side: float) -> np.ndarray:
+def qvectors(n: int, d: int, side: object) -> np.ndarray:
     """Wavevectors 2 pi q / L for the wavelength spectra, sorted by |q|.
 
-    1D: q = 1..N/2. d > 1: half-space integer q with every |q_a| <= L, which
-    reaches past K for the 2D chi values used here.
+    1D: q = 1..N/2. d > 1: half-space integer q with every |q_a| <= L_a, which
+    reaches past K for the 2D chi values used here. ``side`` is the cell
+    length, a scalar (square cell) or one per axis (rectangular cell).
     """
+    sides = np.broadcast_to(np.asarray(side, dtype=np.float64), (d,))
+    assert np.all(sides > 0.0), "cell lengths must be positive"
     if d == 1:
         ints = np.arange(1, n // 2 + 1, dtype=np.float64)[:, None]
     else:
-        lim = int(round(side))
-        axes = np.meshgrid(*[np.arange(-lim, lim + 1)] * d, indexing="ij")
+        lims = [int(round(v)) for v in sides]
+        axes = np.meshgrid(*[np.arange(-v, v + 1) for v in lims], indexing="ij")
         grid = np.stack([a.ravel() for a in axes], axis=1)
         first = np.array([row[np.flatnonzero(row)[0]] if row.any() else 0
                           for row in grid])  # fmt: skip
         ints = grid[first > 0].astype(np.float64)  # half space, no q = 0
-    q = 2.0 * np.pi * ints / side
+    q = 2.0 * np.pi * ints / sides
     return q[np.argsort(np.einsum("qa,qa->q", q, q), kind="stable")]
 
 
@@ -170,7 +173,7 @@ def tenfold_distance(x: np.ndarray, e: np.ndarray, k: int) -> float:
 
 def cross_section(
     x: np.ndarray, e: np.ndarray, k: int, grad: np.ndarray, lam: np.ndarray,
-    vecs: np.ndarray, ev: object, side: float, g: int, n_part: int,
+    vecs: np.ndarray, ev: object, side: np.ndarray, g: int, n_part: int,
 ) -> Dict[str, np.ndarray]:  # fmt: skip
     """Phi on the (tau, v) plane through frame k of x (F, N d), with the path."""
     tau, v = section_axes(grad, vecs)
@@ -218,7 +221,7 @@ if __name__ == "__main__":
                 with np.load(tail_path) as z:
                     tail = {k: z[k] for k in z.files}
             energy, basis, nvec, kmag = load_system(root, tag)
-            side, d = float(basis[0, 0]), basis.shape[0]
+            side, d = cell_lengths(basis), basis.shape[0]
             kvec = nvec @ (2.0 * np.pi * np.linalg.inv(basis)).T  # Cartesian k
             q = qvectors(n, d, side)
             eigh = jax.jit(jnp.linalg.eigh)
@@ -250,10 +253,11 @@ if __name__ == "__main__":
                             rows[key].append(val)
                         continue
                     s = jnp.asarray(x3[k] / side)
-                    h = np.asarray(hess(s)) / side**2  # Cartesian Hessian
+                    scale = np.tile(side, n)  # fractional -> Cartesian, per axis
+                    h = np.asarray(hess(s)) / np.outer(scale, scale)  # Cartesian
                     lam, vecs = (np.asarray(a) for a in eigh(0.5 * (h + h.T)))
                     phi, g = vag(s)
-                    grad = np.asarray(g).reshape(-1) / side  # Cartesian gradient
+                    grad = np.asarray(g).reshape(-1) / scale  # Cartesian gradient
                     rows["lam"].append(lam)
                     rows["phi"].append(np.array(float(phi)))
                     rows["gnorm"].append(np.array(np.linalg.norm(grad)))

@@ -41,7 +41,7 @@ import numpy as np
 from xla_cco.cli.relax import select_device
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from batten2008_flows import chi_tag, load_system  # noqa: E402
+from batten2008_flows import cell_lengths, chi_tag, load_system  # noqa: E402
 from batten2008_slices import (  # noqa: E402
     Evaluator,
     make_evaluator,
@@ -125,12 +125,12 @@ if __name__ == "__main__":
             with np.load(root / f"flows_chi{tag}.npz") as z:
                 flows = {k: z[k] for k in z.files}
             energy, basis, _, _ = load_system(root, tag)
-            side, d = float(basis[0, 0]), basis.shape[0]
+            side, d = cell_lengths(basis), basis.shape[0]
             to_s, ev = make_to_s(n, side, d), make_evaluator(energy, args.chunk)
             per: Dict[str, List[np.ndarray]] = {}
             for b in range(flows["s0"].shape[0]):
                 cnt = int(flows["traj_count"][b])
-                x = flows["traj_s"][b, :cnt].reshape(cnt, -1) * side  # Cartesian
+                x = (flows["traj_s"][b, :cnt] * side).reshape(cnt, -1)  # Cartesian
                 res = analyze(x, to_s, ev, d)
                 res["t"] = flows["traj_t"][b, :cnt]
                 res["energy"] = flows["traj_energy"][b, :cnt]

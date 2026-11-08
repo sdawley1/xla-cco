@@ -3,14 +3,14 @@
 """
 Figures for the Batten, Stillinger and Torquato (2008) appendix landscapes.
 
-- <out>/batten2008_N3.{png,pdf}: contour plots of Phi(x2, x3) (x1 = 0) for
+- <out>/batten2008_N3.png: contour plots of Phi(x2, x3) (x1 = 0) for
   chi = 1/3 and 2/3 (cf. Fig. 15, D = 0), with the gradient flows from
   Poisson starts drawn in relative coordinates (x2 - x1, x3 - x1) mod 1.
-- <out>/batten2008_N<N>_chi<tag>_<view>.{png,pdf}: for N > 3, one panel per
+- <out>/batten2008_N<N>_chi<tag>_<view>.png: for N > 3, one panel per
   flow on the start-end, PCA or two-particle slice (batten2008_slices.py),
   with log10 Phi contours and the projected flow.
-- <out>/batten2008_energy.{png,pdf}: Phi along every flow vs t/T.
-- <out>/batten2008_N<N>_mismatch.{png,pdf}: for N > 3, the energy the contour
+- <out>/batten2008_energy.png: Phi along every flow vs t/T.
+- <out>/batten2008_N<N>_mismatch.png: for N > 3, the energy the contour
   panels show under the drawn path, Phi at the projected point (from
   batten2008_mismatch.py), against the true Phi(r(t)): (a-c) flow 0 per view;
   (d-f) median and 10-90 % band of log10(Phi_plane / Phi) over all flows.
@@ -128,11 +128,10 @@ def periodic_segments(rel: np.ndarray) -> List[np.ndarray]:
 
 
 def finish(fig: plt.Figure, out: Path, dpi: int) -> None:
-    """Save PNG and PDF."""
-    for ext in ("png", "pdf"):
-        fig.savefig(f"{out}.{ext}", dpi=dpi, bbox_inches="tight")
+    """Save the figure as PNG (no PDF copies)."""
+    fig.savefig(f"{out}.png", dpi=dpi, bbox_inches="tight")
     plt.close(fig)
-    print(f"wrote {out}.png/.pdf", flush=True)
+    print(f"wrote {out}.png", flush=True)
 
 
 # ============================================================
@@ -170,7 +169,7 @@ def figure_n3(root: Path, out: Path, dpi: int) -> None:
     ]
     fig.legend(
         handles,
-        ["Gradient Flow", "Poisson Start", "End (ground state)"],
+        ["Gradient Flow", "Start", "End (ground state)"],
         loc="upper center",
         ncol=3,
         bbox_to_anchor=(0.5, 0.0),
