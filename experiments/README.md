@@ -817,6 +817,27 @@ At a ground state, a displacement δr changes the constrained waves by δu = J �
 - *Not correct, (i):* the coherent decay does not show independent excitation. It shows that everything left is slaved to the longest waves.
 - *Not correct, (ii):* at fixed low T such excitations are not stable or selective. Equipartition sets S(k) = T for every k, and the coupling K moves a single-wave excitation into other waves on its own relaxation time.
 
+**Drives that select one wave (`figures/exclusion_drive`; `batten2008_exclusion_spectra_plot.py`).** These are computed from the eigensystem of K at ground state 0 of every start, in the harmonic regime. Selectivity is the share of the response in the driven wave.
+
+| Drive | Physics | χ = 0.1 | χ = 0.4 |
+|---|---|---|---|
+| Static field −ε cos(k·r − φ) | an equilibrium tilt: minimizing \|u\|²/V − ε(cos φ a_k + sin φ b_k) gives u* = (Vε/2)(cos φ, sin φ) on wave k only (J has full rank), so ⟨S(k)⟩ = T + (Vε/2)²/N and every other wave stays at T, to first order | 1 (exact) | 1 (exact) |
+| Travelling field ε cos(k·r − Ωt), Langevin friction γ = 0.05\|k\|, Ω = \|k\|/2 | steady response û ∝ (K − Ω² − iγΩ)⁻¹ K (e_a + i e_b) | 0.72–0.99 | 0.25–0.28 |
+| The same, on resonance Ω = \|k\| | — | 0.23–0.80 | 0.11–0.17 |
+| The same, γ = 0.5\|k\|, Ω = \|k\| (2D Poisson) | — | ≈ 0.8 | ≈ 0.5 |
+| Heat bath acting only on wave k (overdamped) | excess covariance from K Σ + Σ K = 2D | 0.93–0.996 | 0.75–0.76 |
+
+**What the table means.**
+- *The static field is perfectly selective* to first order. It is not a drive: it changes the potential, shifting the mean ⟨ρ_k⟩ while the fluctuations stay at T.
+- *Periodic fields trade energy transfer against selectivity.* Selectivity is 1 at Ω → 0 and lowest near resonance, Ω ≈ |k|. There the field pumps every collective mode of that frequency, and those modes span many waves at χ = 0.4.
+- *Friction helps.* Strong friction suppresses those resonances (thin lines in panel a), at the cost of continuous dissipation.
+- *A heated wave shares its excess heat.* About 25% goes to other waves at χ = 0.4.
+
+**How one excited wave spreads over modes and waves (`figures/exclusion_mode_spectra`).** This extends panel (f) of `exclusion_mode_control` to every constrained wave.
+- *χ = 0.1.* Long waves sit on a single line ω = |k|: their excitation stays in one collective mode and its energy stays in that wave (panels a–c). From |k| ≈ 0.4K up, the frequency band broadens to about 50 modes, and the energy spreads to waves of similar |q|.
+- *χ = 0.4.* Every wave's weight spreads across the whole Marchenko–Pastur band, from ω ≈ 0.1K to 1.3K, over 10–450 modes (panel d). Over long times its energy spreads over essentially all waves: the median self-share is 0.004 at χ = 0.4, against 0.03 at χ = 0.1.
+- *The frequency moments.* The mean frequency stays at 0.9–1.0|k|, and the spread is 0.05–0.24|k| at χ = 0.1 against 0.25–0.5|k| at χ = 0.4 (panel h).
+
 ### Other initial conditions: Gaussian, URL, saturated RSA and HIP
 
 The full 2D analysis set (flows, slices, mismatch, modes, tail, Hessians, Wasserstein, valley floors, off-plane, winding and all figures) was repeated from four more starts at χ = 0.1 and 0.4. Every 2D start has 100 flows per χ except Gaussian, which uses all 50 configurations that exist. All 900 2D flows reach Φ < 10⁻²⁰. The starts:
@@ -878,6 +899,7 @@ uv run --no-sync python -I experiments/scripts/batten2008_planes_mean_plot.py --
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_windcv_explain_plot.py --roots ... --labels ...   # winding_cv_explained (needs landscape_chi*.npz)
 uv run --no-sync python -I experiments/scripts/batten2008_exclusion.py --roots experiments/trajectories/{flows2d/N1024,...} --flows 5   # exclusion_chi*.npz
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_exclusion_plot.py --roots ... --labels ...   # exclusion_mode_control
+/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_exclusion_spectra_plot.py --roots ... --labels ...   # exclusion_mode_spectra, exclusion_drive
 uv run --no-sync python -I experiments/scripts/batten2008_landscape.py --roots experiments/trajectories/{flows2d/N1024,...} --flows 10   # CPU, 2-3 min per start
 uv run --no-sync python -I experiments/scripts/batten2008_landscape_plot.py --roots ... --labels ...   # landscape_wells, landscape_floor, landscape_valley
 uv run --no-sync python -I experiments/scripts/batten2008_winding_plot.py --roots experiments/trajectories/{flows2d/N1024,gau2d/N1000,url2d/N1024,rsa2d/N999,hip2d/N1000} \
@@ -888,7 +910,7 @@ uv run --no-sync python -I experiments/scripts/batten2008_windcv_plot.py --total
 
 **Data.** `trajectories/{gau2d/N1000,url2d/N1024,rsa2d/N999,hip2d/N1000}/` with the same files as `flows2d/N1024`, plus `winding_chi<tag>.npz`, `plateau_chi<tag>.npz` and `landscape_chi<tag>.npz` everywhere. The 20-flow runs are kept in `trajectories/<start>/N<N>_n20/`. The tolerance checks are in `trajectories/{batten2008_tight/N1000,flows2d_tight/N1024}/` (flow 0, atol 10⁻¹¹, rtol 10⁻³).
 
-**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `hessian_sign_compare`, `hessian_sign_mechanism`, `winding_cv_explained`, `exclusion_mode_control`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
+**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `hessian_sign_compare`, `hessian_sign_mechanism`, `winding_cv_explained`, `exclusion_mode_control`, `exclusion_mode_spectra`, `exclusion_drive`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
 
 ### The 1D landscape against χ, in 3D
 
