@@ -16,7 +16,7 @@ Samuel J. Dawley
 # ============================================================
 
 # ----- standard library -----
-from typing import Callable
+from typing import Callable, Iterator
 
 # ----- numerics -----
 import jax
@@ -54,6 +54,20 @@ def _require_x64() -> None:
     import xla_cco  # noqa: F401  (import enables x64)
 
     assert jax.config.jax_enable_x64, "jax_enable_x64 must be on"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _clear_jax_caches() -> Iterator[None]:
+    """Drop compiled XLA programs after each test module.
+
+    Every CPU-JIT program stays memory-mapped until it is released, and the
+    full suite exceeded vm.max_map_count (65530) once the MD tests landed
+    (``Failed to materialize symbols``; AUDIT-T2 F1). Clearing per module
+    keeps the peak near 1e4 maps.
+    """
+    assert jax.config.jax_enable_x64, "x64 stays on across modules"
+    yield
+    jax.clear_caches()
 
 
 @pytest.fixture
