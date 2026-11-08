@@ -22,7 +22,7 @@ from typing import Any, Dict, List
 # ----- numerics -----
 import numpy as np
 import pytest
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 from hypothesis.extra import numpy as hnp
 from scipy import stats as sps
@@ -33,6 +33,8 @@ from tests.tolerances import (
     ATOL_MD_ALPHA_OU,
     ATOL_MD_ALPHA_RW,
     ATOL_MD_SYN_ALPHA,
+    MD_H5_NULL_CELLS,
+    MD_H5_NULL_PASS,
     RTOL_MD_D_RW,
     RTOL_MD_RATE_EXACT,
     RTOL_MD_SYN_EQUIPARTITION,
@@ -421,31 +423,68 @@ def test_spectrum_moments_and_power_spectrum() -> None:
 
 
 @pytest.mark.critical
-def test_kruskal_epsilon2_hand_example() -> None:
-    """Three separated groups of three: H = 7.2, eps^2 = H (n+1)/(n^2-1) = 0.9."""
+def test_kruskal_eta2_hand_example() -> None:
+    """Three separated groups of three: H = 7.2, eta^2_H = (H - k + 1)/(n - k) = 0.867.
+
+    The plain epsilon^2 = H (n+1)/(n^2-1) = 0.9 (pre-Amendment A1) is rejected.
+    """
     groups = [np.array([1.0, 2, 3]), np.array([4.0, 5, 6]), np.array([7.0, 8, 9])]
-    h, p, eps2 = mds.kruskal_epsilon2(groups)
+    h, p, eta2 = mds.kruskal_eta2(groups)
     assert h == pytest.approx(7.2, rel=1e-12)
-    assert eps2 == pytest.approx(7.2 * 10 / 80, rel=1e-12)
+    assert eta2 == pytest.approx((7.2 - 2.0) / 6.0, rel=1e-12)
+    assert eta2 != pytest.approx(7.2 * 10 / 80, rel=1e-3)
     assert p == pytest.approx(sps.chi2.sf(7.2, 2), rel=1e-12)
-    assert mds.kruskal_epsilon2([np.ones(3), np.ones(4)]) == (0.0, 1.0, 0.0)
+    assert mds.kruskal_eta2([np.ones(3), np.ones(4)]) == (0.0, 1.0, 0.0)
 
 
 @pytest.mark.high
 @given(a=samples, b=samples, c=samples)
-def test_kruskal_epsilon2_property(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> None:
-    """eps^2 = H (n+1)/(n^2-1) with scipy's H, in [0, 1]."""
+def test_kruskal_eta2_property(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> None:
+    """eta^2_H = (H - 2)/(n - 3) with scipy's H, in [-2/(n-3), 1]."""
     n = a.size + b.size + c.size
-    if n < 3:
+    if n < 4:
         return
-    h, _, eps2 = mds.kruskal_epsilon2([a, b, c])
+    h, _, eta2 = mds.kruskal_eta2([a, b, c])
     pooled = np.concatenate([a, b, c])
     if np.all(pooled == pooled[0]):
-        assert eps2 == 0.0
+        assert eta2 == 0.0
         return
     assert h == pytest.approx(sps.kruskal(a, b, c).statistic, rel=1e-12)
-    assert eps2 == pytest.approx(h * (n + 1) / (n * n - 1), rel=1e-12)
-    assert -1e-12 <= eps2 <= 1.0 + 1e-12
+    assert eta2 == pytest.approx((h - 2.0) / (n - 3.0), rel=1e-12, abs=1e-12)
+    assert -2.0 / (n - 3) - 1e-12 <= eta2 <= 1.0 + 1e-12
+
+
+@pytest.mark.critical
+def test_regression_D047_h5_null_pass_rate() -> None:
+    """D-047: with no start effect a cell passes H5 at ~P(chi2_4 < 6.7) = 0.85.
+
+    200 seeded cells of 5 starts x 10 iid ground states: the A1 eta^2_H rule
+    passes 0.835 of them; the plain epsilon^2 rule passed only ~0.39.
+    """
+    passed = 0
+    for seed in range(MD_H5_NULL_CELLS):
+        rng = np.random.default_rng(seed)
+        groups = {s: 1.0 + 0.003 * rng.standard_normal(10) for s in "abcde"}
+        parts = mds.h5_cell(groups, "null")
+        passed += mds.combine([p["outcome"] for p in parts]) == mds.PASS
+    lo, hi = MD_H5_NULL_PASS
+    assert lo <= passed / MD_H5_NULL_CELLS <= hi
+
+
+@pytest.mark.high
+@example(values=np.arange(10.0), k=5)
+@given(
+    values=hnp.arrays(np.float64, st.integers(2, 12), elements=finite),
+    k=st.integers(2, 6),
+)
+def test_h5_identical_starts_pass_property(values: np.ndarray, k: int) -> None:
+    """Starts holding the same ground-state values never miss H5 (eta^2_H <= 0)."""
+    if np.any(values == 0.0) or np.ptp(values) == 0.0 or np.median(values) <= 0:
+        return  # the median difference is relative to a positive pooled median
+    groups = {f"s{i}": np.roll(values, i) for i in range(k)}
+    parts = mds.h5_cell(groups, "same")
+    assert parts[0]["value"] <= 1e-12
+    assert {p["outcome"] for p in parts} == {mds.PASS}
 
 
 @pytest.mark.high
@@ -517,8 +556,8 @@ def test_h5_cell_constructed() -> None:
         groups = {**same, "e": base * factor}
         parts = mds.h5_cell(groups, "x")
         assert mds.combine([p["outcome"] for p in parts]) == outcome
-        h, _, eps2 = mds.kruskal_epsilon2([groups[s] for s in names])
-        assert parts[0]["value"] == pytest.approx(h * 51 / 2499, rel=1e-12) == eps2
+        h, _, eta2 = mds.kruskal_eta2([groups[s] for s in names])
+        assert parts[0]["value"] == pytest.approx((h - 4.0) / 45.0, rel=1e-12) == eta2
 
 
 # ============================================================
@@ -619,3 +658,67 @@ def test_clean_json_and_markdown(null_set: Path) -> None:
     json.dumps(mds.clean_json(res), allow_nan=False)
     table = mds.markdown(res)
     assert all(f"| {h} |" in table for h in mds.HYPOTHESES)
+
+
+def _cell_data(net: np.ndarray, alpha: np.ndarray, d_theta: np.ndarray, tag: str,
+               chi: float) -> Dict[str, Any]:  # fmt: skip
+    """Minimal analysis dict (one start, one harmonic T) for h4 / h8 parts."""
+    g = net.size
+    return {"system": "flows2d", "tag": tag, "chi": np.asarray(chi),
+            "temps": np.array([1e-6]), "net_mean_c": net[:, None],
+            "abs_mean_c": np.ones((g, 1)), "alpha": alpha[:, None],
+            "d_theta": d_theta[:, None]}  # fmt: skip
+
+
+@pytest.mark.critical
+def test_a1_significance_parts_fail_on_any_miss() -> None:
+    """A1.2: H4 |z| >= 3 and H8 Mann-Whitney p >= 0.01 FAIL (never INCONCLUSIVE)."""
+    base = np.linspace(-1e-3, 1e-3, 10)
+    ok = _cell_data(base, np.ones(10), np.ones(10), "1-10", 0.1)
+    assert mds.h4_parts([ok], True)[0]["outcome"] == mds.PASS
+    biased = _cell_data(base + 0.02, np.ones(10), np.ones(10), "1-10", 0.1)
+    part = mds.h4_parts([biased], True)[0]
+    assert abs(part["z"]) > 3 and part["dev"] < 0.10  # a small but significant miss
+    assert part["outcome"] == mds.FAIL
+    d = np.linspace(1.0, 2.0, 10)
+    a = _cell_data(base, np.ones(10), d, "1-10", 0.1)
+    same = _cell_data(base, np.ones(10), d * 1.15, "2-5", 0.4)  # 15 %, p > 0.01
+    far = _cell_data(base, np.ones(10), d + 10.0, "2-5", 0.4)
+    assert mds.h8_parts([a, far], [])[0]["outcome"] == mds.PASS
+    miss = mds.h8_parts([a, same], [])[0]
+    assert miss["p"] >= mds.H8_P and miss["outcome"] == mds.FAIL
+
+
+@pytest.mark.critical
+def test_a1_tolerance_parts_inconclusive_whatever_z() -> None:
+    """A1.2: an interval / tolerance part missing by < 10 % is INCONCLUSIVE at any z."""
+    tight = 1.04 + 1e-6 * np.arange(10)  # |z| huge, 4 % off (H1 Phi band 2 %)
+    loose = 1.04 + 0.2 * np.linspace(-1, 1, 10)  # |z| < 3, 4 % off
+    for x in (tight, loose):
+        assert mds.band_part("phi", "c", x, mds.H1_PHI, 1.0)["outcome"] == (
+            mds.INCONCLUSIVE
+        )
+    part = mds._ratio_part("BAOAB / NVE", "c", tight, mds.H7_TOL)
+    assert abs(part["z"]) > 3 and part["outcome"] == mds.INCONCLUSIVE
+    assert mds.band_part("phi", "c", tight + 0.08, mds.H1_PHI, 1.0)["outcome"] == (
+        mds.FAIL
+    )
+
+
+@pytest.mark.high
+def test_a1_h6_collapse_and_beta_use_harmonic_t() -> None:
+    """A1.4: an anharmonic T = 1e-3 curve does not enter the H6 collapse and beta."""
+    lag = np.geomspace(1e-2, 1e3, 40)
+    temps = np.array([1e-6, 1e-5, 1e-4, 1e-3])
+    msd = 2.0 * temps[:, None] * lag[None] ** 2
+    msd[3] *= 5.0  # T = 1e-3 off the collapse
+    rms = np.sqrt(temps) * np.array([1.0, 1.0, 1.0, 30.0])  # and off beta = 1/2
+    z = {"system": "x", "tag": "1-10", "temps": temps, "part_lag": lag,
+         "part_msd": np.repeat(msd[None], 3, axis=0),
+         "net_rms_u": np.repeat(rms[None], 3, axis=0),
+         "ratio_bin": np.full((3, 4, 40), np.nan)}  # fmt: skip
+    parts = {p["part"]: p for p in mds.h6_parts([z], True)}
+    assert parts["beta"]["value"] == pytest.approx(0.5, abs=1e-9)
+    assert parts["collapse t sqrt(T)"]["value"] < 1e-9
+    desc = {p["part"]: p for p in mds.h6_parts([z], False)}
+    assert desc["collapse t sqrt(T)"]["value"] > 0.2 and desc["beta"]["value"] > 0.6

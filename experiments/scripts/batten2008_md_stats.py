@@ -6,16 +6,16 @@ Pre-registered verdicts H1-H8 of the MD winding experiment (plan E2).
 Reads every ``md_analysis_chi<tag>.npz`` (Andersen + NVE production) and
 ``md_analysis_langevin*_chi<tag>.npz`` (BAOAB, for H7) written by
 batten2008_md_analysis.py and evaluates experiments/md_winding/HYPOTHESES.md
-exactly as registered. The statistical unit is a ground state; "within x %"
-refers to the median over ground states; z-tests use ground-state-level
-standard errors (sd / sqrt(n)). Every criterion is split into parts (one
-per cell, bin or segment); each part is
+exactly as registered, with Amendment A1. The statistical unit is a ground
+state; "within x %" refers to the median over ground states; z-tests use
+ground-state-level standard errors (sd / sqrt(n)). Every criterion is split
+into parts (one per cell, bin or segment); each part is
 
 - PASS if it is met;
-- FAIL if it misses and its relative deviation from the prediction is >= 10 %;
-- INCONCLUSIVE if it misses by less than 10 % (|z| > 3 is the registered
-  case; a miss with |z| <= 3 is not a pass either, so it is reported as
-  INCONCLUSIVE with its z).
+- interval and tolerance parts (A1.2): FAIL if the miss is >= 10 % relative
+  to the prediction, else INCONCLUSIVE whatever its |z|;
+- significance-test parts (A1.2: H4 mean net rate |z| < 3, H8 part 2
+  Mann-Whitney p < 0.01): FAIL on any miss.
 
 A hypothesis is FAIL if any part fails, else INCONCLUSIVE if any part is,
 else PASS; NOT_EVALUATED when its inputs are absent. Harmonic T means
@@ -25,11 +25,10 @@ Deviation measures: |median - 1| for the ratios (H1-H3, H6 rates, H7);
 |mean net rate| / mean unsigned rate (H4); |alpha - 1| (H4);
 |beta - 0.5| / 0.5 and the collapse spread itself (H6); the largest
 pairwise difference of start medians relative to the pooled median (both
-H5 parts). H8 part 2 (D_theta differs between chi, Mann-Whitney p < 0.01)
-misses as FAIL when the chi medians differ by < 10 %, else INCONCLUSIVE.
-Kruskal-Wallis epsilon^2 = H (n + 1) / (n^2 - 1) (Tomczak and Tomczak
-2014); note that its null expectation is (k - 1) / (n - 1) = 0.082 for five
-starts of ten ground states (see the notes in verdicts.json).
+H5 parts). H5 uses the bias-corrected Kruskal-Wallis effect size
+eta^2_H = (H - k + 1) / (n - k) (A1.1; null expectation 0), and H5 / H7 the
+per-ground-state nu = mean over constrained waves of rate / (|k| / 2 pi)
+(A1.3); H6 collapse and beta use the harmonic T only (A1.4).
 
 Usage: python -I batten2008_md_stats.py --analysis DIR_OR_FILES...
        [--out-json experiments/md_winding/verdicts.json] [--out-md ...]
@@ -73,7 +72,7 @@ H1_S = (0.95, 1.05)
 H2_BAND = (0.95, 1.05)
 H3_TOL = 0.03
 H4_ALPHA = (0.9, 1.1)
-H5_EPS2 = 0.06
+H5_ETA2 = 0.06  # A1.1: bias-corrected eta^2_H
 H5_MEDDIFF = 0.03
 H6_RATE = 0.10
 H6_BETA = (0.4, 0.6)
@@ -100,8 +99,12 @@ Part = Dict[str, Any]
 # ============================================================
 
 
-def kruskal_epsilon2(groups: Sequence[np.ndarray]) -> Tuple[float, float, float]:
-    """(H, p, epsilon^2) of the Kruskal-Wallis test; eps^2 = H (n+1) / (n^2 - 1)."""
+def kruskal_eta2(groups: Sequence[np.ndarray]) -> Tuple[float, float, float]:
+    """(H, p, eta^2_H) of the Kruskal-Wallis test; eta^2_H = (H - k + 1) / (n - k).
+
+    Bias corrected (Amendment A1.1): its null expectation is 0 (it can be
+    negative); NaN when n = k.
+    """
     clean = [np.asarray(g, dtype=np.float64) for g in groups]
     clean = [g[np.isfinite(g)] for g in clean]
     assert len(clean) >= 2 and all(g.size >= 1 for g in clean), "need >= 2 groups"
@@ -111,7 +114,9 @@ def kruskal_epsilon2(groups: Sequence[np.ndarray]) -> Tuple[float, float, float]
     if np.all(pooled == pooled[0]):
         return 0.0, 1.0, 0.0  # all tied: no evidence of any difference
     h, p = stats.kruskal(*clean)
-    return float(h), float(p), float(h) * (n + 1) / (n * n - 1.0)
+    k = len(clean)
+    eta2 = (float(h) - k + 1.0) / (n - k) if n > k else float("nan")
+    return float(h), float(p), eta2
 
 
 def cliffs_delta(a: np.ndarray, b: np.ndarray) -> float:
@@ -322,6 +327,16 @@ def h3_parts(main: List[Data], harmonic: bool) -> List[Part]:
     return out
 
 
+def _significance(z: float) -> str:
+    """A1.2 significance-test part |z| < 3: PASS, else FAIL (NaN: INCONCLUSIVE)."""
+    assert isinstance(z, float), "z must be a float"
+    if not np.isfinite(z) and not np.isinf(z):
+        return INCONCLUSIVE  # no estimate (fewer than two ground states)
+    out = PASS if abs(z) < Z_CRIT else FAIL
+    assert out in (PASS, FAIL), "no INCONCLUSIVE for a decided test"
+    return out
+
+
 def h4_parts(main: List[Data], harmonic: bool) -> List[Part]:
     """Mean net rate consistent with 0 (|z| < 3); MSD exponent in [0.9, 1.1]."""
     assert all("alpha" in z for z in main), "analysis data"
@@ -340,6 +355,7 @@ def h4_parts(main: List[Data], harmonic: bool) -> List[Part]:
                     loc["z"],
                     dev,
                     bool(abs(loc["z"]) < Z_CRIT),
+                    outcome=_significance(loc["z"]),
                     n=loc["n"],
                 )
             )
@@ -361,11 +377,11 @@ def _by_chi_t(main: List[Data], harmonic: bool) -> Dict[Tuple[str, float], List]
 
 
 def h5_cell(groups: Dict[str, np.ndarray], cell: str) -> List[Part]:
-    """Kruskal-Wallis eps^2 < 0.06 and largest pairwise median difference < 3 %."""
+    """Kruskal-Wallis eta^2_H < 0.06 and largest pairwise median difference < 3 %."""
     assert cell, "cell label"
     assert len(groups) >= 2, "need at least two starts"
     names = sorted(groups)
-    h, p, eps2 = kruskal_epsilon2([groups[s] for s in names])
+    h, p, eta2 = kruskal_eta2([groups[s] for s in names])
     meds = {s: float(np.nanmedian(groups[s])) for s in names}
     grand = float(np.nanmedian(np.concatenate([groups[s] for s in names])))
     hi, lo = max(names, key=meds.__getitem__), min(names, key=meds.__getitem__)
@@ -373,7 +389,7 @@ def h5_cell(groups: Dict[str, np.ndarray], cell: str) -> List[Part]:
     _, z_pair = mann_whitney(groups[hi], groups[lo])
     z_kw = float(stats.norm.isf(max(p, 1e-300) / 2.0))
     return [
-        make_part("KW eps2", cell, eps2, z_kw, maxdiff, bool(eps2 < H5_EPS2),
+        make_part("KW eta2_H", cell, eta2, z_kw, maxdiff, bool(eta2 < H5_ETA2),
                   H=h, p=p, medians=meds),
         make_part("max median diff", cell, maxdiff, z_pair, maxdiff,
                   bool(maxdiff < H5_MEDDIFF), pair=[hi, lo]),
@@ -584,8 +600,7 @@ def h8_parts(main: List[Data], h2: List[Part]) -> List[Part]:
                 ratio = float(np.nanmedian(b["d_theta"][:, tb])
                               / np.nanmedian(a["d_theta"][:, ti]))  # fmt: skip
                 met = bool(p < H8_P)
-                small = abs(ratio - 1.0) < FAIL_DEV
-                outcome = PASS if met else (FAIL if small else INCONCLUSIVE)
+                outcome = PASS if met else FAIL  # A1.2: significance test
                 cell = (
                     f"{a['system']} chi {a['tag']} vs {b['tag']} T={a['temps'][ti]:g}"
                 )
@@ -654,12 +669,13 @@ def evaluate(main: List[Data], lang: List[Data]) -> Dict[str, Any]:
     n_groups = sorted({len(v) for v in _by_chi_t(main, True).values()}) if main else []
     n_gs = sorted({int(z["nu_c"].shape[0]) for z in main})
     notes = [
-        "epsilon^2 = H (n+1)/(n^2-1); under the null its expectation is "
-        f"(k-1)/(n-1) (starts per cell {n_groups}, ground states per start {n_gs}); "
-        "for k = 5, n = 50 that is 0.082 > 0.06, so H5 part 'KW eps2' misses "
-        "with probability ~0.57 per cell even without any start dependence.",
-        "A miss by < 10 % is INCONCLUSIVE whatever its |z| (HYPOTHESES.md defines "
-        "only the |z| > 3 case); its z is listed.",
+        "H5 uses eta^2_H = (H-k+1)/(n-k) (Amendment A1.1; null mean 0; starts "
+        f"per cell {n_groups}, ground states per start {n_gs}); with k = 5, "
+        "n = 50 a start-independent cell still misses eta^2_H < 0.06 with "
+        "probability P(chi2_4 > 6.7) = 0.15.",
+        "A1.2: interval / tolerance parts missing by < 10 % are INCONCLUSIVE "
+        "whatever |z|; significance-test parts (H4 net rate, H8 part 2) FAIL "
+        "on any miss.",
         "Normalized unsigned rate nu = mean over constrained waves of "
         "rate / (|k| / 2 pi); H5, H7 use it per ground state.",
     ]

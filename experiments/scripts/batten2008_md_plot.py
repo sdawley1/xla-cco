@@ -17,7 +17,7 @@ to --out:
 - F4 ``md_F4_net_msd``: net-winding MSD (median over ground states) with the
   fit window, and the exponent alpha per ground state with the H4 band.
 - F5 ``md_F5_starts``: normalized rate nu and D_theta by start (strip plots),
-  with Kruskal-Wallis eps^2, the largest median difference and max |Cliff's
+  with Kruskal-Wallis eta^2_H, the largest median difference and max |Cliff's
   delta| per panel.
 - F6 ``md_F6_temperature``: nu, the unconstrained net-rate RMS (with T^1/2)
   and D_theta against T.
@@ -58,7 +58,7 @@ from batten2008_md_stats import (  # noqa: E402
     H3_TOL,
     H4_ALPHA,
     cliffs_delta,
-    kruskal_epsilon2,
+    kruskal_eta2,
     load_analysis,
     temp_indices,
 )
@@ -369,17 +369,17 @@ def figure_net_msd(data: Dict[str, object], out: Path, dpi: int, t_idx: int) -> 
 
 
 def _effect_text(groups: Dict[str, np.ndarray]) -> str:
-    """'eps2 = .., dmed = .., max|delta| = ..' for start groups."""
+    """'eta2_H = .., dmed = .., max|delta| = ..' for start groups."""
     assert all(np.ndim(g) == 1 for g in groups.values()), "1D groups"
     assert len(groups) >= 2, "need two groups"
-    _, _, eps2 = kruskal_epsilon2(list(groups.values()))
+    _, _, eta2 = kruskal_eta2(list(groups.values()))
     meds = [float(np.nanmedian(g)) for g in groups.values()]
     grand = float(np.nanmedian(np.concatenate(list(groups.values()))))
     names = list(groups)
     delta = max(abs(cliffs_delta(groups[a], groups[b]))
                 for i, a in enumerate(names) for b in names[i + 1:])  # fmt: skip
     return (
-        rf"$\epsilon^2$={eps2:.3f}, $\Delta$med={(max(meds) - min(meds)) / grand:.3f},"
+        rf"$\eta^2_H$={eta2:.3f}, $\Delta$med={(max(meds) - min(meds)) / grand:.3f},"
         rf" max$|\delta|$={delta:.2f}"
     )
 

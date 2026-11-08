@@ -214,3 +214,10 @@ RTOL_MD_SYN_EQUIPARTITION: float = 0.03
 #   [~38, 400], 24 walks per lane), median of 18 -> ~0.05; 0.15 = 3 sd (the
 #   pre-registered band is 0.1; this set is far shorter than production runs).
 ATOL_MD_SYN_ALPHA: float = 0.15
+# H5 under Amendment A1 (D-047): with no start effect, k = 5 starts of 10 ground
+# states, eta^2_H < 0.06 <=> H < 6.7, so a cell passes with P(chi2_4 < 6.7) = 0.847
+# (asymptotic; measured 0.835 over the 200 seeded cells). Binomial sd over 200
+# cells is 0.025; [0.77, 0.92] is about +-3 sd and excludes the plain-epsilon^2
+# rate 0.39 (P(chi2_4 < 2.94) = 0.43) by > 15 sd.
+MD_H5_NULL_CELLS: int = 200
+MD_H5_NULL_PASS: tuple = (0.77, 0.92)
