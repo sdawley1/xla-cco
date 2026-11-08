@@ -17,14 +17,23 @@ Figures for the collective-coordinate analyses of the N = 1000 flows.
   when the phase locks (less than 0.1 rad left to turn), (c) the late-time
   exponent p_n in S_n ~ S_1^p_n (median and 10-90 % over flows; shown when
   at least 10 flows resolve it).
+The Hessian figures use the energy as the clock (batten2008_hessian.py
+samples every quarter decade of Phi; the x axes run from high to low Phi, so
+time runs left to right):
+
 - batten2008_N<N>_hessian_detail: (a, e) positive eigenvalues over k_p^2,
-  p = ceil(i/2), flow 0 at t/T >= 1e-4 and all flows at the end; (b, f)
-  curvature along the density waves over k_n^2; (c, g) number of negative
-  eigenvalues and |lambda_min|; (d, h) mean Fourier power of the negative
-  eigenvectors (solid) and of as many of the stiffest ones (dotted).
-- batten2008_N<N>_hessian: (a, b) Hessian eigenvalues of flow 0 at six
-  times (symlog); (c) negative and near-zero (|lambda| < 1e-6 lambda_max)
-  eigenvalue counts, median over flows.
+  p = ceil(i/2), flow 0 every two decades below Phi = 1 and all flows at
+  the end; (b, f) curvature along the density waves over k_n^2; (c, g)
+  number of negative eigenvalues (|lambda| > 1e-9 lambda_max) and
+  |lambda_min|, with that cut; (d, h) mean Fourier power
+  of the negative eigenvectors (solid) and of as many of the stiffest ones
+  (dotted).
+- batten2008_N<N>_hessian: (a, b) Hessian eigenvalues of flow 0 at eight
+  energies (symlog); (c) negative (below -1e-9 and -1e-13 lambda_max) and
+  near-zero (|lambda| < 1e-6 and 1e-9 lambda_max) eigenvalue counts against
+  Phi, median and 10-90 % band over flows. Near the manifold the soft
+  eigenvalues scale as sqrt(Phi), so where these counts change is set by
+  the cuts.
 - batten2008_N<N>_sections: Phi on the plane through r(t) spanned by the flow
   direction tau and the stiffest Hessian direction v, with the flow's frames.
 - batten2008_N<N>_floor: flat-slice and valley-floor contours on the start-end
@@ -71,11 +80,35 @@ from matplotlib.lines import Line2D  # noqa: E402
 FLOOR = 1e-20  # S, Phi below this are ground-state round-off
 EPS_STYLES = {0: "-", 1: "--"}  # t_relax thresholds 1e-2 and 1e-8
 SAMPLE_CMAP = plt.get_cmap("Blues")
-SIX = (0.0, 1e-5, 1e-3, 1e-2, 1e-1, 1.0)  # t/T of batten2008_N<N>_hessian
+ZERO_REL = 1e-9  # |lambda| below this x lambda_max is zero (batten2008_hessian.py)
+TIGHT_REL = 1e-13  # a negative-eigenvalue cut just above eigh round-off
+SPECTRA = (3.0, 1.0, -1.0, -3.0, -6.0, -10.0, -14.0, -20.0)  # log10 Phi, (a, b)
+PHI_LABEL = r"Energy, $\Phi$"
 
 # ============================================================
 # HELPERS
 # ============================================================
+
+
+def phi_axis(ax: plt.Axes) -> None:
+    """Log energy axis, high to low (flow time runs left to right)."""
+    ax.set_xscale("log")
+    if not ax.xaxis_inverted():
+        ax.invert_xaxis()
+    ax.set_xlabel(PHI_LABEL)
+
+
+def level_label(level: float, phi0: float) -> str:
+    """Legend text of a log10 Phi level; levels above the start are the start."""
+    if level >= np.log10(phi0):
+        return r"start, $\Phi_0$"
+    return rf"$\Phi = 10^{{{level:g}}}$"
+
+
+def in_range(z: Dict[str, np.ndarray]) -> np.ndarray:
+    """Levels every flow reaches from above (none falls on its start frame)."""
+    start = np.log10(z["phi"][:, 0]).min()
+    return np.asarray(z["samples"]) <= start
 
 
 def legend_below(fig: plt.Figure, handles: List, labels: List[str]) -> None:
@@ -329,52 +362,59 @@ def figure_mode_phases(root: Path, n: int, out: Path, dpi: int) -> None:
 
 
 def figure_hessian(root: Path, n: int, out: Path, dpi: int) -> None:
-    """Hessian spectra along flow 0 and eigenvalue counts over flows."""
+    """Hessian spectra along flow 0 and eigenvalue counts over flows, vs Phi."""
     fig, axes = plt.subplots(1, 3, figsize=(16.0, 4.6), constrained_layout=True)
     zero_lines = []
     for col, (tag, label) in enumerate(CHI_TAGS):
         z = load(root / f"hessian_chi{tag}.npz")
-        sel = [i for i, v in enumerate(z["samples"]) if v in SIX]
-        lam, samples = z["lam"][0][sel], z["samples"][sel]
+        levels = np.asarray(z["samples"])
+        sel = [int(np.argmin(np.abs(levels - v))) for v in SPECTRA]
+        lam = z["lam"][0][sel]
         nd = lam.shape[-1]
         zero_lines.append((nd - 2 * kmag_of(z, n).shape[0], CHI_COLORS[tag]))
         ax = axes[col]
-        for i in range(lam.shape[0]):
-            c = SAMPLE_CMAP(0.35 + 0.65 * i / (lam.shape[0] - 1))
+        for i, j in enumerate(sel):
+            c = SAMPLE_CMAP(0.3 + 0.7 * i / (len(sel) - 1))
             ax.plot(np.arange(1, nd + 1) / nd, lam[i], color=c, lw=1.6,
-                    label=rf"$t/T = {samples[i]:g}$")  # fmt: skip
+                    label=level_label(levels[j], z["phi"][0, 0]))  # fmt: skip
         ax.set_yscale("symlog", linthresh=1e-4)
         ax.axhline(0.0, color="0.6", lw=0.8, zorder=0)
         ax.set_title(f"({'ab'[col]}) {label}, flow 0", loc="left")
         ax.set_xlabel(r"Eigenvalue Rank, $i/(Nd)$")
-        lam_all = z["lam"][:, sel]
+        keep = in_range(z)
+        x = 10.0 ** levels[keep]
+        lam_all = z["lam"][:, keep]
         n_soft = (np.abs(lam_all) < 1e-6 * lam_all[..., -1:]).sum(axis=-1)
-        idx = np.arange(samples.shape[0])
-        n_neg = z["n_negative"][:, sel]
-        axes[2].plot(idx, np.median(n_neg, axis=0), color=CHI_COLORS[tag],
-                     lw=2.0, marker="o")  # fmt: skip
-        axes[2].plot(idx, np.median(n_soft, axis=0), color=CHI_COLORS[tag], lw=2.0,
-                     ls="--", marker="s")  # fmt: skip
+        band(axes[2], x, z["n_negative"][:, keep].astype(float), CHI_COLORS[tag], "-")
+        band(axes[2], x, n_soft.astype(float), CHI_COLORS[tag], "--")
+        band(axes[2], x, z["n_zero"][:, keep].astype(float), CHI_COLORS[tag], ":")
+        n_neg_tight = (lam_all < -TIGHT_REL * lam_all[..., -1:]).sum(axis=-1)
+        band(axes[2], x, n_neg_tight.astype(float), CHI_COLORS[tag], "-.")
     axes[0].set_ylabel(r"Hessian Eigenvalue, $\lambda_i$")
     axes[0].legend(frameon=False, fontsize=10, loc="upper left")
     ax = axes[2]
     for value, color in zero_lines:
         if value > 0:
             ax.axhline(value, color=color, lw=0.8, ls=":", zorder=0)
-            ax.text(0.05, value * 1.03, rf"$Nd - 2M = {value}$", color=color,
-                    fontsize=11)  # fmt: skip
+            ax.text(0.72, value * 1.03, rf"$Nd - 2M = {value}$", color=color,
+                    fontsize=11, transform=ax.get_yaxis_transform())  # fmt: skip
     top = max([v for v, _ in zero_lines] + [1])
     ax.set_ylim(top=max(ax.get_ylim()[1], 1.12 * top))  # room for the labels
-    ax.set_xticks(idx, [f"{s:g}" for s in samples])
-    ax.set_title("(c) eigenvalue counts, median over flows", loc="left")
-    ax.set_xlabel(r"Dimensionless Time, $t/T$")
+    phi_axis(ax)
+    ax.set_title("(c) eigenvalue counts over flows", loc="left")
     ax.set_ylabel("Number of Eigenvalues")
     handles = [Line2D([], [], color=CHI_COLORS[t], lw=2.0) for t, _ in CHI_TAGS]
-    handles += [Line2D([], [], color="0.3", lw=2.0, marker="o"),
-                Line2D([], [], color="0.3", lw=2.0, ls="--", marker="s")]  # fmt: skip
+    handles += [Line2D([], [], color="0.3", lw=2.0),
+                Line2D([], [], color="0.3", lw=2.0, ls="--"),
+                Line2D([], [], color="0.3", lw=2.0, ls=":"),
+                Line2D([], [], color="0.3", lw=2.0, ls="-.")]  # fmt: skip
     labels = [lab for _, lab in CHI_TAGS]
-    labels += [r"(c) $\lambda < 0$", r"(c) $|\lambda| < 10^{-6}\lambda_{\max}$"]
-    legend_below(fig, handles, labels)
+    labels += [r"(c) $\lambda < -10^{-9}\lambda_{\max}$",
+               r"(c) $|\lambda| < 10^{-6}\lambda_{\max}$",
+               r"(c) $|\lambda| < 10^{-9}\lambda_{\max}$",
+               r"(c) $\lambda < -10^{-13}\lambda_{\max}$"]  # fmt: skip
+    fig.legend(handles, labels, loc="upper center", ncol=4, bbox_to_anchor=(0.5, 0.0),
+               frameon=False)  # fmt: skip
     finish(fig, out / f"{NAMES['prefix']}_N{n}_hessian", dpi)
 
 
@@ -394,10 +434,11 @@ def figure_hessian_detail(root: Path, n: int, out: Path, dpi: int) -> None:
     pairs = 60
     for row, (tag, label) in enumerate(CHI_TAGS):
         z = load(root / f"hessian_chi{tag}.npz")
-        samples, lam = z["samples"], z["lam"]  # (flows, samples, N d)
+        samples, lam = z["samples"], z["lam"]  # (flows, levels, N d)
         kmag = kmag_of(z, n)
-        u = np.median(z["u"], axis=0)
-        late = [i for i, v in enumerate(samples) if v >= 1e-4]
+        keep = in_range(z)
+        u = 10.0 ** np.asarray(samples)  # the clock: Phi at each level
+        late = [i for i, v in enumerate(samples) if v <= 0.0 and v % 2 == 0]
         letter = "abcdefgh"[4 * row : 4 * row + 4]
         # (a) low end of the positive spectrum over |k_p|^2
         ax = axes[row, 0]
@@ -405,7 +446,7 @@ def figure_hessian_detail(root: Path, n: int, out: Path, dpi: int) -> None:
         for c, i in enumerate(late):
             col = SAMPLE_CMAP(0.35 + 0.65 * c / max(len(late) - 1, 1))
             ax.plot(pidx, pair_ratio(lam[0, i], kmag, pairs), color=col, lw=1.4,
-                    label=rf"$t/T = {samples[i]:g}$")  # fmt: skip
+                    label=level_label(samples[i], z["phi"][0, 0]))  # fmt: skip
         end = np.array(
             [pair_ratio(lam[b, -1], kmag, pairs) for b in range(lam.shape[0])]
         )
@@ -424,7 +465,6 @@ def figure_hessian_detail(root: Path, n: int, out: Path, dpi: int) -> None:
         rows = sorted(
             {1, 2, 3, 4, 5, 10, int(np.argmin(np.abs(kmag - 0.5 * kmag[-1]))) + 1, m}
         )
-        keep = u > 0
         for c, mode in enumerate(rows):
             ratio = z["dw_stiff"][:, :, mode - 1, :].mean(axis=-1) / kmag[mode - 1] ** 2
             col = plt.get_cmap("viridis")(c / (len(rows) - 1))
@@ -432,11 +472,10 @@ def figure_hessian_detail(root: Path, n: int, out: Path, dpi: int) -> None:
             ax.fill_between(u[keep], q10, q90, color=col, alpha=0.15, lw=0)
             ax.plot(u[keep], q50, color=col, lw=1.8, label=mode_label(z, mode))
         ax.axhline(1.0, color="0.6", lw=0.8, zorder=0)
-        ax.set_xscale("log")
+        phi_axis(ax)
         ax.set_yscale("symlog", linthresh=1e-1)
         ax.set_title(f"({letter[1]}) {label}: along density waves", loc="left",
                      fontsize=13)  # fmt: skip
-        ax.set_xlabel(r"Dimensionless Time, $t/T$")
         ax.set_ylabel(
             r"$\hat g_{\mathbf{k}}^{\top} H \hat g_{\mathbf{k}} / |\mathbf{k}|^2$"
         )
@@ -444,22 +483,23 @@ def figure_hessian_detail(root: Path, n: int, out: Path, dpi: int) -> None:
         # (c) negative directions: count and the most negative eigenvalue
         ax = axes[row, 2]
         band(ax, u[keep], z["n_negative"][:, keep].astype(float), "black", "-")
-        ax.set_xscale("log")
+        phi_axis(ax)
         ax.set_title(f"({letter[2]}) {label}: negative curvature", loc="left",
                      fontsize=13)  # fmt: skip
-        ax.set_xlabel(r"Dimensionless Time, $t/T$")
         ax.set_ylabel(r"Number with $\lambda < 0$")
         twin = ax.twinx()
         lam_min = np.maximum(-lam[:, :, 0], 1e-12)
         q10, q50, q90 = np.percentile(lam_min[:, keep], [10.0, 50.0, 90.0], axis=0)
         twin.fill_between(u[keep], q10, q90, color="#1f4e9c", alpha=0.15, lw=0)
         twin.plot(u[keep], q50, color="#1f4e9c", lw=2.0, ls="--")
+        zero_cut = ZERO_REL * np.median(lam[:, keep, -1], axis=0)
+        twin.plot(u[keep], zero_cut, color="#1f4e9c", lw=1.0, ls=":")
         twin.set_yscale("log")
         twin.set_ylabel(r"$|\lambda_{\min}|$", color="#1f4e9c")
         # (d) wavelengths of the negative vs the stiffest eigenvectors
         ax = axes[row, 3]
         nn = np.median(z["n_negative"], axis=0)
-        have = [i for i in range(samples.shape[0]) if nn[i] >= 5]
+        have = [i for i in range(samples.shape[0]) if nn[i] >= 5 and keep[i]]
         show = sorted({have[0], have[len(have) // 2], have[-1]}) if have else []
         if "qmag" in z:
             qs, qinv = shells(np.asarray(z["qmag"]))
@@ -471,7 +511,8 @@ def figure_hessian_detail(root: Path, n: int, out: Path, dpi: int) -> None:
             col = SAMPLE_CMAP(0.4 + 0.6 * c / max(len(show) - 1, 1))
             neg = shell_mean(np.nanmedian(z["neg_power"][:, i], axis=0), qinv)
             pos = shell_mean(np.nanmedian(z["pos_power"][:, i], axis=0), qinv)
-            ax.plot(qk, neg, color=col, lw=1.4, label=rf"$t/T = {samples[i]:g}$")
+            ax.plot(qk, neg, color=col, lw=1.4,
+                    label=level_label(samples[i], z["phi"][0, 0]))  # fmt: skip
             ax.plot(qk, pos, color=col, lw=1.0, ls=":")
         if qk[-1] > 1.0:  # wavelengths the potential leaves free
             ax.axvspan(1.0, qk[-1], color="0.9", zorder=0, lw=0)
@@ -486,9 +527,11 @@ def figure_hessian_detail(root: Path, n: int, out: Path, dpi: int) -> None:
     handles = [Line2D([], [], color=FLOW_COLOR, lw=2.0, ls="--"),
                Line2D([], [], color="black", lw=2.0),
                Line2D([], [], color="#1f4e9c", lw=2.0, ls="--"),
+               Line2D([], [], color="#1f4e9c", lw=1.0, ls=":"),
                Line2D([], [], color="0.3", lw=1.4),
                Line2D([], [], color="0.3", lw=1.0, ls=":")]  # fmt: skip
     labels = ["(a) end state, all flows", "(c) count", r"(c) $|\lambda_{\min}|$",
+              r"(c) zero cut $10^{-9}\lambda_{\max}$",
               "(d) negative eigenvectors", "(d) as many stiffest"]  # fmt: skip
     legend_below(fig, handles, labels)
     finish(fig, out / f"{NAMES['prefix']}_N{n}_hessian_detail", dpi)
@@ -515,8 +558,9 @@ def figure_sections(root: Path, n: int, out: Path, dpi: int) -> None:
             ax.plot(p[keep, 0], p[keep, 1], color=FLOW_COLOR, lw=1.4)
             ax.plot(0.0, 0.0, "o", color="black", ms=4)
             fig.colorbar(cf, ax=ax, shrink=0.85)
+            phi0 = float(z[f"sec{j}_phi0"])
             ax.set_title(f"({'abcdef'[3 * row + j]}) {label}, "
-                         f"$t/T = {float(z[f'sec{j}_u']):.0e}$"
+                         f"$\\Phi = 10^{{{np.log10(phi0):.0f}}}$"
                          + (f", axes $\\times 10^{{{e}}}$" if e else ""),
                          loc="left", fontsize=13)  # fmt: skip
             if row == 1:

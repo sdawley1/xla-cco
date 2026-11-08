@@ -40,8 +40,8 @@ from batten2008_floor import (  # noqa: E402
 from batten2008_flows import build_energy, load_system  # noqa: E402
 from batten2008_hessian import (  # noqa: E402
     density_wave_stiffness,
+    level_frames,
     qvectors,
-    sample_frames,
     section_axes,
     tenfold_distance,
     wavelength_power,
@@ -52,7 +52,17 @@ from batten2008_modes import (  # noqa: E402
     relax_times,
     structure_factors,
 )
+from batten2008_offplane import (  # noqa: E402
+    arclength_path,
+    kl_modes,
+    participation,
+    per_particle,
+    plane_residual,
+    remove_bow,
+    tangent_correlation,
+)
 from batten2008_slices import pair_axes  # noqa: E402
+from batten2008_tail import restart_index, tail_frames  # noqa: E402
 from batten2008_wasserstein import frame_subset, torus_match  # noqa: E402
 
 # ============================================================
@@ -198,9 +208,57 @@ def test_mode_indices_in_range_and_include_ends(m: int) -> None:
 
 
 @pytest.mark.medium
-def test_sample_frames_first_at_or_after() -> None:
-    u = np.array([0.0, 1e-6, 1e-3, 0.2, 1.0])
-    assert sample_frames(u, (0.0, 1e-5, 0.1, 1.0)).tolist() == [0, 2, 3, 4]
+def test_level_frames_first_at_or_below_example() -> None:
+    e = np.array([100.0, 10.0, 1.0, 1e-3, 1e-9])
+    levels = (3.0, 2.0, 1.5, 0.0, -5.0, -12.0)
+    assert level_frames(e, levels).tolist() == [0, 0, 1, 2, 4, 4]
+
+
+@pytest.mark.medium
+@settings(deadline=None)
+@given(
+    st.lists(st.floats(0.01, 3.0), min_size=1, max_size=30),
+    st.lists(st.floats(-40.0, 5.0), min_size=1, max_size=10),
+)
+def test_level_frames_is_the_first_crossing(drops: list, levels: list) -> None:
+    e = 10.0 ** (2.0 - np.cumsum([0.0] + drops))  # strictly decreasing energies
+    idx = level_frames(e, tuple(levels))
+    loge = np.log10(e)
+    for k, lev in zip(idx, levels, strict=True):
+        if loge[-1] > lev:  # never reached: the last frame
+            assert k == e.shape[0] - 1
+        else:
+            assert loge[k] <= lev and (k == 0 or loge[k - 1] > lev)
+
+
+@pytest.mark.medium
+def test_restart_index_last_frame_above() -> None:
+    e = np.array([1.0, 1e-4, 1e-8, 1e-10, 1e-14])
+    assert restart_index(e, 1e-9) == 2
+    assert restart_index(e, 10.0) == 0
+
+
+@pytest.mark.medium
+def test_tail_frames_splices_at_the_restart() -> None:
+    flows = {
+        "traj_count": np.array([4]),
+        "traj_t": np.array([[0.0, 1.0, 2.0, 50.0]]),
+        "traj_s": np.arange(4.0).reshape(1, 4, 1, 1),
+        "traj_energy": np.array([[1.0, 1e-3, 1e-9, 1e-20]]),
+    }
+    tail = {
+        "start_index": np.array([2]),
+        "traj_count": np.array([3]),
+        "traj_t": np.array([[2.0, 3.0, 4.0, np.nan]]),
+        "traj_s": np.array([2.0, 2.5, 2.75, np.nan]).reshape(1, 4, 1, 1),
+        "traj_energy": np.array([[1e-9, 1e-12, 1e-15, np.nan]]),
+    }
+    t, s, e = tail_frames(flows, tail, 0)
+    assert t.tolist() == [0.0, 1.0, 2.0, 3.0, 4.0]
+    assert s[:, 0, 0].tolist() == [0.0, 1.0, 2.0, 2.5, 2.75]
+    assert e.tolist() == [1.0, 1e-3, 1e-9, 1e-12, 1e-15]
+    t0, _, _ = tail_frames(flows, {}, 0)  # no tail: the stored rows
+    assert t0.tolist() == [0.0, 1.0, 2.0, 50.0]
 
 
 @pytest.mark.medium
@@ -361,3 +419,57 @@ def test_relax_points_runs_and_keeps_plane_coordinates(d: int) -> None:
     out = relax_points(fib, pts, side, LBFGSSettings(max_evals_per_pass=60), 2)
     assert out["phi"].shape == (3,) and out["moved"].shape == (3,)
     assert np.all(out["drift"] < 1e-8)
+
+
+# ============================================================
+# TESTS: OFF-PLANE SHAPE
+# ============================================================
+
+
+@pytest.mark.medium
+def test_arclength_path_straight_line_is_uniform() -> None:
+    f = np.linspace(0.0, 0.3, 7)[:, None, None] * np.ones((1, 4, 1))  # (F, N, d)
+    y, length = arclength_path(f, 10.0, 5)
+    assert np.isclose(length, 0.3 * 10.0 * 2.0)  # 4 particles move 3 each
+    assert np.allclose(np.linalg.norm(y, axis=1), np.linspace(0.0, length, 5))
+
+
+@pytest.mark.medium
+@settings(deadline=None)
+@given(st.integers(0, 2**31 - 1))
+def test_plane_residual_pins_and_particle_rms(seed: int) -> None:
+    rng = np.random.default_rng(seed)
+    y = np.cumsum(rng.normal(size=(60, 12)), axis=0)
+    y = np.vstack([np.zeros((1, 12)), y])
+    pr = plane_residual(y)
+    w = pr["w"]
+    star = int(pr["star"])
+    for i in (0, star, y.shape[0] - 1):  # the plane holds r(0), r(s*), r(inf)
+        assert np.linalg.norm(w[i]) < 1e-9 * np.linalg.norm(y).max()
+    chord = float(pr["chord"])
+    amp = per_particle(w, 6, chord)  # N = 6 particles, d = 2
+    rms = np.sqrt(np.mean(amp**2, axis=1))
+    assert np.allclose(rms, np.linalg.norm(w, axis=1) / chord)
+    assert np.isclose(pr["coords"][-1, 0], 1.0)
+
+
+@pytest.mark.medium
+def test_kl_modes_recover_sine_mixture() -> None:
+    sg = np.linspace(0.0, 1.0, 201)
+    u, v = np.eye(5)[0], np.eye(5)[3]
+    p = np.outer(np.sin(np.pi * sg), u) + 0.3 * np.outer(np.sin(2 * np.pi * sg), v)
+    kl = kl_modes(p, 3)
+    assert np.allclose(kl["frac"][:2], [1.0 / 1.09, 0.09 / 1.09], atol=1e-3)
+    assert np.all(kl["overlap"][:2] > 0.999)
+    left = remove_bow(p)  # only the sin(2 pi s) part survives
+    assert np.allclose(left, 0.3 * np.outer(np.sin(2 * np.pi * sg), v), atol=1e-9)
+
+
+@pytest.mark.medium
+def test_participation_and_tangent_examples() -> None:
+    assert np.allclose(participation(np.ones((3, 8))), 1.0)
+    one = np.zeros((3, 8))
+    one[:, 2] = 1.0
+    assert np.allclose(participation(one), 1.0 / 8.0)
+    line = np.outer(np.arange(10.0), np.ones(3))
+    assert np.allclose(tangent_correlation(line, 4), 1.0)
