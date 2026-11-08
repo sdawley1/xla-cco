@@ -61,6 +61,7 @@ EPS = (1e-2, 1e-8, 1e-14)  # S(k) thresholds for the relaxation times
 SMALL_N = (1, 2, 3, 4, 5, 10)  # modes always stored in full (phase planes)
 PHASE_FLOOR = 1e-16  # S below this: the phase of rho is round-off
 LOCK_RAD = 0.1  # phase "locked" once less than this remains to turn
+TURN_BANDS = (-2.0, -6.0, -10.0)  # log10 S edges of the winding bands
 FRAME_BATCH = 128  # frames per collective-density call
 
 # ============================================================
@@ -113,7 +114,10 @@ def phase_stats(re: np.ndarray, im: np.ndarray) -> Dict[str, np.ndarray]:
     sum |d arg rho| / 2 pi; ``s_lock`` is S at the first frame after which
     less than LOCK_RAD of turning remains (NaN if S never exceeds the floor);
     ``unresolved`` is the fraction of steps with |d arg rho| > pi / 2, where the
-    frame spacing may alias the phase.
+    frame spacing may alias the phase. ``net_turns`` is |sum d arg rho| / 2 pi
+    (coherent rotation; back-and-forth cancels), and ``band_turns`` (M, 4)
+    splits ``turns`` by log10 S at the step's start: above TURN_BANDS[0],
+    between successive edges, and below the last.
     """
     assert re.shape == im.shape and re.ndim == 2, "need (frames, modes)"
     sk = re**2 + im**2
@@ -125,8 +129,18 @@ def phase_stats(re: np.ndarray, im: np.ndarray) -> Dict[str, np.ndarray]:
     first = np.where(locked.any(axis=0), np.argmax(locked, axis=0), step.shape[0])
     s_lock = sk[np.minimum(first, sk.shape[0] - 1), np.arange(sk.shape[1])]
     n_ok = np.maximum(ok.sum(axis=0), 1)
+    band = np.digitize(-np.log10(np.maximum(sk[:-1], 1e-300)), [-e for e in TURN_BANDS])
+    band_turns = np.stack(
+        [
+            np.where(band == i, step, 0.0).sum(axis=0)
+            for i in range(len(TURN_BANDS) + 1)
+        ],
+        axis=1,
+    )
     return {
         "turns": step.sum(axis=0) / (2.0 * np.pi),
+        "net_turns": np.abs(np.where(ok, dth, 0.0).sum(axis=0)) / (2.0 * np.pi),
+        "band_turns": band_turns / (2.0 * np.pi),
         "s_lock": np.where(ok.any(axis=0), s_lock, np.nan),
         "unresolved": (ok & (np.abs(dth) > 0.5 * np.pi)).sum(axis=0) / n_ok,
     }

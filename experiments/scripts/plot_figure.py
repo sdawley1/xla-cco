@@ -187,7 +187,6 @@ if __name__ == "__main__":
         frameon=False,
     )
     fig.tight_layout()
-    for ext in ("png", "pdf"):
-        fig.savefig(f"{args.out}.{ext}", dpi=args.dpi, bbox_inches="tight")
-    print(f"wrote {args.out}.png/.pdf", flush=True)
+    fig.savefig(f"{args.out}.png", dpi=args.dpi, bbox_inches="tight")  # PNG only
+    print(f"wrote {args.out}.png", flush=True)
     print("Done.", flush=True)

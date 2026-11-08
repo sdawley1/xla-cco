@@ -49,7 +49,12 @@ import numpy as np
 from xla_cco.cli.relax import select_device
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from batten2008_flows import build_energy, chi_tag, load_system  # noqa: E402
+from batten2008_flows import (  # noqa: E402
+    build_energy,
+    cell_lengths,
+    chi_tag,
+    load_system,
+)
 
 # ============================================================
 # HELPERS
@@ -72,9 +77,9 @@ def make_evaluator(energy: object, chunk: int) -> Evaluator:
     return evaluate
 
 
-def make_to_s(n: int, side: float, d: int = 1) -> Callable[[np.ndarray], np.ndarray]:
+def make_to_s(n: int, side: object, d: int = 1) -> Callable[[np.ndarray], np.ndarray]:
     """Map Cartesian points (P, N d) of a cubic cell to fractional (P, N, d)."""
-    assert n > 0 and side > 0.0 and d >= 1, "positive size"
+    assert n > 0 and np.all(np.asarray(side) > 0.0) and d >= 1, "positive size"
 
     def to_s(pts: np.ndarray) -> np.ndarray:
         return pts.reshape(-1, n, d) / side
@@ -231,12 +236,12 @@ if __name__ == "__main__":
                 flush=True,
             )
             continue
-        side = float(basis[0, 0])
+        side = cell_lengths(basis)  # (d,): rectangular cells
         to_s = make_to_s(n, side, d)
         out: Dict[str, list] = {}
         for b in range(data["s0"].shape[0]):
             cnt = int(data["traj_count"][b])
-            x = data["traj_s"][b, :cnt].reshape(cnt, -1) * side  # Cartesian, unwrapped
+            x = (data["traj_s"][b, :cnt] * side).reshape(cnt, -1)  # Cartesian
             for name, fn in (
                 ("se", start_end_view),
                 ("pca", pca_view),

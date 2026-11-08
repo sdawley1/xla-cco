@@ -6,14 +6,14 @@ Wasserstein trajectories over the Batten, Stillinger & Torquato (2008) flows.
 Reads batten2008_wasserstein.py outputs and the landscape data of
 batten2008_slices.py, and writes to <out>:
 
-- batten2008_w2_N3.{png,pdf}: Phi(x2, x3) contours (x1 = 0) per chi, with
+- batten2008_w2_N3.png: Phi(x2, x3) contours (x1 = 0) per chi, with
   the gradient flows and (top) the flows relabelled by their optimal matching
   to r(0) and to r(inf), (bottom) the W_2 geodesics r(0) -> sigma(r(inf)).
-- batten2008_w2_N<N>_chi<tag>_<view>.{png,pdf}: the same overlay for every
+- batten2008_w2_N<N>_chi<tag>_<view>.png: the same overlay for every
   N = 1000 flow on the start-end, PCA and two-particle planes.
-- batten2008_w2_N<N>_offplane.{png,pdf}: each curve's distance from the
+- batten2008_w2_N<N>_offplane.png: each curve's distance from the
   plane it is drawn on, relative to |r(inf) - r(0)|.
-- batten2008_w2_geodesic_energy.{png,pdf}: Phi along the geodesic vs s and
+- batten2008_w2_geodesic_energy.png: Phi along the geodesic vs s and
   along the flow vs normalized arclength.
 
 Needs matplotlib: `uv sync --dev --extra plot --locked` once, then

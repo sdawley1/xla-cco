@@ -254,7 +254,7 @@ def planes_legend(fig: plt.Figure) -> None:
     handles = [Line2D([], [], color=FLOW_COLOR, lw=1.5),
                Line2D([], [], color="0.55", lw=1.0),
                Line2D([], [], ls="", marker="o", color="black", ms=4)]  # fmt: skip
-    legend_below(fig, handles, ["Flow 0", "Other Flows", "Poisson Start"])
+    legend_below(fig, handles, ["Flow 0", "Other Flows", "Start"])
 
 
 def figure_mode_planes(root: Path, n: int, out: Path, dpi: int) -> None:

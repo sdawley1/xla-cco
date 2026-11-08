@@ -33,7 +33,7 @@ import sys
 import time
 from fractions import Fraction
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 # ----- numerics -----
 import jax
@@ -48,7 +48,7 @@ from xla_cco.minimize import relax
 from xla_cco.minimize.lbfgs import LBFGSSettings
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from batten2008_flows import chi_tag, load_system  # noqa: E402
+from batten2008_flows import cell_lengths, chi_tag, load_system  # noqa: E402
 from batten2008_slices import (  # noqa: E402
     make_evaluator,
     pca_axes,
@@ -72,7 +72,8 @@ class FiberEnergy(AbstractEnergy):
 
     The value is Phi(s); the gradient (analytic and autodiff) has its
     components along the orthonormal rows of ``q`` removed, so a gradient
-    minimizer keeps the in-plane coordinates q . s fixed.
+    minimizer keeps the in-plane coordinates q . s fixed. ``q`` lives in
+    fractional space (fractional_plane converts a Cartesian plane).
     """
 
     base: StealthyEnergy
@@ -97,6 +98,22 @@ class FiberEnergy(AbstractEnergy):
 # ============================================================
 # HELPERS
 # ============================================================
+
+
+def fractional_plane(
+    axes: Tuple[np.ndarray, np.ndarray, np.ndarray], side: np.ndarray, n: int
+) -> np.ndarray:
+    """Orthonormal rows (2, N, d) in fractional space that fix a Cartesian plane.
+
+    The Cartesian in-plane coordinates e_i . x, with x = s * side, equal
+    (e_i * side) . s, so the fiber must hold the span of e_i * side fixed in s.
+    In a square cell this is the span of e_1, e_2 itself.
+    """
+    d = side.shape[0]
+    rows = np.stack([axes[1], axes[2]]).reshape(2, n, d) * side
+    basis, _ = np.linalg.qr(rows.reshape(2, n * d).T)
+    out: np.ndarray = basis.T.reshape(2, n, d)
+    return out
 
 
 def plane_offsets(
@@ -126,11 +143,16 @@ def grid_starts(
 def relax_points(
     fiber: FiberEnergy,
     pts: np.ndarray,
-    side: float,
+    side: np.ndarray,
     settings: LBFGSSettings,
     batch: int,
+    plane: Optional[np.ndarray] = None,
 ) -> Dict[str, np.ndarray]:
-    """L-BFGS on the fiber from Cartesian points (P, N d), ``batch`` lanes per call."""
+    """L-BFGS on the fiber from Cartesian points (P, N d), ``batch`` lanes per call.
+
+    ``plane`` (2, N d) holds the Cartesian in-plane axes for the drift
+    diagnostic; by default the fiber's rows (the same in a square cell).
+    """
     rows: Dict[str, list] = {"phi": [], "status": [], "evals": [], "s": []}
     assert batch >= 1, "batch must be positive"
     n, d = fiber.q.shape[1], fiber.q.shape[2]
@@ -147,10 +169,11 @@ def relax_points(
         rows["evals"].append(np.asarray(res.n_evals)[:k])
         rows["s"].append(np.asarray(res.s)[:k].reshape(k, n * d))
     out = {k: np.concatenate(v) for k, v in rows.items()}
-    ds = out.pop("s") - pts / side
+    p_all = pts.shape[0]
+    ds = out.pop("s").reshape(p_all, n, d) - pts.reshape(p_all, n, d) / side
     ds -= np.round(ds)  # minimum image (result is wrapped into [0, 1))
-    disp = ds * side
-    q = np.asarray(fiber.q).reshape(fiber.q.shape[0], n * d)
+    disp = (ds * side).reshape(p_all, n * d)
+    q = np.asarray(fiber.q).reshape(fiber.q.shape[0], n * d) if plane is None else plane
     out["drift"] = np.linalg.norm(disp @ q.T, axis=1)  # in-plane motion
     out["moved"] = np.linalg.norm(disp, axis=1)
     return out
@@ -186,16 +209,16 @@ if __name__ == "__main__":
         tag = chi_tag(Fraction(chi_str))
         with np.load(root / f"flows_chi{tag}.npz") as z:
             cnt = int(z["traj_count"][args.flow])
-            x = z["traj_s"][args.flow, :cnt].reshape(cnt, -1)
+            s_path = z["traj_s"][args.flow, :cnt]
             t = z["traj_t"][args.flow, :cnt]
             e_true = z["traj_energy"][args.flow, :cnt]
         with np.load(root / f"views_chi{tag}.npz") as z:
             extent = {v: (z[f"{v}_a"][args.flow], z[f"{v}_b"][args.flow])
                       for v in ("se", "pca")}  # fmt: skip
         energy, basis, _, _ = load_system(root, tag)
-        side, d = float(basis[0, 0]), basis.shape[0]
+        side, d = cell_lengths(basis), basis.shape[0]
         evaluate = make_evaluator(energy, 256)
-        x = x * side
+        x = (s_path * side).reshape(cnt, -1)  # Cartesian
         u = t / t[-1]
         k_path = np.unique(np.searchsorted(u, np.concatenate(
             [[0.0], np.logspace(np.log10(u[1]), 0.0, args.path_points - 1)])
@@ -209,15 +232,16 @@ if __name__ == "__main__":
             out = dict(base)
             t0 = time.time()
             ab, off = plane_offsets(x, axes)
-            q = jnp.asarray(np.stack([axes[1], axes[2]]).reshape(2, args.n, d))
+            q = jnp.asarray(fractional_plane(axes, side, args.n))
             fiber = FiberEnergy(base=energy, q=q)
             ra0, rb0 = extent[view]
             ra = np.linspace(ra0[0], ra0[-1], args.grid)
             rb = np.linspace(rb0[0], rb0[-1], args.grid)
             starts = grid_starts(ra, rb, ab, off, axes)
             both = relax_points(
-                fiber, np.concatenate([starts, x[k_path]]), side, settings, args.batch
-            )
+                fiber, np.concatenate([starts, x[k_path]]), side, settings,
+                args.batch, plane=np.stack([axes[1], axes[2]]),
+            )  # fmt: skip
             n_grid = starts.shape[0]
             grid_res = {k: v[:n_grid] for k, v in both.items()}
             path_res = {k: v[n_grid:] for k, v in both.items()}
