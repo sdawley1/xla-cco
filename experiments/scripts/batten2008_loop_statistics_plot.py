@@ -3,7 +3,8 @@
 """
 Two-point statistics agree; loop sums do not: ground states, surrogates, SCBA.
 
-For 2D Poisson ground states (--root, every chi tag), the three models of the
+For 2D ground states (--root, every chi tag present; Poisson by default,
+--prefix names the other starts), the three models of the
 vibrational spectrum (batten2008_loop_moments.py) share their two-point
 statistics by construction: the random-phase surrogates keep every |rho(k)|,
 and the SCBA (S(k)-only theory) is built from the ground-state |rho(k)|^2
@@ -22,7 +23,9 @@ averaged over states. Beyond two points:
   (triads: I_3(q) / P_4(q)^(3/4)), and of tr W_B^4 for loops built only from
   transfers |k| in a band B.
 
-Cached in <root>/loopstats_chi<tag>.npz. Writes <out>/loop_statistics.png:
+Rectangular cells use k = 2 pi (n_x / L_x, n_y / L_y) and V = L_x L_y.
+Cached in <root>/loopstats_chi<tag>.npz. Writes
+<out>/[<prefix>_]loop_statistics.png:
 
 - (a) S(k) to |k| = 2K (the range of the transfers): ground states (mean and
   range over states) and the SCBA input; the surrogates equal the ground
@@ -68,13 +71,23 @@ from typing import Dict, List
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from batten2008_loop_moments import full_waves, h_matrix  # noqa: E402
-from batten2008_mp_plot import CHI_COLOR  # noqa: E402
-from batten2008_mp_shoulder_plot import (  # noqa: E402
+from batten2008_lattice import (  # noqa: E402
+    cell_lengths,
+    full_waves,
+    h_matrix,
     lattice_kmag,
+    lattice_limits,
     lattice_rho,
     phase_randomized,
+    scaled,
     surrogate,
+)
+from batten2008_mp_plot import (  # noqa: E402
+    CHI_COLOR,
+    default_tags,
+    figure_path,
+    root_n,
+    start_title,
 )
 from batten2008_plot import finish, plt  # noqa: E402  (house rcParams)
 from matplotlib.lines import Line2D  # noqa: E402
@@ -113,7 +126,7 @@ def radial(values: np.ndarray, kmag: np.ndarray) -> np.ndarray:
     return out
 
 
-def coupling_w(rho: np.ndarray, nfull: np.ndarray, side: float,
+def coupling_w(rho: np.ndarray, nfull: np.ndarray, side: np.ndarray,
                scale: float) -> np.ndarray:  # fmt: skip
     """Off-diagonal coupling W/K^2 in the complex basis."""
     h = h_matrix(rho, nfull, side) / scale
@@ -212,11 +225,12 @@ def state_stats(rho: np.ndarray, n: int, geo: Dict, rng: np.random.Generator) ->
 def compute(root: Path, tag: str, n_states: int) -> Dict[str, np.ndarray]:
     """Two-point, amplitude and loop statistics for one chi tag."""
     meta = json.loads((root / f"flows_chi{tag}.json").read_text())
-    side, k_cut, n = float(meta["basis"][0][0]), float(meta["K"]), int(meta["N"])
+    side = cell_lengths(meta["basis"])
+    k_cut, n = float(meta["K"]), int(meta["N"])
     nfull = full_waves(side, k_cut)
-    nmax = int(np.ceil(k_cut * side / (2.0 * np.pi)))
-    unit = 2.0 * np.pi / side / k_cut
-    kt = np.linalg.norm(nfull[:, None, :] - nfull[None], axis=2) * unit
+    nmax = lattice_limits(side, k_cut)
+    unit = 2.0 * np.pi / side[0] / k_cut  # |k|/K = |scaled(n)| unit
+    kt = np.linalg.norm(scaled(nfull[:, None, :] - nfull[None], side), axis=2) * unit
     geo = {"nfull": nfull, "side": side, "scale": k_cut**2,
            "kmag": lattice_kmag(nmax, side) / k_cut, "kt": kt}  # fmt: skip
     rng = np.random.default_rng(SEED)
@@ -233,7 +247,7 @@ def compute(root: Path, tag: str, n_states: int) -> Dict[str, np.ndarray]:
     inten = intensities(rows["s_lattice"], mean_lattice, geo["kmag"])
     out["i_hist"] = np.histogram(inten, bins=I_BINS, density=True)[0]
     out["i_m2"] = np.array(float(np.mean(inten**2)))
-    out["kq"] = np.linalg.norm(nfull, axis=1) * unit
+    out["kq"] = np.linalg.norm(scaled(nfull, side), axis=1) * unit
     out.update(chi=np.array(float(meta["chi_actual"])), n=np.array(n))
     sc = scorecard(out)
     print(f"{tag}: max |S_sur - S_GS| {np.nanmax(out['dev_sur']):.1e}; <I^2> "
@@ -282,10 +296,10 @@ def first_harmonics(h: Dict[str, float], pairing: float) -> np.ndarray:
     return out
 
 
-def loop_phases(rho: np.ndarray, nfull: np.ndarray,
+def loop_phases(rho: np.ndarray, nfull: np.ndarray, side: np.ndarray,
                 rng: np.random.Generator) -> np.ndarray:  # fmt: skip
     """|T|-weighted histogram of four-wave loop phases (no cancelling pair)."""
-    off = (rho.shape[0] - 1) // 2
+    off = (np.asarray(rho.shape) - 1) // 2
     a = rng.integers(0, nfull.shape[0], size=(N_WALKS, 4))
     q = nfull[a]
     k = q - np.roll(q, -1, axis=1)
@@ -294,8 +308,10 @@ def loop_phases(rho: np.ndarray, nfull: np.ndarray,
         for j in range(i + 1, 4):
             keep &= np.any(k[:, i] + k[:, j] != 0, axis=1)
     q, k = q[keep], k[keep]
-    dots = np.einsum("wid,wid->wi", q, np.roll(q, -1, axis=1)).astype(float)
-    tt = np.prod(dots, axis=1) * np.prod(rho[k[..., 0] + off, k[..., 1] + off], axis=1)
+    qs = scaled(q, side)  # Q_i . Q_j up to the common factor (2 pi / L_x)^2
+    dots = np.einsum("wid,wid->wi", qs, np.roll(qs, -1, axis=1))
+    tt = np.prod(dots, axis=1) * np.prod(rho[k[..., 0] + off[0], k[..., 1] + off[1]],
+                                         axis=1)  # fmt: skip
     h, _ = np.histogram(np.angle(tt), bins=PHASE_BINS, weights=np.abs(tt))
     out: np.ndarray = h / h.sum()
     assert out.shape == (PHASE_BINS.shape[0] - 1,), "one value per bin"
@@ -322,7 +338,7 @@ def model_phase_stats(rhos: Dict[str, List[np.ndarray]], geo: Dict,
                 first_harmonics(harmonics(w), pairing)
             )
             out.setdefault(f"loop_{key}", []).append(
-                loop_phases(rho, geo["nfull"], rng)
+                loop_phases(rho, geo["nfull"], geo["side"], rng)
             )
             out.setdefault(f"single_{key}", []).append(single_phases(rho, ring))
     res = {k: np.asarray(v) for k, v in out.items()}
@@ -344,9 +360,10 @@ def pairing_sum(rho: np.ndarray, geo: Dict, rng: np.random.Generator,
 def phase_compute(root: Path, tag: str, n_states: int) -> Dict[str, np.ndarray]:
     """Phase statistics of ground states, random-phase and Gaussian models."""
     meta = json.loads((root / f"flows_chi{tag}.json").read_text())
-    side, k_cut, n = float(meta["basis"][0][0]), float(meta["K"]), int(meta["N"])
+    side = cell_lengths(meta["basis"])
+    k_cut, n = float(meta["K"]), int(meta["N"])
     nfull = full_waves(side, k_cut)
-    nmax = int(np.ceil(k_cut * side / (2.0 * np.pi)))
+    nmax = lattice_limits(side, k_cut)
     geo = {"nfull": nfull, "side": side, "scale": k_cut**2,
            "kmag": lattice_kmag(nmax, side) / k_cut}  # fmt: skip
     rng = np.random.default_rng(SEED + 1)
@@ -438,7 +455,8 @@ def phase_row(axes: np.ndarray, pdata: Dict[str, Dict]) -> None:
 # ============================================================
 
 
-def figure(data: Dict[str, Dict], pdata: Dict[str, Dict], out: Path, dpi: int) -> None:
+def figure(data: Dict[str, Dict], pdata: Dict[str, Dict], out: Path, dpi: int,
+           n: int, prefix: str = "") -> None:  # fmt: skip
     """S(k) and amplitudes agree; loop sums and loop-phase biases differ."""
     fig, axes = plt.subplots(3, 3, figsize=(20.0, 17.0), constrained_layout=True)
     x = 0.5 * (K_BINS[1:] + K_BINS[:-1])
@@ -477,7 +495,8 @@ def figure(data: Dict[str, Dict], pdata: Dict[str, Dict], out: Path, dpi: int) -
     style(axes)
     phase_row(axes[2], pdata)
     legend(fig, data, tags)
-    finish(fig, out / "loop_statistics", dpi)
+    start_title(fig, prefix, n)
+    finish(fig, figure_path(out, prefix, "loop_statistics"), dpi)
 
 
 def style(axes: np.ndarray) -> None:
@@ -556,14 +575,18 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     default_root = Path("experiments/trajectories/flows2d/N1024")
     parser.add_argument("--root", type=Path, default=default_root)
+    parser.add_argument("--tags", nargs="+", default=None,
+                        help="default: every chi tag present in the root")  # fmt: skip
     parser.add_argument("--states", type=int, default=4)
     parser.add_argument("--out", type=Path, default=Path("experiments/figures"))
+    parser.add_argument("--prefix", default="",
+                        help="figure name prefix and start, e.g. hip2d")  # fmt: skip
     parser.add_argument("--dpi", type=int, default=600)
     args = parser.parse_args()
     assert args.states >= 2, "need at least two states for the scatter"
     args.out.mkdir(parents=True, exist_ok=True)
-    data = {t: load_or_compute(args.root, t, args.states) for t in TAGS
-            if (args.root / f"flows_chi{t}.npz").exists()}  # fmt: skip
+    tags = default_tags(args.root, args.tags, TAGS)
+    data = {t: load_or_compute(args.root, t, args.states) for t in tags}
     pdata = {t: load_or_compute_phase(args.root, t, args.states) for t in data}
-    figure(data, pdata, args.out, args.dpi)
+    figure(data, pdata, args.out, args.dpi, root_n(args.root), args.prefix)
     print("Done.", flush=True)

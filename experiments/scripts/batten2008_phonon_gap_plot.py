@@ -11,17 +11,18 @@ the plane-wave (Galerkin) form of the scalar wave operator -div(eta grad)
 with eta a sum of point weights at the particles, restricted to |q| < K. An
 uncoupled wave has omega = |q|. The coupling spectrum lambda(C) of
 coupling_mp_compare divides each wave by its own |q|^2, so it does not
-resolve frequency; omega does. For every chi tag (2D Poisson ground states,
-flows 0..B-1, one or more roots for N) this caches omega and the eigenvector
-mean |q|/K in <root>/phonon_chi<tag>.npz and writes
-<out>/coupling_phonon_gap.png:
+resolve frequency; omega does. For every chi tag present (2D ground states,
+Poisson by default; --root, --prefix for the other starts; flows 0..B-1)
+this caches omega and the eigenvector mean |q|/K in
+<root>/phonon_chi<tag>.npz and writes <out>/[<prefix>_]coupling_phonon_gap.png
+(rectangular cells: k = 2 pi (n_x / L_x, n_y / L_y), V = L_x L_y):
 
 - (a) the density of states in omega/K (nonzero modes), every chi, with the
   homogeneous reference (omega = |q|, 2D: 2 omega / K^2 on [0, K]);
 - (b) the same on a log scale near the gap;
 - (c) each mode's frequency against the mean |q|/K of its eigenvector
   (an effective dispersion): median and 25-75 % band per |q|/K bin, every
-  chi (one panel per chi in coupling_phonon_dispersion.png, with 16-84 %
+  chi (one panel per chi in [<prefix>_]coupling_phonon_dispersion.png, with 16-84 %
   and 2.5-97.5 % bands and the gap shaded);
 - (d) the relative width of the largest spacing in 0.3 < omega/K < 1
   (median over ground states) against the largest spacing of the uncoupled
@@ -51,8 +52,22 @@ from typing import Dict
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from batten2008_mp_plot import CHI_COLOR  # noqa: E402
-from batten2008_mp_shoulder_plot import lattice_kmag, lattice_rho, waves  # noqa: E402
+from batten2008_lattice import (  # noqa: E402
+    cell_lengths,
+    k_matrix,
+    lattice_kmag,
+    lattice_limits,
+    lattice_rho,
+    wave_vectors,
+    waves,
+)
+from batten2008_mp_plot import (  # noqa: E402
+    CHI_COLOR,
+    default_tags,
+    figure_path,
+    root_n,
+    start_title,
+)
 from batten2008_plot import finish, plt  # noqa: E402  (house rcParams)
 
 # ============================================================
@@ -69,21 +84,6 @@ PEAK_RANGE = (1.0, 2.0)  # |k|/K range searched for the first S(k) peak
 # ============================================================
 
 
-def k_matrix(rho: np.ndarray, nq: np.ndarray, side: float) -> np.ndarray:
-    """K = (2/V) J J^T from rho at q -+ p (Re, Im coordinates)."""
-    off = (rho.shape[0] - 1) // 2
-    kv = nq * 2.0 * np.pi / side
-    qp, vol = kv @ kv.T, side * side
-    dm = nq[:, None, :] - nq[None] + off
-    dp = nq[:, None, :] + nq[None] + off
-    rm, rp = rho[dm[..., 0], dm[..., 1]], rho[dp[..., 0], dp[..., 1]]
-    ri = -qp / vol * (rp.imag + rm.imag)
-    out = np.block([[qp / vol * (rm.real - rp.real), ri],
-                    [ri.T, qp / vol * (rm.real + rp.real)]])  # fmt: skip
-    assert np.allclose(out, out.T), "symmetric"
-    return out
-
-
 def largest_gap(om: np.ndarray) -> np.ndarray:
     """(lower, upper) of the widest spacing of sorted omega/K in GAP_WINDOW."""
     o = np.sort(om[(om > GAP_WINDOW[0]) & (om < GAP_WINDOW[1])])
@@ -95,12 +95,13 @@ def largest_gap(om: np.ndarray) -> np.ndarray:
 def compute(root: Path, tag: str, n_states: int) -> Dict[str, np.ndarray]:
     """omega/K, eigenvector |q|/K, lambda(C), gaps and S(k) peaks per state."""
     meta = json.loads((root / f"flows_chi{tag}.json").read_text())
-    side, k_cut, n = float(meta["basis"][0][0]), float(meta["K"]), int(meta["N"])
+    side = cell_lengths(meta["basis"])
+    k_cut, n = float(meta["K"]), int(meta["N"])
     nq = waves(side, k_cut)
     m = nq.shape[0]
     assert m == int(meta["M"]), "wave count"
-    nmax = int(np.ceil(k_cut * side / (2.0 * np.pi)))
-    km = np.linalg.norm(nq * 2.0 * np.pi / side, axis=1) / k_cut
+    nmax = lattice_limits(side, k_cut)
+    km = np.linalg.norm(wave_vectors(nq, side), axis=1) / k_cut
     klat = lattice_kmag(nmax, side) / k_cut
     ring = (klat > PEAK_RANGE[0]) & (klat < PEAK_RANGE[1])
     with np.load(root / f"flows_chi{tag}.npz", mmap_mode="r") as f:
@@ -147,7 +148,8 @@ def load_or_compute(root: Path, tag: str, n_states: int) -> Dict[str, np.ndarray
 # ============================================================
 
 
-def figure(data: Dict[str, Dict], out: Path, dpi: int) -> None:
+def figure(data: Dict[str, Dict], out: Path, dpi: int, n: int,
+           prefix: str = "") -> None:  # fmt: skip
     """DOS in omega, dispersion, gap against chi, omega^2 vs lambda(C), edges."""
     fig, axes = plt.subplots(2, 3, figsize=(20.0, 11.5), constrained_layout=True)
     centre = 0.5 * (BINS[1:] + BINS[:-1])
@@ -200,7 +202,8 @@ def figure(data: Dict[str, Dict], out: Path, dpi: int) -> None:
               f"{s_:.3f}; gap {'yes' if r else 'no'}), share below {below:.3f}, "
               f"half S peak {0.5 * np.median(data[t]['peak']):.3f}",
               flush=True)  # fmt: skip
-    finish(fig, out / "coupling_phonon_gap", dpi)
+    start_title(fig, prefix, n)
+    finish(fig, figure_path(out, prefix, "coupling_phonon_gap"), dpi)
 
 
 DISP_BINS = np.arange(0.0, 1.0 + 1e-9, 0.025)  # eigenvector mean |q|/K bins
@@ -234,7 +237,8 @@ def dispersion_line(ax: plt.Axes, d: Dict[str, np.ndarray], color: str,
             label=rf"$\chi = {float(d['chi']):.2f}$")  # fmt: skip
 
 
-def figure_dispersion(data: Dict[str, Dict], out: Path, dpi: int) -> None:
+def figure_dispersion(data: Dict[str, Dict], out: Path, dpi: int, n: int,
+                      prefix: str = "") -> None:  # fmt: skip
     """Effective dispersion per chi: median and bands, with the gap shaded."""
     tags = list(data)
     fig, axes = plt.subplots(2, 3, figsize=(19.0, 11.0), constrained_layout=True,
@@ -250,6 +254,8 @@ def figure_dispersion(data: Dict[str, Dict], out: Path, dpi: int) -> None:
         ax.set_title(f"({next(letters)}) $\\chi = {float(d['chi']):.2f}$",
                      loc="left", fontsize=13)  # fmt: skip
         ax.legend([], [], frameon=False)
+    for ax in axes.flat[len(tags) :]:
+        ax.set_visible(False)  # fewer than six chi tags
     for ax in axes[1, :]:
         ax.set_xlabel(r"Eigenvector Mean $|\mathbf{q}|/K$")
     for ax in axes[:, 0]:
@@ -265,7 +271,8 @@ def figure_dispersion(data: Dict[str, Dict], out: Path, dpi: int) -> None:
              "frequency gap (median edges)"]  # fmt: skip
     fig.legend(handles, names, loc="upper center", ncol=5, bbox_to_anchor=(0.5, 0.0),
                frameon=False)  # fmt: skip
-    finish(fig, out / "coupling_phonon_dispersion", dpi)
+    start_title(fig, prefix, n)
+    finish(fig, figure_path(out, prefix, "coupling_phonon_dispersion"), dpi)
 
 
 def panel_lambda(ax: plt.Axes, d: Dict[str, np.ndarray]) -> None:
@@ -335,24 +342,28 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     default_root = Path("experiments/trajectories/flows2d/N1024")
     parser.add_argument("--root", type=Path, default=default_root)
-    all_tags = ["1-10", "1-4", "7-20", "2-5", "9-20", "49-100"]
-    parser.add_argument("--tags", nargs="+", default=all_tags)
+    parser.add_argument("--tags", nargs="+", default=None,
+                        help="default: every chi tag present in the root")  # fmt: skip
     parser.add_argument("--states", type=int, default=6)
     parser.add_argument("--out", type=Path, default=Path("experiments/figures"))
+    parser.add_argument("--prefix", default="",
+                        help="figure name prefix and start, e.g. hip2d")  # fmt: skip
     parser.add_argument("--dpi", type=int, default=600)
     args = parser.parse_args()
-    assert set(args.tags) <= set(CHI_COLOR) and args.states >= 1, "tags"
+    tags = default_tags(args.root, args.tags, tuple(CHI_COLOR))
+    assert args.states >= 1, "states"
     args.out.mkdir(parents=True, exist_ok=True)
-    data = {t: load_or_compute(args.root, t, args.states) for t in args.tags}
+    data = {t: load_or_compute(args.root, t, args.states) for t in tags}
     for t, d in data.items():
         meta = json.loads((args.root / f"flows_chi{t}.json").read_text())
-        side, k_cut = float(meta["basis"][0][0]), float(meta["K"])
-        kq = np.linalg.norm(waves(side, k_cut) * 2.0 * np.pi / side, axis=1) / k_cut
+        side, k_cut = cell_lengths(meta["basis"]), float(meta["K"])
+        kq = np.linalg.norm(wave_vectors(waves(side, k_cut), side), axis=1) / k_cut
         d["ref"] = largest_gap(kq)  # the uncoupled spectrum omega = |q|
         cache = args.root / f"mp_shoulder_chi{t}.npz"
         if cache.exists():
             with np.load(cache) as z:
                 d["lam_c"] = np.asarray(z["ground"])
-    figure(data, args.out, args.dpi)
-    figure_dispersion(data, args.out, args.dpi)
+    n_part = root_n(args.root)
+    figure(data, args.out, args.dpi, n_part, args.prefix)
+    figure_dispersion(data, args.out, args.dpi, n_part, args.prefix)
     print("Done.", flush=True)

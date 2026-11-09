@@ -25,8 +25,10 @@ Three parts are separated exactly:
 It also stores the spectra of H/K^2 (ground states and surrogates) and the
 SCBA density of states of H, -(1/pi) Im <G(x + i eta)>, from the vector
 Dyson equation G_a = 1 / (z - D_a - sum_b s_ab G_b) (the S(k)-only theory),
-with s_ab averaged over the ground states. Output: <root>/loops_chi<tag>.npz.
-NumPy (CPU); N = 4096 needs a SLURM CPU job.
+with s_ab averaged over the ground states. Rectangular cells use
+Q = 2 pi (n_x / L_x, n_y / L_y) and V = L_x L_y (batten2008_lattice.py).
+Output: <root>/loops_chi<tag>.npz for every chi tag given (default: every tag
+present in each root). NumPy (CPU); N = 4096 needs a SLURM CPU job.
 
 Samuel J. Dawley
 11/2026
@@ -48,7 +50,18 @@ from typing import Dict, List, Tuple
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from batten2008_mp_shoulder_plot import lattice_rho, phase_randomized, waves  # noqa: E402
+from batten2008_lattice import (  # noqa: E402
+    cell_lengths,
+    full_waves,
+    h_matrix,
+    k_matrix,
+    lattice_limits,
+    lattice_rho,
+    phase_randomized,
+    present_tags,
+    scaled,
+    waves,
+)
 
 # ============================================================
 # CONSTANTS
@@ -60,28 +73,11 @@ SCBA_ETA = (0.05, 0.02, 0.01, 0.005, 0.0025)  # continuation in eta (units K^2)
 SCBA_TOL = 1e-9
 SCBA_MAX_ITERS = 4000
 SEED = 2026
+TAGS = ("1-10", "1-4", "7-20", "2-5", "9-20", "49-100")  # increasing chi
 
 # ============================================================
 # MATRICES
 # ============================================================
-
-
-def full_waves(side: float, k_cut: float) -> np.ndarray:
-    """(2M, 2) wave vectors {+q, -q}, q the half-space set with |q| < K."""
-    nq = waves(side, k_cut)
-    out = np.concatenate([nq, -nq])
-    assert out.shape[0] == 2 * nq.shape[0], "both signs"
-    return out
-
-
-def h_matrix(rho: np.ndarray, nfull: np.ndarray, side: float) -> np.ndarray:
-    """Hermitian H_ab = (Q_a . Q_b) rho(Q_a - Q_b) / V in the complex basis."""
-    off = (rho.shape[0] - 1) // 2
-    kv = nfull * 2.0 * np.pi / side
-    d = nfull[:, None, :] - nfull[None] + off
-    out: np.ndarray = (kv @ kv.T) * rho[d[..., 0], d[..., 1]] / (side * side)
-    assert np.allclose(out, out.conj().T), "Hermitian"
-    return out
 
 
 def moments(w: np.ndarray, scale: float) -> np.ndarray:
@@ -138,11 +134,12 @@ def scba_dos(s: np.ndarray, diag: np.ndarray) -> Dict[str, np.ndarray]:
 def run(root: Path, tag: str, n_states: int, n_sur: int) -> Dict[str, np.ndarray]:
     """Moments, spectra and the SCBA baseline for one (root, chi tag)."""
     meta = json.loads((root / f"flows_chi{tag}.json").read_text())
-    side, k_cut, n = float(meta["basis"][0][0]), float(meta["K"]), int(meta["N"])
+    side = cell_lengths(meta["basis"])
+    k_cut, n = float(meta["K"]), int(meta["N"])
     nfull = full_waves(side, k_cut)
-    nmax = int(np.ceil(k_cut * side / (2.0 * np.pi)))
+    nmax = lattice_limits(side, k_cut)
     scale = k_cut**2
-    diag = (np.linalg.norm(nfull, axis=1) * 2.0 * np.pi / side) ** 2 * n / side**2
+    diag = uncoupled(nfull, side, n)
     rng = np.random.default_rng(SEED)
     with np.load(root / f"flows_chi{tag}.npz", mmap_mode="r") as f:
         states = np.asarray(f["s_final"][:n_states]) % 1.0 * side
@@ -175,20 +172,35 @@ def run(root: Path, tag: str, n_states: int, n_sur: int) -> Dict[str, np.ndarray
     return out
 
 
-def check_basis(root: Path, tag: str) -> Tuple[float, float]:
-    """Spectrum of H (complex basis) against K (Re/Im basis): max difference."""
-    from batten2008_phonon_gap_plot import k_matrix  # noqa: PLC0415
+def uncoupled(nfull: np.ndarray, side: np.ndarray, n: int) -> np.ndarray:
+    """Diagonal D_a = |Q_a|^2 N / V of H (the uncoupled spectrum omega^2)."""
+    out: np.ndarray = (np.linalg.norm(scaled(nfull, side), axis=1) * 2.0 * np.pi
+                       / side[0]) ** 2 * n / (side[0] * side[1])  # fmt: skip
+    assert out.shape == (nfull.shape[0],) and np.all(out > 0.0), "one per wave"
+    return out
 
+
+def check_basis(root: Path, tag: str) -> Tuple[float, float, float]:
+    """Spectrum of H (complex basis) against K (Re/Im basis), and diag H against D.
+
+    Returns the largest eigenvalue difference, the largest eigenvalue and the
+    largest relative difference of diag H from |Q|^2 N / V.
+    """
     meta = json.loads((root / f"flows_chi{tag}.json").read_text())
-    side, k_cut = float(meta["basis"][0][0]), float(meta["K"])
-    nmax = int(np.ceil(k_cut * side / (2.0 * np.pi)))
+    side, k_cut = cell_lengths(meta["basis"]), float(meta["K"])
+    nmax = lattice_limits(side, k_cut)
     with np.load(root / f"flows_chi{tag}.npz", mmap_mode="r") as f:
         x = np.asarray(f["s_final"][0]) % 1.0 * side
     rho = lattice_rho(x, side, nmax)
-    a = np.linalg.eigvalsh(h_matrix(rho, full_waves(side, k_cut), side))
+    nfull = full_waves(side, k_cut)
+    h = h_matrix(rho, nfull, side)
+    a = np.linalg.eigvalsh(h)
     b = np.linalg.eigvalsh(k_matrix(rho, waves(side, k_cut), side))
-    out = (float(np.max(np.abs(a - b))), float(np.max(np.abs(b))))
+    d = uncoupled(nfull, side, int(meta["N"]))
+    out = (float(np.max(np.abs(a - b))), float(np.max(np.abs(b))),
+           float(np.max(np.abs(np.real(np.diag(h)) - d) / d)))  # fmt: skip
     assert out[0] < 1e-9 * out[1], f"bases disagree ({out[0]:.1e})"
+    assert out[2] < 1e-9, f"diag H is not |Q|^2 N / V ({out[2]:.1e})"
     return out
 
 
@@ -199,18 +211,18 @@ def check_basis(root: Path, tag: str) -> Tuple[float, float]:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--roots", nargs="+", type=Path, required=True)
-    parser.add_argument("--tags", nargs="+", required=True)
+    parser.add_argument("--tags", nargs="+", default=None,
+                        help="default: every chi tag present in each root")  # fmt: skip
     parser.add_argument("--states", type=int, default=6)
     parser.add_argument("--surrogates", type=int, default=8)
     args = parser.parse_args()
     assert args.states >= 1 and args.surrogates >= 2, "states, surrogates"
     for root in args.roots:
-        for tag in args.tags:
-            if not (root / f"flows_chi{tag}.npz").exists():
-                continue
-            err, top = check_basis(root, tag)
+        for tag in present_tags(root, args.tags or TAGS):
+            err, top, diag_err = check_basis(root, tag)
             print(f"{root.name} chi{tag}: complex vs Re/Im basis max |dlambda| "
-                  f"{err:.1e} (of {top:.1e})", flush=True)  # fmt: skip
+                  f"{err:.1e} (of {top:.1e}); diag H vs |Q|^2 N/V {diag_err:.1e}",
+                  flush=True)  # fmt: skip
             res = run(root, tag, args.states, args.surrogates)
             np.savez(root / f"loops_chi{tag}.npz", **res)
     print("Done.", flush=True)
