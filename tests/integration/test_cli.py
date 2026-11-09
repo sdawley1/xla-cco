@@ -414,6 +414,29 @@ def test_regression_D085_select_device_cpu_after_backend_init(
 
 
 @pytest.mark.high
+def test_default_device_leaks_out_of_this_test() -> None:
+    """First half of a pair: set the default device and do not undo it.
+
+    The conftest fixture ``_restore_default_device`` must reset it before the
+    next test (``test_default_device_was_restored``, which runs right after
+    this one in file order). Without the reset, in-process CLI tests on the
+    GPU suite would move every later test to the CPU (AUDIT-V4-fixes F1).
+    """
+    cpu = jax.devices("cpu")[0]
+    jax.config.update("jax_default_device", cpu)
+    assert jax.config.jax_default_device == cpu, "set for this test only"
+    assert jnp.ones(2).devices() == {cpu}, "computations follow it"
+
+
+@pytest.mark.high
+def test_default_device_was_restored() -> None:
+    """Second half: the leaked default device of the previous test is gone."""
+    assert jax.config.jax_default_device is None, "conftest restores it"
+    platform = jnp.zeros(()).devices().pop().platform
+    assert platform == jax.devices()[0].platform, "back on the default backend"
+
+
+@pytest.mark.high
 def test_select_device_gpu_never_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
     """With the GPU guard bypassed and no GPU device, "gpu" still raises."""
     if any(d.platform in ("gpu", "cuda") for d in jax.devices()):
