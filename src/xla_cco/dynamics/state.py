@@ -17,10 +17,14 @@ Conventions (frozen interface; see the MD plan):
   experiments/scripts/batten2008_winding.cumulative_winding).
 - Schemes: "verlet" (NVE velocity Verlet), "andersen" (velocity Verlet then
   Andersen resets), "baoab" (Langevin, Leimkuhler-Matthews splitting).
-  Andersen "count" mode is the C++ rule (MD_System.cpp AndersonEvolve): an
-  accumulator gains p per step and one uniformly chosen particle is redrawn
-  from N(0, T) each time it reaches 1; "bernoulli" redraws one particle
-  with probability p per step.
+  Andersen "count" mode transcribes the C++ counter with one documented
+  difference: an accumulator gains p per step, one uniformly chosen
+  particle is redrawn from N(0, T) each time it reaches 1, and the
+  accumulator is carried across calls. C++ (MD_System.cpp AndersonEvolve)
+  resets its counter to 0 in every call and fires while it is > 0 (501
+  resets per 5e4-step call from step 1, D-050); setting reset_acc = 1 at
+  each call reproduces it (D-081). "bernoulli" redraws one particle with
+  probability p per step.
 
 Samuel J. Dawley
 11/2026
@@ -63,9 +67,10 @@ class MDSettings(eqx.Module):
     256); ``record_rho_every`` / ``max_rho_records`` the dense rho trace (0:
     off); ``phase_floor`` on S = |rho|^2 / N; ``drift_tol`` aborts a "verlet"
     lane (STATUS_DRIFT) when |E - E0| exceeds drift_tol times the expected
-    kinetic energy dof * T / 2. |E - E0| includes the bounded Verlet energy
-    oscillation (~ (omega dt)^2 / 8 relative), not only secular drift, so dt
-    must keep (omega_max dt)^2 well below drift_tol.
+    kinetic energy dof * T / 2 (inf disables the guard, also at T = 0).
+    |E - E0| includes the bounded Verlet energy oscillation (~ (omega dt)^2
+    / 8 relative), not only secular drift, so dt must keep (omega_max dt)^2
+    well below drift_tol.
     """
 
     dt: float = eqx.field(static=True, default=0.01)

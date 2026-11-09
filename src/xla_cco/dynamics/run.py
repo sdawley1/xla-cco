@@ -31,13 +31,16 @@ Details:
   the trace and the running sums all use it (sum_s accumulates
   |rho_latest|^2 / N over every tracked row, every step), COM-corrected
   when the scheme is not "verlet".
-- A NaN (pending) rho_prev survives in the state only for a lane frozen
-  at begin_segment or after simulate(n_steps=0); the next chunk repairs it.
+- A NaN (pending) rho_prev survives in the state only after
+  begin_segment followed by simulate(n_steps=0); the next chunk repairs it.
+  begin_segment leaves stopped lanes (status != STATUS_RUNNING) untouched
+  (D-082), so a stopped lane never holds a pending rho_prev.
 - Drift guard ("verlet"): drift_tol bounds |E - e0| at every step, i.e.
   the bounded Verlet energy oscillation (~ (omega dt)^2 / 8 relative, per
   mode) as well as any secular drift, so dt must keep (omega_max dt)^2
   well below drift_tol (dt = 0.04 trips the default 1e-3 at N = 32,
-  chi ~ 0.2).
+  chi ~ 0.2). drift_tol = inf disables the guard statically (no NaN limit
+  at T = 0, D-084).
 
 Samuel J. Dawley
 11/2026
@@ -148,6 +151,27 @@ def _check_lane(state: MDState, waves: Waves, settings: MDSettings) -> None:
             f"trace capacity {state.trace.rho.shape[:2]} != "
             f"({settings.max_rho_records}, {w})"
         )
+
+
+def _check_waves(energy: StealthyEnergy, waves: Waves) -> None:
+    """Raise ValueError unless the constrained waves are the energy's first
+    n_constrained n_vectors (host check; skipped for traced arrays, D-083).
+
+    ``_lane_rho`` reads the constrained densities from the force pass, so
+    any other wave set would silently take the energy's rows (padding rows
+    have n = 0, rho = N) as its constrained rho.
+    """
+    e_n, w_n, nc = energy.n_vectors, waves.n_vectors, waves.n_constrained
+    if isinstance(e_n, jax.core.Tracer) or isinstance(w_n, jax.core.Tracer):
+        return
+    e, w = np.asarray(e_n), np.asarray(w_n)
+    assert w.ndim == 2 and 1 <= nc <= w.shape[0], "waves hold the constrained rows"
+    if e.ndim != 2 or e.shape[0] < nc or e.shape[1] != w.shape[1]:
+        raise ValueError(f"energy n_vectors {e.shape} cannot hold the {nc} "
+                         f"constrained waves of dimension {w.shape[1]}")  # fmt: skip
+    if not np.array_equal(e[:nc], w[:nc]):
+        raise ValueError(f"the {nc} constrained waves differ from the energy's "
+                         f"first {nc} n_vectors (use one k-set)")  # fmt: skip
 
 
 # ============================================================
@@ -282,12 +306,13 @@ def init_state(
 
     e0 = Phi + KE(v0) (velocities as given; ``begin_segment`` removes the
     COM momentum). rho_prev follows the COM rule of ``settings.scheme``.
-    Only static checks, so it can be vmapped.
+    Only static (and, for concrete waves, host) checks, so it can be vmapped.
 
     Raises
     ------
     ValueError
-        On invalid settings or shapes.
+        On invalid settings or shapes, or constrained waves that are not the
+        energy's first n_vectors (D-083).
     TypeError
         On non-float64 positions/velocities or a bad PRNG key.
     """
@@ -304,6 +329,7 @@ def init_state(
     w = int(waves.kvec.shape[0])
     if waves.kvec.shape != (w, d):
         raise ValueError(f"waves have dimension {waves.kvec.shape}, positions {d}")
+    _check_waves(energy, waves)
     out = make_force_fn(energy, basis)(r0)
     rho, _ = _lane_rho(r0, out, jnp.zeros((w, 2)), waves, settings, True,
                        energy.chunk_size)  # fmt: skip
@@ -330,7 +356,8 @@ def begin_segment(
     With ``reset_winding`` (wind_abs, wind_net, n_valid zeroed) rho_prev is
     marked pending (NaN): the next ``md_chunk`` recomputes it from the
     current positions with the COM rule of its scheme (D-060). Works under
-    jax.vmap; positions, forces, key, step and buffers are unchanged.
+    jax.vmap; positions, forces, key, step and buffers are unchanged. A lane
+    whose status is not STATUS_RUNNING is returned unchanged (D-082).
     """
     assert state.v.ndim == 2, "begin_segment acts on one lane (vmap for a batch)"
     v = state.v - jnp.mean(state.v, axis=0) if settings.remove_com else state.v
@@ -351,7 +378,7 @@ def begin_segment(
             rho_prev=jnp.full_like(state.rho_prev, jnp.nan),
         )  # fmt: skip
     assert new.v.shape == state.v.shape, "velocities keep their shape"
-    return new
+    return _freeze(state, new, state.status == STATUS_RUNNING)
 
 
 # ============================================================
@@ -399,7 +426,7 @@ def _step(st: MDState, ctx: _Ctx, wind: Union[bool, Array]) -> Tuple[MDState, Ar
     assert phi.shape == ke.shape == (), "scalar energies"
     drift = jnp.abs(phi + ke - st.e0)
     status = st.status
-    if s.scheme == "verlet":
+    if s.scheme == "verlet" and math.isfinite(s.drift_tol):  # inf: no guard (D-084)
         limit = s.drift_tol * 0.5 * d * (n - 1) * st.temperature
         status = jnp.where(drift <= limit, status, STATUS_DRIFT)  # NaN aborts
     new = dataclasses.replace(
@@ -579,7 +606,8 @@ def simulate(
     ------
     ValueError
         On invalid settings, an unbatched state, buffers that do not match
-        the settings, n_steps < 0 or checkpoint_every_s <= 0.
+        the settings, constrained waves that are not the energy's first
+        n_vectors (D-083), n_steps < 0 or checkpoint_every_s <= 0.
     """
     _check_settings(settings)
     if state.step.ndim != 1:
@@ -591,6 +619,7 @@ def simulate(
     if state.step.shape[0] < 1:
         raise ValueError("need at least one lane")
     _check_lane(jax.tree_util.tree_map(lambda x: x[0], state), waves, settings)
+    _check_waves(energy, waves)
     done, last = 0, time.monotonic()
     for _ in range(-(-int(n_steps) // settings.chunk_steps)):
         if done >= n_steps or not np.any(np.asarray(state.status) == STATUS_RUNNING):

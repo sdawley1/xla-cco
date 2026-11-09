@@ -19,6 +19,7 @@ Samuel J. Dawley
 
 # ----- standard library -----
 import dataclasses
+import functools
 import math
 from pathlib import Path
 from typing import Any, List, Optional, Tuple
@@ -50,7 +51,12 @@ from xla_cco.dynamics.state import MDSettings, MDState, Waves
 from xla_cco.dynamics.thermal import harmonic_sample, kinetic_energy
 from xla_cco.energy import StealthyEnergy, make_stealthy_energy
 from xla_cco.kvectors import enumerate_kvectors
-from xla_cco.minimize.result import STATUS_DRIFT, STATUS_RUNNING
+from xla_cco.minimize.result import (
+    STATUS_BUDGET,
+    STATUS_DRIFT,
+    STATUS_GRAD_TOL,
+    STATUS_RUNNING,
+)
 
 # ============================================================
 # CONSTANTS
@@ -396,6 +402,75 @@ def test_regression_D060_begin_segment_recomputes_rho_prev_on_scheme_switch() ->
     assert np.all(np.asarray(out.n_valid[0]) == 1)
 
 
+@pytest.mark.high
+def test_regression_D083_waves_must_match_energy() -> None:
+    """D-083: init_state and simulate reject waves whose constrained rows are
+    not the energy's n_vectors (here: k_constraint 1.3 K > K, same total w,
+    so the extra constrained rows would read the energy's padding rows)."""
+    energy, waves, basis = _system()
+    wide = run.make_waves(np.asarray(basis), 1.3 * K, K_TRACK)
+    assert wide.n_constrained > waves.n_constrained
+    assert wide.kvec.shape == waves.kvec.shape, "same w: only the new check fires"
+    st_ = _settings()
+    lanes = _random_lanes([0], st_, system=(energy, waves, basis))
+    r, v = lanes.r[0], lanes.v[0]
+    with pytest.raises(ValueError, match="n_vectors"):
+        run.init_state(energy, wide, basis, r, v, jnp.asarray(1e-3),
+                       jax.random.PRNGKey(0), st_)  # fmt: skip
+    with pytest.raises(ValueError, match="n_vectors"):
+        run.simulate(energy, wide, basis, st_, lanes, 2)
+    perm = np.arange(waves.kvec.shape[0])
+    perm[:2] = [1, 0]  # the same constrained set in another order
+    swapped = dataclasses.replace(waves, n_vectors=waves.n_vectors[perm],
+                                  kvec=waves.kvec[perm])  # fmt: skip
+    with pytest.raises(ValueError, match="n_vectors"):
+        run.simulate(energy, swapped, basis, st_, lanes, 2)
+    out = run.simulate(energy, waves, basis, st_, lanes, 2).state  # matching: runs
+    assert int(out.step[0]) == 2
+
+
+@functools.lru_cache(maxsize=1)
+def _drifted_pair() -> MDState:
+    """Two lanes after 3 steps: lane 0 running, lane 1 STATUS_DRIFT at step 1."""
+    st_ = _settings(drift_tol=1.0)
+    lanes = _random_lanes([0, 1], st_)
+    bad = dataclasses.replace(lanes, e0=lanes.e0.at[1].add(1e6))
+    out = run.simulate(*_system(), st_, bad, 3).state
+    assert np.asarray(out.status).tolist() == [STATUS_RUNNING, STATUS_DRIFT]
+    assert int(out.n_sum[1]) == 1 and float(out.max_drift[1]) > 1e5, "lane 1 froze"
+    return out
+
+
+@pytest.mark.critical
+@FAST
+@given(
+    flags=st.tuples(st.booleans(), st.booleans(), st.booleans()),
+    status=st.sampled_from([STATUS_DRIFT, STATUS_BUDGET, STATUS_GRAD_TOL]),
+)
+@example(flags=(True, True, True), status=STATUS_DRIFT)
+def test_regression_D082_begin_segment_keeps_stopped_lanes(
+    flags: Tuple[bool, bool, bool], status: int
+) -> None:
+    """D-082: begin_segment leaves a lane whose status is not RUNNING untouched.
+
+    Before the fix a drifted lane lost its max_drift, sums and winding (and
+    got a NaN rho_prev, new e0 and COM-shifted v) at the next segment, so
+    the CLI reported 0 drift and 0 winding for it. The running lane is
+    still reset.
+    """
+    remove_com, reset_sums, reset_winding = flags
+    st_ = _settings(remove_com=remove_com)
+    lanes = _drifted_pair()
+    lanes = dataclasses.replace(lanes, status=lanes.status.at[1].set(status))
+    out = jax.vmap(lambda s: run.begin_segment(s, st_, reset_sums, reset_winding))(
+        lanes
+    )
+    assert leaves_bitwise_equal(_lane(1, out), _lane(1, lanes))
+    assert float(out.max_drift[0]) == 0.0 and float(lanes.max_drift[0]) > 0.0
+    assert (int(out.n_sum[0]) == 0) == reset_sums and int(lanes.n_sum[0]) == 3
+    assert bool(np.all(np.isnan(np.asarray(out.rho_prev[0])))) == reset_winding
+
+
 # ============================================================
 # LANES, SNAPSHOTS, CADENCES
 # ============================================================
@@ -419,6 +494,40 @@ def test_drifted_lane_is_frozen_and_does_not_perturb_others() -> None:
     more = run.simulate(*system, st_, out, 7).state
     assert leaves_bitwise_equal(_lane(1, more), _lane(1, out))
     assert int(more.step[0]) == 17 and int(more.trace.count[1]) == 0
+
+
+@pytest.mark.high
+def test_frozen_lane_trace_not_overwritten() -> None:
+    """A lane frozen at a step that is a multiple of record_rho_every keeps
+    its single trace row: the trace write is masked by ``running``
+    (AUDIT-V4 N5 / mutation M24)."""
+    st_ = _settings(drift_tol=1.0, record_rho_every=1, max_rho_records=8)
+    system = _system()
+    good = _random_lanes([0, 1], st_, system=system)
+    bad = dataclasses.replace(good, e0=good.e0.at[1].add(1e6))
+    one = run.simulate(*system, st_, bad, 1).state
+    out = run.simulate(*system, st_, bad, 6).state
+    assert np.asarray(out.status).tolist() == [STATUS_RUNNING, STATUS_DRIFT]
+    assert int(out.step[1]) == 1 and int(out.trace.count[1]) == 1
+    assert int(out.trace.count[0]) == 6
+    assert leaves_bitwise_equal(_lane(1, out).trace, _lane(1, one).trace)
+    assert not np.any(np.asarray(out.trace.rho[1, 1:])), "rows after the freeze"
+
+
+@pytest.mark.critical
+@FAST
+@given(temperature=st.sampled_from([0.0, 1e-12, 1e-3]))
+@example(temperature=0.0)
+def test_regression_D084_infinite_drift_tol_at_zero_temperature(
+    temperature: float,
+) -> None:
+    """D-084: drift_tol = inf never aborts a "verlet" lane, even at T = 0
+    (the limit drift_tol * dof T / 2 was inf * 0 = NaN, aborting at step 1)."""
+    st_ = _settings(drift_tol=math.inf)
+    lanes = _random_lanes([3], st_, temperature=temperature)
+    out = run.simulate(*_system(), st_, lanes, 10).state
+    assert int(out.status[0]) == STATUS_RUNNING, temperature
+    assert int(out.step[0]) == 10 and int(out.n_sum[0]) == 10
 
 
 @pytest.mark.critical

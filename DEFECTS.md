@@ -5,6 +5,16 @@ Upstream (C++ reference at `/home/sd2402/ccoptimization/cco/`) defects are
 `wontfix-upstream`: the reference is read-only; we document and, where
 needed for parity, reproduce the behaviour.
 
+Statuses:
+- `open`: found and logged, not yet fixed.
+- `fixed`: fixed in this repository; the entry names the regression test
+  that failed before the fix.
+- `wontfix-upstream`: a defect of the read-only C++ reference; documented
+  and, where parity needs it, reproduced.
+- `documented`: a deliberate, accepted deviation from the plan, not a bug.
+  Nothing is fixed, so there is no `test_regression_` test; the entry names
+  the existing tests that pin the chosen behaviour.
+
 | ID | Status | Location | Summary |
 |----|--------|----------|---------|
 | D-001 | wontfix-upstream | `RepulsiveCCPotential.h:103-118` | Soft-core `AllForce` double-counts the CC force. |
@@ -44,6 +54,9 @@ needed for parity, reproduce the behaviour.
 | D-072 | fixed | `tests/unit/test_md_bench.py` (offline vs device winding) | Flaky high-tier test: subnormal S = rho^2/N counted by NumPy, flushed to 0 by XLA on CPU. |
 | D-080 | documented | `tests/integration/test_md_equipartition.py` (V1) | Plan deviations of V1: lane-level t statistics instead of Flyvbjerg-Petersen blocking, and the Andersen KE target d N T / 2 (not d (N - 1) T / 2). |
 | D-081 | documented | `tests/parity/test_md_cxx_parity.py` (V2) | Plan deviations of V2: the full JAX replica runs offline (SLURM CPU array) and the test reads its committed output; the C++ Andersen schedule is reproduced through `reset_acc`, D-051 is not replicated. |
+| D-082 | fixed | `dynamics/run.py` (`begin_segment`) | begin_segment reset lanes already stopped (STATUS_DRIFT): their max_drift, sums and winding were zeroed, so the CLI reported 0 drift and 0 winding for a drifted lane. |
+| D-083 | fixed | `dynamics/run.py` (`init_state`, `simulate`) | The constrained waves were never checked against the energy's n_vectors; mismatched waves silently used padding rows (n = 0, rho = N) as constrained densities. |
+| D-084 | fixed | `dynamics/run.py` (`_step`) | Drift limit drift_tol * dof T / 2 is inf * 0 = NaN at T = 0 with drift_tol = inf, so every "verlet" lane aborted at step 1. |
 
 ## D-006 — `unit_ball_volume` is not bit-equal to the C++ hard-coded constants
 - **Found:** 2026-11-05, by the T4 auditor's preview parity
@@ -366,3 +379,33 @@ needed for parity, reproduce the behaviour.
 - **Impact:** (1) the parity statistics come from committed data produced by the replica script at a recorded commit; the test file also reruns the replica's sample stage live on CPU (15 C++ configurations, one Andersen + NVE cycle) and checks the stored protocol record against the C++ JSON. (2) none: setting reset_acc = 1.0 (the C++ counter plus one) at the start of each Andersen phase through the public state reproduces the C++ reset steps exactly, so no library knob was added. (3) not replicated: one kick from a relaxed start (|F| ~ 0) 2.1e6 steps before the first sample. (4) the stored data (generated at 26af1b2) predate the `settings` and per-lane `temperature` fields that `md_jax_replica.py` now records (AUDIT-V2 F2); they were not regenerated: for them the test checks `t_factor` and that the current `settings_pair` of the recorded protocol is the C++ rule, and it asserts the recorded fields whenever a regenerated file carries them
 - **Regression test:** tests/parity/test_md_cxx_parity.py::test_andersen_phase_reproduces_cxx_schedule, ::test_replica_phase_restarts_andersen_counter (AUDIT-V2 B1), ::test_stored_replica_ran_the_cxx_protocol
 - **Fix:** none needed; regenerate the data with `env -u JAX_PLATFORMS sbatch slurm/md_jax_replica_cpu.slurm` then `md_jax_replica.py collect` after any change to the dynamics
+
+## D-082 — `begin_segment` resets lanes that are already stopped
+- **Found:** 2026-11-08, audit of the MD PR (AUDIT-V4 S1)
+- **Status:** fixed
+- **Where:** src/xla_cco/dynamics/run.py (`begin_segment`), reached through src/xla_cco/cli/md.py (`_begin`, `_rewind`)
+- **Symptom:** begin_segment is vmapped over every lane whatever its status. On a lane with STATUS_DRIFT it zeroed max_drift, the sums and the winding, reset e0, set rho_prev to NaN (never repaired, the lane is not running) and removed the COM momentum from v, contradicting the md_chunk promise that a stopped lane "keeps every leaf from then on"
+- **Repro:** two lanes, drift_tol = 1, lane 1 with e0 + 1e6 so it trips at step 1; simulate 3 steps; `jax.vmap(begin_segment(., settings, True, True))` -> lane 1 still STATUS_DRIFT but max_drift 0, n_sum 0, winding 0, rho_prev NaN
+- **Impact:** a lane that drifts in an early CLI cycle reports max_drift = 0, wind_abs = 0 and n_sum = 0 in the final npz (only `status` and `cycle_*[0]` keep the evidence); averages over lanes that do not mask on status silently include zeros. No production run had a drifted lane
+- **Regression test:** tests/unit/test_md_run.py::test_regression_D082_begin_segment_keeps_stopped_lanes (Hypothesis over the three flags and three non-running statuses, repro pinned by @example)
+- **Fix:** begin_segment selects the new leaves only where status == STATUS_RUNNING (`_freeze`), so a stopped lane is returned bitwise unchanged
+
+## D-083 — Waves never checked against the energy
+- **Found:** 2026-11-08, audit of the MD PR (AUDIT-V4 S2)
+- **Status:** fixed
+- **Where:** src/xla_cco/dynamics/run.py (`_lane_rho` assumes `energy.n_vectors[:nc] == waves.n_vectors[:nc]`; `init_state`, `simulate`)
+- **Symptom:** the constrained rho is read from the force pass (`out[2][:nc]`), so waves built with a larger k_constraint than the energy (or another basis) take the energy's zero-padding rows (n = 0, rho = N) or other waves as their constrained densities, with no error
+- **Repro:** energy from `enumerate_kvectors(b, 0, K)`, waves from `make_waves(b, 1.3 K, 2 K)` (same total w) -> init_state and simulate run, with S = N on the padding rows
+- **Impact:** none in production: the CLI builds both from one k-set and `build_system` raises when they differ. Library callers (E-series scripts) were unprotected
+- **Regression test:** tests/unit/test_md_run.py::test_regression_D083_waves_must_match_energy
+- **Fix:** host-side `_check_waves` (np.array_equal of the first nc rows, skipped for traced arrays) in init_state and simulate; ValueError on a mismatch
+
+## D-084 — Drift limit is NaN at T = 0 with drift_tol = inf
+- **Found:** 2026-11-08, audit of the MD PR (AUDIT-V4 N2)
+- **Status:** fixed
+- **Where:** src/xla_cco/dynamics/run.py (`_step`, the "verlet" drift guard)
+- **Symptom:** limit = drift_tol * d (N - 1) T / 2 is inf * 0 = NaN for drift_tol = inf (the documented "no abort" setting used by select_dt and the benchmark) and T = 0; `drift <= NaN` is False, so every lane aborted at step 1
+- **Repro:** `_settings(drift_tol=inf)`, lanes at temperature 0, simulate 10 verlet steps -> status STATUS_DRIFT, step 1
+- **Impact:** unreachable from the CLI (T > 0 enforced). tests/unit/test_md_run.py::test_com_rule_under_rigid_translation[verlet] runs at T = 0 and so checked one step instead of 50; it passes over all 50 after the fix
+- **Regression test:** tests/unit/test_md_run.py::test_regression_D084_infinite_drift_tol_at_zero_temperature
+- **Fix:** the guard is skipped statically when drift_tol is infinite

@@ -594,7 +594,8 @@ def lane_template(ctx: Dict[str, Any]) -> MDState:
 
 
 def _begin(state: MDState, settings: MDSettings) -> MDState:
-    """begin_segment on every lane (COM removal, e0, sums and winding reset)."""
+    """begin_segment on every lane (COM removal, e0, sums and winding reset);
+    stopped lanes (status != STATUS_RUNNING) are left unchanged (D-082)."""
     out: MDState = jax.vmap(lambda s: md_run.begin_segment(s, settings, True, True))(
         state
     )
@@ -610,7 +611,7 @@ def _rewind(state: MDState, settings: MDSettings) -> MDState:
     momentum left as it is: rho_prev is recomputed under the phase's COM
     rule (an Andersen phase after NVE no longer compares raw with corrected
     rho); sums, velocities and step are unchanged, e0 is reset (unused
-    outside NVE).
+    outside NVE). Stopped lanes are left unchanged (D-082).
     """
     keep = dataclasses.replace(settings, remove_com=False)
 
