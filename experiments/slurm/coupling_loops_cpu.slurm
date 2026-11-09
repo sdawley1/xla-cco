@@ -16,9 +16,8 @@
 # repository root (the main checkout holding experiments/trajectories):
 #   env -u JAX_PLATFORMS sbatch --export=ALL,ROOT=experiments/trajectories/hip2d/N1000,PREFIX=hip2d \
 #       experiments/slurm/coupling_loops_cpu.slurm
-# Optional: TAGS="1-10 2-5" (default: every chi tag present in ROOT; the
-# coupling_mp_* figures then show 0.1, 0.25, 0.4 and 0.45, as for Poisson),
-# OUT (default experiments/figures), SCRIPTS (default
+# Optional: TAGS="1-10 2-5" (default: every chi tag present in ROOT), OUT
+# (default experiments/figures), SCRIPTS (default
 # $SLURM_SUBMIT_DIR/experiments/scripts; point it at a worktree to run that
 # branch's scripts), PY (default: the plottime interpreter, which has
 # NumPy and matplotlib; the project .venv has no matplotlib).
@@ -38,10 +37,8 @@ export OPENBLAS_NUM_THREADS="$OMP_NUM_THREADS" MKL_NUM_THREADS="$OMP_NUM_THREADS
 # shellcheck disable=SC2206  # TAGS is a list of chi tags
 tags=(${TAGS:-})
 tag_args=()
-all_args=(--tags all)
 if [ "${#tags[@]}" -gt 0 ]; then
   tag_args=(--tags "${tags[@]}")
-  all_args=(--tags "${tags[@]}")
 fi
 fig_args=(--prefix "$PREFIX" --out "$OUT")
 echo "ROOT=$ROOT PREFIX=$PREFIX TAGS=${TAGS:-all} SCRIPTS=$SCRIPTS"
@@ -54,10 +51,8 @@ step() {  # name, then the command; prints the wall time of each step
   echo "=== $name: $((SECONDS - t0)) s"
 }
 
-# ----- coupling spectra (caches for every tag, figures as for Poisson) -----
-step mp_cache "$PY" -I "$SCRIPTS/batten2008_mp_plot.py" --root "$ROOT" "${all_args[@]}" --flows 20 --cache-only
+# ----- coupling spectra -----
 step mp_compare "$PY" -I "$SCRIPTS/batten2008_mp_plot.py" --root "$ROOT" "${tag_args[@]}" --flows 20 "${fig_args[@]}"
-step shoulder_cache "$PY" -I "$SCRIPTS/batten2008_mp_shoulder_plot.py" --root "$ROOT" "${all_args[@]}" --states 3 --cache-only
 step shoulder "$PY" -I "$SCRIPTS/batten2008_mp_shoulder_plot.py" --root "$ROOT" "${tag_args[@]}" --states 3 "${fig_args[@]}"
 step phonon "$PY" -I "$SCRIPTS/batten2008_phonon_gap_plot.py" --root "$ROOT" "${tag_args[@]}" --states 6 "${fig_args[@]}"
 

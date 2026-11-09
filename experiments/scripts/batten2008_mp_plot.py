@@ -5,7 +5,7 @@ The coupling spectrum of the waves against the Marchenko-Pastur law, all chi.
 
 For 2D starts (Poisson by default; --root, --prefix for the others)
 evolved to stealthy ground states at every chi tag given (--tags; default
-0.1, 0.25, 0.4 and 0.45, those present in the root), the waves
+every tag present in the root), the waves
 u = (Re rho_q, Im rho_q) over the constrained set (2M numbers) have
 gradients J (2M, N d), coupling K = (2/V) J J^T and the normalized coupling
 C = D^-1/2 K D^-1/2 (D = diag K, unit diagonal). If the rows of J were
@@ -68,7 +68,6 @@ CHI_COLOR = {
     "9-20": "#2e7d32",
     "49-100": "#16a085",
 }  # increasing chi
-DEFAULT_TAGS = ("1-10", "1-4", "2-5", "9-20")  # the chi panels of this figure
 START_LABELS = {"": "Poisson", "flows2d": "Poisson", "gau2d": "Gaussian",
                 "url2d": "URL", "rsa2d": "saturated RSA", "hip2d": "HIP"}  # fmt: skip
 # per start, as in batten2008_hessian_sign_plot (roots in this order)
@@ -115,9 +114,7 @@ def start_title(fig: plt.Figure, prefix: str, n: int) -> None:
 
 
 def default_tags(root: Path, tags: List[str], order: tuple) -> List[str]:
-    """--tags if given ("all": every tag present), else those of `order` present."""
-    if tags == ["all"]:
-        tags, order = [], tuple(CHI_COLOR)
+    """--tags if given, else the tags of `order` present in root."""
     out = list(tags) if tags else present_tags(root, order)
     assert out and set(out) <= set(CHI_COLOR), f"no usable chi tags in {root}"
     return out
@@ -378,20 +375,16 @@ if __name__ == "__main__":
     default_root = Path("experiments/trajectories/flows2d/N1024")
     parser.add_argument("--root", type=Path, default=default_root)
     parser.add_argument("--tags", nargs="+", default=None,
-                        help="default: 0.1, 0.25, 0.4, 0.45 where present; "
-                        "'all': every tag present")  # fmt: skip
+                        help="default: every chi tag present in the root")  # fmt: skip
     parser.add_argument("--flows", type=int, default=20)
     parser.add_argument("--out", type=Path, default=Path("experiments/figures"))
     parser.add_argument("--prefix", default="",
                         help="figure name prefix and start, e.g. hip2d")  # fmt: skip
     parser.add_argument("--dpi", type=int, default=600)
-    parser.add_argument("--cache-only", action="store_true",
-                        help="compute the caches, draw nothing")  # fmt: skip
     args = parser.parse_args()
-    tags = default_tags(args.root, args.tags, DEFAULT_TAGS)
+    tags = default_tags(args.root, args.tags, tuple(CHI_COLOR))
     assert args.flows >= 1, "flows"
     args.out.mkdir(parents=True, exist_ok=True)
     data = {tag: load_or_compute(args.root, tag, args.flows) for tag in tags}
-    if not args.cache_only:
-        figure(data, args.out, args.dpi, args.root, args.prefix)
+    figure(data, args.out, args.dpi, args.root, args.prefix)
     print("Done.", flush=True)
