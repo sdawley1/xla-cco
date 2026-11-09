@@ -30,7 +30,8 @@ unit) and temperature it stores:
   segment's first snapshot);
 - optionally the spectrum of K = (2/V) J J^T of every ground state (from
   ``flows_chi<tag>.npz`` s_final via batten2008_landscape.wave_matrix) and
-  its moments, and the power spectrum of the dense rho trace if present.
+  its moments, and the power spectrum of the dense rho trace if present
+  (production segments only, averaged over segments; D-088).
 
 NumPy only at import (batten2008_landscape, which imports JAX, is loaded
 only for the K spectra), so the plot environment can import the constants.
@@ -666,7 +667,7 @@ def analyze_file(path: Path, flows: Optional[Path]) -> Dict[str, np.ndarray]:
             k_eig=k_eig, k_moments=moments, moment_names=np.asarray(MOMENT_NAMES)
         )
     if "trace_rho" in arrays:
-        out.update(_trace_spectra(arrays, g, n_t))
+        out.update(_trace_spectra(arrays, meta, g, n_t))
     assert out["nu_c"].shape == (g, n_t), "grids are (G, n_T)"
     return out
 
@@ -692,29 +693,59 @@ def _snapshot_extras(
     return out
 
 
-def _trace_spectra(arrays: Dict[str, np.ndarray], g: int, n_t: int) -> Dict:
-    """Power spectrum of the constrained rho over the trace's leading uniform run.
+def _segment_trace_rows(
+    arrays: Dict[str, np.ndarray], meta: Dict[str, Any]
+) -> List[np.ndarray]:
+    """Trace row indices inside each production segment (lanes share them).
 
-    The trace persists across phases, so a gap (e.g. an unrecorded phase)
-    ends the run; empty dict if it is shorter than 8 samples.
+    Rows are recovered from trace_time / dt and the JSON phases, as in
+    trace_inverse_modulus: step in (s0, s0 + n] and below every lane's
+    trace_count. A segment's rows must be uniformly spaced.
     """
-    con = arrays["waves_constrained"].astype(bool)
+    dt = float(meta["settings"]["dt"])
     q = int(np.min(arrays["trace_count"]))
     times = arrays["trace_time"][:, :q]
     assert np.allclose(times, times[:1]), "lanes share the trace schedule"
-    steps = np.diff(times[0])
-    if q < 9:
-        return {}
-    gaps = np.flatnonzero(~np.isclose(steps, steps[0], rtol=1e-6))
-    q = int(gaps[0]) + 1 if gaps.size else q
+    steps = np.rint(times[0] / dt).astype(np.int64)
+    out = [np.flatnonzero((steps > a) & (steps <= a + b)) for a, b in segments(meta)]
+    for rows in out:
+        if rows.size > 2 and np.unique(np.diff(steps[rows])).size != 1:
+            raise ValueError("rho trace is not uniform inside a production segment")
+    assert len(out) == len(segments(meta)), "one row set per segment"
+    return out
+
+
+def _trace_spectra(
+    arrays: Dict[str, np.ndarray], meta: Dict[str, Any], g: int, n_t: int
+) -> Dict[str, np.ndarray]:
+    """Power spectrum of the constrained rho over the production trace rows.
+
+    D-088: the trace is global (one row every ``record_rho_every`` steps
+    from step 0, across the thermostatted phases), so only the rows inside
+    the production segments are used: each segment's first Q rows (Q = the
+    fewest rows of any segment) are transformed and the normalized spectra
+    averaged over segments. Empty dict if a segment has fewer than 8 rows.
+    ``spec_nyquist`` = pi / (cadence dt): E1 traces (every 2000 steps) alias
+    every harmonic frequency and are not spectra to plot.
+    """
+    con = arrays["waves_constrained"].astype(bool)
+    rows = _segment_trace_rows(arrays, meta)
+    q = min(r.size for r in rows)
     if q < 8:
         return {}
-    steps = steps[None, :]
-    rho = arrays["trace_rho"][:, :q, con, 0] + 1j * arrays["trace_rho"][:, :q, con, 1]
-    spec = [power_spectrum(r, float(steps[0, 0])) for r in rho]
-    power = np.stack([p for _, p in spec])
-    assert power.shape[0] == g * n_t, "one spectrum per lane"
-    return {"spec_omega": spec[0][0], "spec_power": to_grid(power, g, n_t)}
+    times = arrays["trace_time"][0]
+    step = float(times[rows[0][1]] - times[rows[0][0]])
+    trace = arrays["trace_rho"][..., con, 0] + 1j * arrays["trace_rho"][..., con, 1]
+    power = np.zeros((g * n_t, q))
+    omega = np.zeros(q)
+    for seg in rows:
+        spec = [power_spectrum(lane[seg[:q]], step) for lane in trace]
+        omega = spec[0][0]
+        power += np.stack([p for _, p in spec]) / len(rows)
+    assert power.shape[0] == g * n_t and step > 0.0, "one spectrum per lane"
+    return {"spec_omega": omega, "spec_power": to_grid(power, g, n_t),
+            "spec_rows": np.asarray(q), "spec_segments": np.asarray(len(rows)),
+            "spec_nyquist": np.asarray(np.pi / step)}  # fmt: skip
 
 
 def resolve_flows(path: Path, flows: str) -> Optional[Path]:

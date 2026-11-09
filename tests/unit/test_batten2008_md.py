@@ -16,6 +16,7 @@ Samuel J. Dawley
 import json
 import math
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -734,6 +735,8 @@ def test_clean_json_and_markdown(null_set: Path) -> None:
     json.dumps(mds.clean_json(res), allow_nan=False)
     table = mds.markdown(res)
     assert all(f"| {h} |" in table for h in mds.HYPOTHESES)
+    assert res["exploratory"]["label"] == mds.EXPL_LABEL  # post hoc, separate
+    assert table.index("Exploratory (post hoc") > table.index("| H8 |")
 
 
 def _cell_data(net: np.ndarray, alpha: np.ndarray, d_theta: np.ndarray, tag: str,
@@ -951,3 +954,124 @@ def test_a4_trace_only_inside_production(
         assert mds.combine([p["outcome"] for p in mds.h6b_parts([res], True)]) == (
             mds.NOT_EVALUATED
         )
+
+
+# ============================================================
+# D-088: TRACE SPECTRA RESTRICTED TO THE PRODUCTION SEGMENTS
+# ============================================================
+
+SPEC_EVERY = 100  # trace cadence of the D-088 fixture (1000 rows per segment)
+SPEC_ROWS = 100_000 // SPEC_EVERY
+
+
+def _tone_trace(
+    arrays: Dict[str, np.ndarray], meta: Dict[str, Any], m_in: int, amp_out: float,
+    m_out: int, m_last: int = -1,
+) -> Dict[str, np.ndarray]:  # fmt: skip
+    """Copy of ``arrays`` whose rho trace is a pure tone per region.
+
+    Inside the production segments rho = exp(i w_in t) with w_in = 2 pi m_in /
+    (SPEC_ROWS dt_trace), on the segment's FFT grid; outside (equilibration,
+    Andersen) rho = amp_out exp(i w_out t). ``m_last >= 0`` replaces m_in in
+    the last production segment.
+    """
+    out = dict(arrays)
+    t = arrays["trace_time"]
+    steps = np.rint(t / CLI_DT).astype(np.int64)
+    prod = np.any([(steps > a) & (steps <= a + b) for a, b in ana.segments(meta)],
+                  axis=0)  # fmt: skip
+    span = SPEC_ROWS * SPEC_EVERY * CLI_DT
+    a_last, n_last = ana.segments(meta)[-1]
+    last = (steps > a_last) & (steps <= a_last + n_last)
+    m_prod = np.where(last & (m_last >= 0), m_last, m_in)
+    phase = np.where(prod, TWO_PI * m_prod / span * t, TWO_PI * m_out / span * t)
+    amp = np.where(prod, 1.0, amp_out)
+    rho = np.zeros(arrays["trace_rho"].shape)
+    rho[..., 0] = (amp * np.cos(phase))[..., None]
+    rho[..., 1] = (amp * np.sin(phase))[..., None]
+    out["trace_rho"] = rho
+    assert prod.any() and not prod.all(), "rows inside and outside production"
+    return out
+
+
+def _spectra_fixture(tmp: Path) -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
+    """Arrays and meta of a cli_files output with a trace every SPEC_EVERY steps."""
+    om = np.tile(np.array([1.0, 1.0, 0.02, 0.03]), (2, 1))
+    s_mean = np.tile(np.array([1e-6, 1e-6, 0.5, 0.8]), (2, 1))
+    path = cli_files(tmp / "x" / "N3" / "md_spectra_chi1-3.npz", om, om, [1e-6], 2,
+                     s_mean, trace_every=SPEC_EVERY)  # fmt: skip
+    return ana.load_md(path)
+
+
+def _segment_periodogram(rho: np.ndarray) -> np.ndarray:
+    """Reference: normalized |FFT(rho - mean)|^2 (Q,) of one complex series."""
+    x = rho - rho.mean()
+    p = np.abs(np.fft.fft(x)) ** 2
+    return p / p.sum()
+
+
+@pytest.mark.critical
+def test_regression_D088_trace_spectrum_production_only(tmp_path: Path) -> None:
+    """D-088: the rho power spectrum uses only the production (NVE) trace rows.
+
+    Repro: a trace across all phases whose non-production rows carry a loud
+    tone at w_out (amplitude 1e3) and whose production rows carry w_in. The
+    fixed spectrum is the segment-averaged periodogram of the production
+    rows alone (a delta at w_in); the defect transformed the whole uniform
+    trace, so w_out dominated. Edge: a trace without production rows (count
+    truncated before the first segment) gives no spectrum.
+    """
+    arrays, meta = _spectra_fixture(tmp_path)
+    tone = _tone_trace(arrays, meta, 50, 1e3, 200)
+    got = ana._trace_spectra(tone, meta, 2, 1)
+    assert int(got["spec_rows"]) == SPEC_ROWS and int(got["spec_segments"]) == 2
+    omega, power = got["spec_omega"], got["spec_power"][0, 0]
+    w_in = TWO_PI * 50 / (SPEC_ROWS * SPEC_EVERY * CLI_DT)
+    peak = int(np.argmax(power))
+    assert omega[peak] == pytest.approx(w_in, rel=1e-12)
+    assert power[peak] == pytest.approx(1.0, abs=1e-12)  # all power at w_in
+    steps = np.rint(tone["trace_time"][0] / CLI_DT).astype(np.int64)
+    ref = np.zeros(SPEC_ROWS)
+    for a, b in ana.segments(meta):
+        rows = np.flatnonzero((steps > a) & (steps <= a + b))
+        tr = tone["trace_rho"][0, rows, 0]
+        series = tr[:, 0] + 1j * tr[:, 1]
+        ref += _segment_periodogram(series) / 2.0
+    order = np.argsort(TWO_PI * np.fft.fftfreq(SPEC_ROWS, d=SPEC_EVERY * CLI_DT))
+    np.testing.assert_allclose(power, ref[order], atol=1e-12)
+    two = ana._trace_spectra(_tone_trace(arrays, meta, 50, 1e3, 200, 80), meta, 2, 1)
+    p2 = two["spec_power"][0, 0]  # segments averaged: half the power at each tone
+    for m in (50, 80):
+        w = TWO_PI * m / (SPEC_ROWS * SPEC_EVERY * CLI_DT)
+        assert p2[np.argmin(np.abs(omega - w))] == pytest.approx(0.5, abs=1e-12)
+    short = dict(tone, trace_count=np.full(2, 5))  # rows end before production
+    assert ana._trace_spectra(short, meta, 2, 1) == {}
+
+
+@pytest.mark.high
+@given(m_in=st.integers(1, SPEC_ROWS // 2 - 1), amp_out=st.floats(0.0, 1e4),
+       m_out=st.integers(0, SPEC_ROWS - 1))  # fmt: skip
+@example(m_in=50, amp_out=1e3, m_out=200)  # the D-088 repro
+def test_regression_D088_spectrum_ignores_non_production_property(
+    m_in: int, amp_out: float, m_out: int
+) -> None:
+    """D-088: the spectrum is unchanged by any trace values outside production."""
+    arrays, meta = _D088_FIXTURE
+    base = ana._trace_spectra(_tone_trace(arrays, meta, m_in, 0.0, 0), meta, 2, 1)
+    got = ana._trace_spectra(_tone_trace(arrays, meta, m_in, amp_out, m_out), meta,
+                             2, 1)  # fmt: skip
+    np.testing.assert_array_equal(got["spec_power"], base["spec_power"])
+    w_in = TWO_PI * m_in / (SPEC_ROWS * SPEC_EVERY * CLI_DT)
+    assert got["spec_omega"][np.argmax(got["spec_power"][1, 0])] == pytest.approx(
+        w_in, rel=1e-9)  # fmt: skip
+
+
+def _d088_fixture() -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
+    """Module-level fixture of the property test (no function-scoped tmp_path)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        arrays, meta = _spectra_fixture(Path(tmp))
+    assert "trace_rho" in arrays, "a traced fixture"
+    return arrays, meta
+
+
+_D088_FIXTURE = _d088_fixture()
