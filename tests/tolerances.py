@@ -313,3 +313,59 @@ MD_PARITY_KS_THIN: int = 2
 # samples is rho (1 - rho^B)^2 / (B (1 - rho^2)) = 0.022, so the 20 means per seed
 # are nearly independent and the SE is underestimated by ~ 2 %.
 MD_PARITY_BLOCK: int = 10
+# ----- MD winding analysis and statistics (E2: batten2008_md_*.py) -----
+# Least-squares slope of exactly linear W(t) = w t (+ c) on <= 200 log-spaced times
+# in [1e-3, 1e4]: the centred sums carry ~R eps relative rounding (R = 200: 4.4e-14),
+# amplified by t_max / sd(t) <~ 5 from centring; 1e-11 leaves > 40x headroom.
+RTOL_MD_RATE_EXACT: float = 1e-11
+# Windowed rates by linear interpolation at snapshot times that include t/4, t/2
+# and t exactly: one subtraction and one division of O(1e3) values, ~4 eps relative;
+# 1e-12 is ample.
+RTOL_MD_WINDOW_EXACT: float = 1e-12
+# Exact power laws msd = c t^a through fit_msd: polyfit of exact log-log data
+# (R <= 100 points, |log t| <= 25) returns a to ~R eps |log t| ~ 5e-13; 1e-9.
+ATOL_MD_ALPHA_EXACT: float = 1e-9
+# Exponent of the analytic Ornstein-Uhlenbeck MSD 2 D tau^2 (t/tau - 1 + e^-t/tau)
+# fitted over t in [10 tau, 1e4 tau]: the local slope 1 + tau / t - ... decays
+# from 1.11 at 10 tau to 1.0001 at 1e4 tau; the log-spaced least-squares average
+# is 1.009 (computed, 120 points in [1e-2, 1e4]); 0.04 bounds it with 4x headroom,
+# while the all-lag fit (ballistic t^2 included) gives 1.34, far outside.
+ATOL_MD_ALPHA_OU: float = 0.04
+# Exponent and D of the pooled MSD of 4000 Gaussian random walks at 60 log-spaced
+# times in [1, 1e3]: the MSD at each time has relative sd sqrt(2 / 4000) = 2.2 %
+# and the times are correlated; the log-log slope over 3 decades has sd 0.0035
+# (measured over 20 seeds), so 0.05 is a > 10 sd bound that still rejects any
+# exponent outside [0.95, 1.05]. D from the 2 D t fit is dominated by the last
+# points: relative sd 1.9 % (measured over 20 seeds); 0.12 = 6 sd.
+ATOL_MD_ALPHA_RW: float = 0.05
+RTOL_MD_D_RW: float = 0.12
+# Synthetic MD (batten2008_md_synthetic) recovered by the analysis, pooled over
+# all lanes and waves of the end-to-end set (6 ground states x 3 T, 12
+# constrained and ~40 unconstrained waves, 2 segments of t = 400; measured with
+# seed 3: Rice ratio 0.994 constrained / 1.000 unconstrained, S/T 0.991, Phi/(MT)
+# 0.991, median alpha 1.012, nu 0.999):
+# - unsigned rate / Rice: the sampled total variation of the Ornstein-Uhlenbeck
+#   oscillators undercounts by O(gamma dt) (0.3 % constrained, 0.5 % unconstrained
+#   at dt = 0.025, measured against dt = 0.0125); the pooled statistical sd is
+#   ~0.7 %; 3 % bounds bias + 3 sd.
+RTOL_MD_SYN_RATE: float = 0.03
+# - <S_k> / T and <Phi> / (M T): per-wave relative sd ~ sqrt(tau_S / t) ~ 9 %
+#   (tau_S ~ 1 / gamma), pooled over ~200 wave series ~0.7 %; 3 % = 4 sd.
+RTOL_MD_SYN_EQUIPARTITION: float = 0.03
+# - median MSD exponent over the 18 lanes: lane sd 0.18 at t = 400 (window
+#   [~38, 400], 24 walks per lane), median of 18 -> ~0.05; 0.15 = 3 sd (the
+#   pre-registered band is 0.1; this set is far shorter than production runs).
+ATOL_MD_SYN_ALPHA: float = 0.15
+# H5 under Amendment A1 (D-047): with no start effect, k = 5 starts of 10 ground
+# states, eta^2_H < 0.06 <=> H < 6.7, so a cell passes with P(chi2_4 < 6.7) = 0.847
+# (asymptotic; measured 0.835 over the 200 seeded cells). Binomial sd over 200
+# cells is 0.025; [0.77, 0.92] is about +-3 sd and excludes the plain-epsilon^2
+# rate 0.39 (P(chi2_4 < 2.94) = 0.43) by > 15 sd.
+MD_H5_NULL_CELLS: int = 200
+MD_H5_NULL_PASS: tuple = (0.77, 0.92)
+# Amendment A2: H5 part 1 is the mean of eta^2_H over the 6 harmonic cells. Under
+# the null the mean has expectation ~0 and sd ~ sqrt(2 (k-1)) / (n-k) / sqrt(6) =
+# 0.026, so P(mean >= 0.06) ~ 0.01 per set; P(>= 18 of 20 sets pass) > 0.999. The
+# old rule (every cell below 0.06) passes only 0.85^6 = 0.37 of the sets.
+MD_H5_NULL_SETS: int = 20
+MD_H5_NULL_SET_MIN: int = 18
