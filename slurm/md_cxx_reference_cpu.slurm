@@ -6,12 +6,12 @@
 #SBATCH --mem=2G
 #SBATCH --time=07:45:00
 #SBATCH --array=1-3
-#SBATCH --output=/scratch/gpfs/TORQUATO/sd2402/xla_cco_runs/md_cxx/slurm-%x-%A_%a.out
+#SBATCH --output=experiments/trajectories/slurm-%x-%A_%a.out
 # C++ MD reference runs (plan T4): one array task per seed (seed = task id).
 # Runs the UNMODIFIED soft_core_stealthy2.out in random ... MD step 1e-5 mode,
 # d = 2, N = 256, M = 50, Nc = 200, Nc_equi = 20 (~4 h serial per seed).
 # Submit from the repository root (CPU only, no GPU):
-#   mkdir -p /scratch/gpfs/TORQUATO/sd2402/xla_cco_runs/md_cxx
+#   mkdir -p experiments/trajectories  # job logs (relative to the submit dir)
 #   env -u JAX_PLATFORMS sbatch slurm/md_cxx_reference_cpu.slurm
 # Afterwards, on a login node:
 #   python tools/cpp_reference/md_reference.py collect --seeds 1 2 3
