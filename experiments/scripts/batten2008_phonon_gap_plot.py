@@ -256,7 +256,9 @@ def figure_dispersion(data: Dict[str, Dict], out: Path, dpi: int, n: int,
         ax.legend([], [], frameon=False)
     for ax in axes.flat[len(tags) :]:
         ax.set_visible(False)  # fewer than six chi tags
-    for ax in axes[1, :]:
+    for col in range(axes.shape[1]):  # x label on the lowest panel drawn
+        ax = axes[min(1, (len(tags) - 1 - col) // axes.shape[1]), col]
+        ax.xaxis.set_tick_params(labelbottom=True)
         ax.set_xlabel(r"Eigenvector Mean $|\mathbf{q}|/K$")
     for ax in axes[:, 0]:
         ax.set_ylabel(r"Frequency, $\omega/K$")

@@ -228,6 +228,18 @@ def ks_distance(ev: np.ndarray, c: float) -> float:
     return out
 
 
+def ks_eff(ev: np.ndarray) -> float:
+    """Kolmogorov distance from MP with c_eff = Var lambda; NaN unless 0 < c_eff < 1.
+
+    MP(c_eff) is undefined for c_eff >= 1 (HIP starts at chi = 0.4, whose
+    spectra have zero modes; D-018).
+    """
+    c_eff = float(np.mean(ev.var(axis=1)))
+    out = ks_distance(ev, c_eff) if 0.0 < c_eff < 1.0 else float("nan")
+    assert np.isnan(out) or 0.0 <= out <= 1.0, "a distance"
+    return out
+
+
 def stats(ev: np.ndarray, c: float) -> Dict[str, float]:
     """Variance, edges, mean inverse and Kolmogorov distance against MP.
 
@@ -258,7 +270,7 @@ def figure(data: Dict[str, Dict], out: Path, dpi: int, root: Path,
     """Cumulative spectra per chi against MP, and the summary statistics."""
     n = len(data)
     assert 1 <= n <= 6, "at most six chi panels"
-    fig = plt.figure(figsize=(5.0 * n + 2.0, 11.5), constrained_layout=True)
+    fig = plt.figure(figsize=(max(5.0 * n + 2.0, 22.0), 11.5), constrained_layout=True)
     grid = fig.add_gridspec(2, 12)
     top = [fig.add_subplot(grid[0, 12 * i // n : 12 * (i + 1) // n]) for i in range(n)]
     axes = np.array([[None] * 4, [fig.add_subplot(grid[1, 3 * i : 3 * i + 3])
@@ -272,7 +284,8 @@ def figure(data: Dict[str, Dict], out: Path, dpi: int, root: Path,
         if ax is not None:
             ax.plot(GRID, mp, color=MP_COLOR, lw=3.0, ls="--")
             c_eff = float(np.mean(d["gs"].var(axis=1)))
-            ax.plot(GRID, mp_cdf(c_eff, GRID), color=MP_COLOR, lw=2.0, ls=":")
+            if 0.0 < c_eff < 1.0:
+                ax.plot(GRID, mp_cdf(c_eff, GRID), color=MP_COLOR, lw=2.0, ls=":")
             ax.plot(GRID, ecdf(d["start"], GRID), color=START_COLOR, lw=2.0)
             ax.plot(GRID, ecdf(d["gs"], GRID), color=color, lw=2.0)
             ax.set_xscale("log")
@@ -287,9 +300,9 @@ def figure(data: Dict[str, Dict], out: Path, dpi: int, root: Path,
         gs = stats(d["gs"], c)
         gs["pair"] = float(np.mean(d["pair_s"]))
         gs["geo"] = float(d["pair_geo"])
-        gs["ks_eff"] = ks_distance(d["gs"], float(np.mean(d["gs"].var(axis=1))))
+        gs["ks_eff"] = ks_eff(d["gs"])
         st = stats(d["start"], c)
-        st["ks_eff"] = ks_distance(d["start"], float(np.mean(d["start"].var(axis=1))))
+        st["ks_eff"] = ks_eff(d["start"])
         rows.append((chi, c, gs, st, color))
     summary(axes[1, 1:], rows)
     style(axes[1, :], letters)

@@ -150,11 +150,11 @@ needed for parity, reproduce the behaviour.
 - **Found:** 2026-11-09, per-start coupling run (hip2d/N1000, SLURM 17145072)
 - **Status:** fixed
 - **Where:** experiments/scripts/batten2008_mp_plot.py (`stats`)
-- **Symptom:** `AssertionError: positive spectrum` while drawing coupling_mp_compare for HIP starts
-- **Repro:** HIP starts at chi = 0.4 (tag 2-5): the coupling C of the start configurations has 42-134 eigenvalues at round-off (|lambda| <= 6e-16, some negative), so <1/lambda>(1 - c) is a huge number of either sign
+- **Symptom:** `AssertionError: positive spectrum` (`stats`), then `AssertionError: MP normalization` (`ks_distance` with c_eff >= 1), while drawing coupling_mp_compare for HIP starts
+- **Repro:** HIP starts at chi = 0.4 (tag 2-5): the coupling C of the start configurations has 42-134 eigenvalues at round-off (|lambda| <= 6e-16, some negative), so <1/lambda>(1 - c) is a huge number of either sign, and Var lambda = 2.96 c = 2.37 > 1, so MP(c_eff) does not exist
 - **Impact:** no per-start figure for HIP; the stored Poisson figures are unaffected (their smallest start eigenvalue, 1e-11 at chi = 0.49, is a genuine void mode)
-- **Regression test:** tests/unit/test_batten2008_coupling_plots.py::test_regression_D018_stats_with_zero_modes
-- **Fix:** <1/lambda> is NaN when lambda_min / lambda_max <= 1e-13 (round-off zeros); the assertion now checks only that it is not <= 0
+- **Regression test:** tests/unit/test_batten2008_coupling_plots.py::test_regression_D018_stats_with_zero_modes and ::test_regression_D018_ks_eff_undefined_for_variance_above_one
+- **Fix:** <1/lambda> is NaN when lambda_min / lambda_max <= 1e-13 (round-off zeros), and the assertion checks only that it is not <= 0; `ks_eff` returns NaN (no point, no MP(c_eff) curve) unless 0 < c_eff < 1
 
 ## D-019 — coupling_mp_shoulder dip window outside a narrow spectrum
 - **Found:** 2026-11-09, per-start coupling run (rsa2d/N999, SLURM 17145071)
