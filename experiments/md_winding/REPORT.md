@@ -80,7 +80,7 @@ This subsection applies the decision-table remedy. It does not change the verdic
 
 All 60 rerun lanes ended RUNNING. H3 and H7 were re-evaluated with the registered part functions on all 4 cycles of each rerun cell; the "after remedy" verdict replaces the rerun cell's production parts by its rerun parts and keeps every other cell.
 
-**The reruns are independent replicates, not bitwise extensions [R].** The rerun's first two cycles do not reproduce production bitwise. The set-up arrays (temperatures, ground states, waves) and the step counts agree exactly, and the dense ρ_k trace agrees to a relative 5.8 × 10⁻¹² (χ = 0.4) and 1.6–3.4 × 10⁻¹³ (E4) at its first shared row (t = 40 and 80). The difference then grows exponentially and exceeds 10% of |ρ_k| at t = 240 (χ = 0.4, Andersen equilibration), 2480 (γ = 0.003) and 6880 (γ = 0.03), all before the end of equilibration. The integrator, seeds, initial conditions and GPU model (A100 80 GB) are identical, so the initial difference is rounding. Its most likely source is that the reruns compile a different program (2200 instead of 1200 trace rows) and separately compiled A100 programs round differently (D-086); we have not isolated it from run-to-run GPU nondeterminism. The chaotic dynamics amplifies it to O(1). The rerun cycles 0–1 are therefore a second sample from the same law; the unsigned constrained winding per (cycle, lane), rerun over production, has median 0.99999 (range 0.971–1.023, n = 80; χ = 0.4) and 1.00000 (0.9988–1.0010 and 0.9997–1.0005, n = 20 each; E4). Four cycles of a fresh replicate is a stronger test than two added cycles, so we apply the remedy unchanged.
+**The reruns are independent replicates, not bitwise extensions [R].** The rerun's first two cycles do not reproduce production bitwise. The set-up arrays (temperatures, ground states, waves) and the step counts agree exactly, and the dense ρ_k trace agrees to a relative 5.8 × 10⁻¹² (χ = 0.4) and 1.6–3.4 × 10⁻¹³ (E4) at its first shared row (t = 40 and 80). The difference then grows exponentially and exceeds 10% of |ρ_k| at t = 240 (χ = 0.4, Andersen equilibration), 2480 (γ = 0.003) and 6880 (γ = 0.03), all before the end of equilibration. The integrator, seeds, initial conditions and GPU model (A100 80 GB) are identical, so the initial difference is rounding. Its most likely source is that the reruns compile a different program (`max_rho_records` 2400 instead of 1300 trace rows for the χ = 0.4 E1 cell, 2200 instead of 1200 for the two E4 cells) and separately compiled A100 programs round differently (D-086); we have not isolated it from run-to-run GPU nondeterminism. The chaotic dynamics amplifies it to O(1). The rerun cycles 0–1 are therefore a second sample from the same law; the unsigned constrained winding per (cycle, lane), rerun over production, has median 0.99999 (range 0.971–1.023, n = 80; χ = 0.4) and 1.00000 (0.9988–1.0010 and 0.9997–1.0005, n = 20 each; E4). Four cycles of a fresh replicate is a stronger test than two added cycles, so we apply the remedy unchanged.
 
 | H | Production (all parts) | Production, rerun cell | Rerun cell, 4 cycles | After remedy |
 |---|---|---|---|---|
@@ -202,6 +202,8 @@ No for the unsigned rate (H5 PASS: mean η²_H = −0.010; start medians differ 
 | Langevin (E4) | 2.81 |
 | Reserve (INCONCLUSIVE remedy) | 4.71 (of 16) |
 
+The lines are rounded to 0.01 GPU-h; they sum to 24.47 against the unrounded total 24.478 (shown as 24.48).
+
 The final sacct costs in the 28 output JSONs (refreshed with `--step cost`) sum to 16.30 GPU-h, which equals pilot + production + Langevin [J]. The three remedy reruns (17173885–7) used 3.98 + 0.37 + 0.36 = 4.71 GPU-h (ElapsedRaw 14334, 1325 and 1306 s on 1 GPU; also in their JSON `cost` fields) [B, J]. E2, E3 and E5 used CPU only: SLURM jobs 17171421 (16 cores, 22 min) and 17172995 (1 min); the remedy analysis and the figure re-render used jobs 17176359, 17176658, 17191556 and 17176417 (≤ 1 min each).
 
 ## 8. Deviations from the plan
@@ -248,10 +250,10 @@ The INCONCLUSIVE remedy (GPU reruns with `--cycles 4 --data-root experiments/tra
 
 ```bash
 T=experiments/trajectories; R=$T/md_rerun
-python experiments/scripts/batten2008_md_analysis.py --out-dir $R/results \
+uv run --no-sync python experiments/scripts/batten2008_md_analysis.py --out-dir $R/results \
     --md $R/flows2d/N1024/md_chi2-5.npz \
     $R/flows2d/N1024/md_langevin_g0.003_chi1-10.npz $R/flows2d/N1024/md_langevin_g0.03_chi1-10.npz
-python experiments/scripts/batten2008_md_remedy.py --production $T/md_results --rerun $R/results \
+uv run --no-sync python experiments/scripts/batten2008_md_remedy.py --production $T/md_results --rerun $R/results \
     --out-json $R/results/remedy.json \
     --pair $T/flows2d/N1024/md_chi2-5.npz $R/flows2d/N1024/md_chi2-5.npz \
     --pair $T/flows2d/N1024/md_langevin_g0.003_chi1-10.npz $R/flows2d/N1024/md_langevin_g0.003_chi1-10.npz \
