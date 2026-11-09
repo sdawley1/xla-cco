@@ -239,4 +239,5 @@ def test_markdown_reports_determinism_onset_and_winding_ratio() -> None:
     res["determinism"] = {"x.npz": chk}
     md = rem.markdown(res)
     assert "bitwise False" in md and "differ: trace_rho" in md
-    assert "1e-09 at t = None" in md and "median 1.00000" in md
+    assert "1e-09 at t = never" in md and "median 1.00000" in md
+    assert "| segment 0 | flows2d chi=2-5 T=1e-06 | 1.0" in md  # production value

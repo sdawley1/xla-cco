@@ -286,12 +286,18 @@ def markdown(result: Dict[str, Any]) -> str:
         ]
         rows.append(f"| {h} | " + " | ".join(cols) + " |")
     for h, r in result["hypotheses"].items():
-        rows += ["", f"## {h} rerun parts", "",
-                 "| part | cell | value | z | dev | outcome |",
-                 "|---|---|---|---|---|---|"]  # fmt: skip
-        rows += [f"| {p['part']} | {p['cell']} | {p['value']:.5f} | {p['z']:.3g} | "
-                 f"{p['dev']:.3g} | {p['outcome']} |"
-                 for p in r["rerun_cell"]["parts"]]  # fmt: skip
+        old = {_key(p): p for p in r["production_cell"]["parts"]}
+        rows += ["", f"## {h} rerun parts (production value, z where it exists)", "",
+                 "| part | cell | production | rerun value | z | dev | outcome |",
+                 "|---|---|---|---|---|---|---|"]  # fmt: skip
+        for p in r["rerun_cell"]["parts"]:
+            q = old.get(_key(p))
+            prev = "—" if q is None else (
+                f"{q['value']:.5f}, z {q['z']:.3g} ({q['outcome']})")  # fmt: skip
+            rows.append(
+                f"| {p['part']} | {p['cell']} | {prev} | {p['value']:.5f} | "
+                f"{p['z']:.3g} | {p['dev']:.3g} | {p['outcome']} |"
+            )
     for name, d in result.get("determinism", {}).items():
         bad = [k for k, v in d["keys"].items() if not v["bitwise"]]
         rows += ["", f"- determinism {name}: first {d['n_cycles']} cycles, "
@@ -300,7 +306,8 @@ def markdown(result: Dict[str, Any]) -> str:
                  + (f"; differ: {', '.join(bad)}" if bad else "")]  # fmt: skip
         if "onset" in d:
             o, w = d["onset"], d["winding_ratio"]
-            reach = ", ".join(f"{lv} at t = {t}" for lv, t in o["t_reach"].items())
+            reach = ", ".join(f"{lv} at t = " + ("never" if t is None else f"{t:.6g}")
+                              for lv, t in o["t_reach"].items())  # fmt: skip
             rows += [f"  - rho trace rel. difference {o['rel_first']:.3g} at t = "
                      f"{o['t_first']:g} (first shared row); exceeds {reach}; "
                      f"{o['rel_last']:.3g} at t = {o['t_last']:g}",
