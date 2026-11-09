@@ -609,6 +609,40 @@ A 2D hyperuniform start therefore behaves like a Poisson start in a higher dimen
 - *Where the start enters.* Only above Φ ≈ 1, where R is not small compared with the stiffness of G. There the count exceeds half, by more for starts with larger residual waves: from 598 (RSA, χ = 0.4) to 1342 (HIP, χ = 0.1). The extra negative directions disappear once √Φ is small.
 - *What the plateau means physically.* The flow descends in a narrow valley (2M stiff directions, curvature ~|k|²) whose floor is the (Nd − 2M)-dimensional ground-state manifold, and the floor is curved with no preferred side. A state above the floor can always lower Φ by sliding along half the floor directions. Lower energy is always available by sliding along the floor, but the gradient never points that way, so each flow ends wherever its descent first meets the floor.
 
+#### Negative and positive counts together
+
+`batten2008_hessian_sign_plot.py` writes two figures.
+- **`figures/hessian_sign_compare`:** panels (a, b) show the negative (solid) and positive (dashed) eigenvalue counts against Φ for every 2D start and both χ, with the cut-free P R P counts as points. Panels (c, d) show the soft-sector counts n₋ and n₊ − 2M over (Nd − 2M)/2.
+- **`figures/hessian_sign_mechanism`:**
+  - (a, b) the signed spectrum against Φ;
+  - (c) how the Nd directions split;
+  - (d) the soft magnitudes;
+  - (e) the cut-free sign fractions;
+  - (f) the stiff band.
+
+`figures/hessian_sign_starts` shows, for every 2D start, the signed spectrum at χ = 0.1 and 0.4 and how the Nd directions split (one row per start). The structure is the same for every start. The soft ± branches are symmetric and shrink as √Φ, the stiff band of 2M stays fixed, and both branches cross the cut at Φ ≈ 10⁻¹¹. The starts differ only above Φ ≈ 1, where R is not yet small:
+- *HIP* starts with the largest negative excess (61% negative at χ = 0.1).
+- *RSA* χ = 0.4 starts with its stiff band already separated (0.74 of the Nd directions positive and stiff at the start, against 0.53–0.61 for the others).
+
+**The counts at Φ = 10⁻⁴** (median over 100 flows) are:
+
+  | Start | χ = 0.1: n₊ / 2M / n₋ | χ = 0.4: n₊ / 2M / n₋ |
+  |---|---|---|
+  | Poisson | 1232 / 420 / 813 | 1845 / 1640 / 201 |
+  | Gaussian | 1202 / 400 / 796 | 1802 / 1604 / 196 |
+  | URL | 1231 / 416 / 814 | 1847 / 1642 / 199 |
+  | RSA | 1197 / 400 / 799 | 1797 / 1596 / 199 |
+  | HIP | 1198 / 400 / 800 | 1804 / 1604 / 194 |
+
+In every case n₊ = 2M + n₋ to within 1–3, and the remaining ≈ 3 eigenvalues are the zero modes (2 of them translations).
+
+**What the figures show.**
+- **The stiff band is fixed.** It holds the 2M wave directions, with eigenvalues between k₁² and 10³ k₁² independent of Φ below Φ ≈ 1 (panel f). It is the "positive count" floor 2M that remains at the end.
+- **The soft branches are symmetric.** The other Nd − 2M eigenvalues form a positive and a negative branch of equal weight (signed spectrum, panels a and b). Their median magnitudes coincide and shrink together as √Φ (panel d). The cut-free P R P spectrum is 50 ± 1% negative from Φ ≈ 0.1 down (panel e).
+- **Why the counts drop.** The negative count and the soft part of the positive count fall together at Φ ≈ 10⁻¹¹. This happens only because both branches cross the cut c = 10⁻⁹ λ_max (red dashed line); they then join the near-zero count. So n₊ falls from 2M + (Nd − 2M)/2 to 2M at the same Φ at which n₋ falls to 0.
+- **At high Φ the count is not symmetric.** Above Φ ≈ 1, R is not small compared with G, and the counts favor negative curvature (n₋ > (Nd − 2M)/2 > n₊ − 2M). At χ = 0.4 the stiff band also has not separated: its 2M-th eigenvalue is still negative at the start.
+- **The mechanism is the sum rule of the previous section.** The residual waves curve the energy down at half the particles and up at the other half, so the floor directions split evenly into positive and negative curvature, both of size √Φ. The positive half is the counterpart of the negative half: the valley floor bends toward the state in (Nd − 2M)/2 directions and away from it in as many.
+
 ### Flow-averaged mode planes
 
 `batten2008_planes_mean_plot.py` writes `figures/<start>_mode_planes_mean`, one per 2D start. It uses the same layout as `*_mode_planes_full`: angle arg ρ(kₙ), radius log₁₀ S + 20, rows 1–5, 10 and |k| = K/4 to K, at both χ.
@@ -663,6 +697,393 @@ The mean curve is coloured by log₁₀ Φ, and 20 aligned flows are drawn in gr
   so the winding rate θ̇_k = Im(ρ_k* ρ̇_k)/|ρ_k|² comes entirely from three-wave (triad) terms. Equivalently, θ̇_k = −∇θ_k · ∇Φ = −|∇θ_k| |∇Φ| cos α_k. A wave winds when the force has a component along its own phase direction, and that component is pure mode coupling: it vanishes for separable, harmonic relaxation. The identity holds to 10⁻⁹–10⁻¹⁴ along the flows (`winding_cv` (d), 2D Poisson χ = 0.1, flow 0).
 - **The coupling runs through the unconstrained waves.** Below Φ ≈ 0.1, essentially all of each wave's phase torque (median share 0.95–1.00) comes from triads whose partner k ± q lies outside the exclusion region, |k ± q| > K. Those density fluctuations are free (S ~ 1), so they act as a bath that pushes the constrained waves around. Panel (e) shows the share per |k|.
 
+#### Why every start leaves the plateau at the same energy
+
+The x-axis of `hessian_sign_starts` is Φ, not time. Within one χ the starts change their sign counts at the same energies, but they reach those energies at times up to 100× apart: Φ = 3 is reached at t/τ₁ ≈ 0.03 (URL, RSA) and at 2.6 (HIP) for χ = 0.1. `batten2008_sign_universal_plot.py` writes `figures/hessian_sign_universal`, which explains the shared energies with three scales. None of them depends on the start.
+
+**1. The plateau is reached as √Φ (panels a–d).** Write H = G + R, where R is block-diagonal with weights w_jq = Re(ρ_q* e^{iq·r_j}).
+- The trace of R is set by the sum rule Σ_j w_jq = |ρ_q|²: tr R = −(2/V) Σ_q |q|² |ρ_q|² ∝ Φ.
+- The per-particle spread of R is ∝ √Φ, because each w_jq has a random phase.
+- The soft spectrum is therefore symmetric to leading order, with a negative bias relative to its width of
+
+  μ = −⟨tr R_j⟩ / σ(tr R_j) = f √(2Φ/N),   f = Σ|q|²S / √(Σ|q|⁴S · ΣS) ≤ 1.
+
+  The shape factor f reflects how the residual is spread over |q|. It equals 1 when one shell holds the residual (Cauchy–Schwarz).
+- Panel (c) confirms the law with no fitted parameter over seven decades of μ, for every start and both χ.
+- The bias sits in the (1 − c)Nd soft directions, with c = 2M/(Nd). The negative excess n₋/[(Nd−2M)/2] − 1 then follows μ/(1 − c):
+  - the measured ratio is 0.7–1.5 for every start and χ at 10⁻² ≤ Φ ≤ 1;
+  - without the (1 − c) factor it would be 0.9–1.9 at χ = 0.1 and 3.8–7.2 at χ = 0.4;
+  - panel (d) shows the collapse.
+- **What this sets.** The excess falls below 5% at Φ ≈ 2–3 for χ = 0.1 and at Φ ≈ 0.1–0.6 for χ = 0.4. The starts enter only through f:
+  - χ = 0.1: f = 0.4 (HIP) to 0.8 (Gaussian, URL) at Φ = 1;
+  - χ = 0.4: f = 0.14 (HIP) to 0.78 (URL).
+  - Since μ ∝ f√Φ, this spread moves the onset by at most one decade in Φ.
+- The early rise of soft + and fall of soft − are the same √Φ approach to symmetry, seen from the two sides.
+
+**2. The bands separate (panel e).** The largest soft |λ| (∝ √Φ) falls below the smallest stiff eigenvalue λ₂ₘ ≈ k₁² near Φ ≈ 1–10.
+- Before that point soft and stiff directions mix, and the counts are not yet those of two separate bands.
+- The crossing again depends only on the soft prefactor a and on λ₂ₘ:
+  - a = (1.0–2.3)·10⁻³ at χ = 0.1 and (1.2–1.8)·10⁻² at χ = 0.4;
+  - λ₂ₘ/k₁² = 0.95–1.0 at χ = 0.1 and 0.83–0.91 at χ = 0.4.
+
+**3. The final drop is the counting cut (panel f).** The soft branches go to zero as a√Φ and are counted only while a√Φ > c·λ_max, with c = 10⁻⁹.
+- With Φ_× = (c λ_max/a)², the drops of every start fall onto one curve centred at Φ/Φ_× = 1.
+- Φ_× = (0.9–2.9)·10⁻¹¹ at χ = 0.1 and (0.3–0.8)·10⁻¹¹ at χ = 0.4.
+- In exact arithmetic the plateau n₋ = (Nd−2M)/2 holds for every Φ > 0.
+
+**The starts are not funnelled to one place.** The shared energies come from self-averaging over N ≈ 1000 particles and M waves, which makes μ, a and λ₂ₘ functions of (N, d, χ, Φ) and of the shape factor f. They do not show that the flows converge.
+- *χ = 0.4:* the ground states share one local landscape. The coupling spectrum C = D^{-1/2} K D^{-1/2} is the same Marchenko–Pastur-like distribution for every start (10–90%: 0.08–0.12 to 1.87–1.90; panel g).
+- *χ = 0.1:* the local landscapes differ. The 10–90% widths of C are 0.88–1.12 (RSA), 0.71–1.29 (Gaussian, URL), 0.60–1.40 (Poisson) and 0.50–1.50 (HIP).
+- *End states (panel h):* they keep their origin outside the exclusion region. At 1.05–1.5 K and χ = 0.1, S(k) is 0.08 (RSA), 0.46–0.49 (URL, Gaussian), 1.02 (Poisson) and 1.80 (HIP). At χ = 0.4 these values are 0.96–1.22, and URL keeps a Bragg-like peak S ≈ 7 at |k| ≈ 1.5 K.
+- *Summary:* the flows reach different points of the ground-state manifold. Near any of them the Hessian looks statistically the same because it is a sum over many random-phase waves.
+
+#### The wave coupling against the Marchenko–Pastur law
+
+`batten2008_mp_plot.py` writes `figures/coupling_mp_compare`. It compares the coupling spectrum of the 2D Poisson flows at χ = 0.1, 0.25, 0.4 and 0.45 with the Marchenko–Pastur (MP) law.
+- **What is measured:** the spectrum of C = D^{-1/2} K D^{-1/2}, with K = (2/V) J Jᵀ and D = diag K, so that C has a unit diagonal.
+- **The MP prediction:** if the 2M wave gradients were independent random vectors in Nd dimensions, C would follow MP with ratio c = 2M/(Nd). The support would be [(1 − √c)², (1 + √c)²], with mean 1, variance c and ⟨1/λ⟩ = 1/(1 − c).
+- **Data:** the spectra come from the end states (ground states) and the Poisson starts of flows 0–19. They are cached in `<root>/mp_chi<tag>.npz`.
+
+**The Poisson starts follow MP in the bulk.**
+- Var λ/c = 0.99–1.00, and the Kolmogorov distance from MP is 0.03–0.08.
+- The soft edge is the exception at χ ≥ 0.25. λ_min is 0.07, 10⁻³ and 10⁻⁴ of the MP edge at χ = 0.25, 0.4 and 0.45.
+- The softest mode there is a void mode. Its field peaks 1.45–1.59 from the nearest particle, inside the largest hole of the configuration; the largest hole is 1.75, and 99.9% of points lie within 1.46 of a particle. A band-limited combination of waves can sit in a hole of a Poisson configuration and barely move any particle.
+
+**The ground states are not MP.** Every entry of C is set by the density at the pair wave vectors:
+
+  C(Re q, Re p) ∝ (q̂·p̂) Re[ρ(q − p) − ρ(q + p)].
+
+- At a ground state, ρ = 0 inside the exclusion region, so every pair with |q ± p| < K is exactly uncoupled.
+- With random phases elsewhere this gives
+
+  Var λ / c = ⟨(q̂·p̂)² [S(q − p) + S(q + p)]⟩ / ⟨2 (q̂·p̂)²⟩
+
+  averaged over pairs. With S = 1 everywhere this is MP. With S = 0 inside K and 1 outside, it is the geometric factor 0.407, close to the share 1 − (1 − 3√3/4π) = 0.414 of point pairs in a disc that lie more than its radius apart.
+- **Panel (f):** with the measured end-state S this pair prediction is 0.405, 0.429, 0.507 and 0.564. The measured values are 0.411, 0.425, 0.504 and 0.564.
+- The variance rises above 0.41 at large χ because S just beyond K grows with χ.
+
+The spectrum is therefore narrower than MP at every χ: λ_max is 0.76 → 0.57 of the MP edge. Its shape is closest to MP with the measured variance, c_eff = Var λ.
+- **χ = 0.1:** the Kolmogorov distance is 0.037.
+- **χ = 0.25 to 0.45:** the distance grows to 0.07, 0.12 and 0.15, as two features appear.
+  - **A soft tail.** λ_min is 0.010 and 0.001 at χ = 0.4 and 0.45, close to the MP(c) edge rather than the MP(c_eff) edge. These soft modes are collective, not void modes:
+    - each spans about 320–360 waves;
+    - each peaks within 0.1 of a particle;
+    - the ground states have no hole larger than 0.8.
+  - **A step at λ ≈ 1.** 3.5–4.5% of the eigenvalues lie within 0.02 of 1, about 5× the MP density. They are long waves (median |q|/K = 0.31–0.38 at χ = 0.4 and 0.45). A long wave couples only to waves near the rim of the exclusion region, so its row of C is half as strong (√Σ_p C²_qp = 0.36–0.40 for |q| < 0.3K, against 0.72–0.78 for |q| > 0.7K).
+
+**What this means for the landscape.** At a ground state the waves are less coupled than random gradients would make them, because S vanishes inside the exclusion region. This is why χ = 0.1 behaves like nearly independent wells. As χ → 1/2 the coupling, and with it the soft tail and the slow valley, returns through the waves just outside K.
+
+#### The shoulder at λ(C) = 1 is physical
+
+At χ = 0.4 and 0.45 the ground-state cumulative curves of `coupling_mp_compare` (c, d) have a shoulder at λ(C) ≈ 1, and the F − F_MP curves of panel (e) have a matching kink. `batten2008_mp_shoulder_plot.py` (`figures/coupling_mp_shoulder`) shows that this is a physical feature of stealthy ground states, not a numerical artifact.
+
+**Mechanism: the long waves cannot couple to one another.** The coupling is fixed exactly by the density at the pair wave vectors:
+- K(Re q, Re p) = (q·p)/V Re[ρ(q−p) − ρ(q+p)];
+- K(Re q, Im p) = −(q·p)/V Im[ρ(q+p) + ρ(q−p)];
+- K(Im q, Im p) = (q·p)/V Re[ρ(q−p) + ρ(q+p)].
+
+Rebuilding C this way from ρ on the 2K lattice reproduces the spectrum from the gradients to ≤ 7·10⁻¹⁴.
+
+Consequences at a ground state, where ρ = 0 inside K:
+- Every pair with |q ± p| < K is uncoupled. In particular, all waves with |q| < K/2 are uncoupled from one another (panel b): they make up 24–26% of the coordinates at every χ, and |C| inside their block is ≤ 5·10⁻¹³.
+- They couple only to the outer waves, through ρ just beyond K. Their eigenvalues therefore stay near 1. Every eigenvector within 0.02 of 1 is a long wave: median |q|/K = 0.51, 0.48, 0.38 and 0.31 at χ = 0.1, 0.25, 0.4 and 0.45, against about 0.70 for all eigenvectors (panel c).
+- At large χ the outer waves are strongly coupled and split into a soft pile near 0 and a stiff hump near 2 (panel a). The long-wave cluster stays behind at 1 as a sharp peak.
+
+**Peak ratio** ρ(1)/½[ρ(0.8) + ρ(1.2)] (panel f):
+
+| | χ = 0.1 | 0.25 | 0.4 | 0.45 |
+|---|---|---|---|---|
+| ground states | 1.18 | 1.30 | 2.54 | 3.91 |
+| outer waves only (\|q\| ≥ K/2) | 0.86 | 1.00 | 0.83 | 1.01 |
+| ideal-gas surrogate (S = 1) | 1.04 | 1.00 | 0.98 | 1.01 |
+| step-S surrogate, N = 1024 | 1.30 | 1.20 | 1.13 | 1.21 |
+| step-S surrogate, N = 4096 | 1.28 | 1.25 | 1.30 | 1.21 |
+| phases randomized, \|ρ\| kept | 1.27 | 1.26 | 1.40 | 1.45 |
+
+**Why it is not a numerical artifact:**
+- the identity holds to machine precision;
+- no eigenvalue is exactly 1, so it is not a degeneracy;
+- removing the long waves removes the peak and the kink in F − F_MP (panel e, dotted);
+- an ideal gas has no peak;
+- a stealthy random-phase surrogate shows the same peak at N = 1024 and 4096, so it is not a finite-size effect.
+
+**Why the random-phase surrogates fall short at large χ.** A real C is the Gram matrix of 2M vectors in Nd dimensions, so it is positive.
+- The surrogates violate this at χ ≥ 0.25: 0.1–9% of their eigenvalues are negative at χ = 0.25–0.45, and 0.5–17% for the ideal gas.
+- The ρ(k) in the coupling annulus K < |k| < 2K carry about 3·2M real numbers: 5580 at χ = 0.45, set by only Nd = 2048 coordinates. They cannot be independent.
+- At χ = 0.1 (1260 < 2048) the surrogates are valid and match the ground state (1.27–1.30 against 1.18).
+- The surrogates' long-to-outer coupling block has the same singular values as the ground state's (median 0.47 at χ = 0.45). The sharper ground-state peak therefore comes from how the outer waves are organized (positivity), not from weaker long-wave coupling.
+
+**Why panel (e) shows a shoulder only at large χ.** The cluster adds a near-step of about 4% to F at λ = 1, while F_MP rises smoothly; F − F_MP inherits the step as the kink.
+- At χ = 0.1 the whole ground-state spectrum lies in 0.4–1.6, around 1. The cluster raises the local density by only 18%, so it merges into the bulk.
+- At χ = 0.45 the bulk has moved away from 1, toward 0 and 2, and the cluster stands out 3.9× above its surroundings.
+- A comparison with MP free of this feature uses the outer block alone (panel e, dotted).
+
+#### A vibrational band gap near χ → 1/2, and what it says about composites
+
+`batten2008_phonon_gap_plot.py` writes `figures/coupling_phonon_gap`. It uses 2D Poisson ground states at six χ, 6 per χ.
+
+**What K is.** At a ground state the nonzero normal modes (mass 1) have ω² = λ(K). K is also the plane-wave (Galerkin) form of the scalar wave operator −∇·η∇ with η a sum of point weights at the particles: ⟨q|−∇·η∇|p⟩ = (q·p) η̃(q − p), with η̃ ∝ ρ, restricted to |q|, |p| < K.
+- For a two-phase composite (TE photonic, anti-plane elastic or acoustic waves), the same matrix appears with ρ(k) replaced by m̃(k) ρ(k) (inclusion form factor) and with all plane waves kept.
+- K is therefore the point-scatterer, truncated limit of the composite's plane-wave Hamiltonian.
+- λ(C) divides each wave by its own |q|². That is a congruence, which keeps only the signs of the eigenvalues, not the gaps. The frequency variable is ω = √λ(K).
+
+**Result (N = 1024).** The largest spacing of ω/K in 0.3–1, compared with the largest spacing of the uncoupled spectrum ω = |q| (the k-shells):
+
+| χ | largest spacing (ω/K) | Δω/ω_mid | uncoupled shell spacing | gap? | modes below |
+|---|---|---|---|---|---|
+| 0.10 | 0.308–0.332 | 0.076 | 0.046 | no | 0.10 |
+| 0.25 | 0.716–0.719 | 0.004 | 0.020 | no | 0.57 |
+| 0.35 | 0.861–0.863 | 0.003 | 0.017 | no | 0.71 |
+| 0.40 | 0.753–0.760 | 0.010 | 0.016 | no (pseudo-gap) | 0.62 |
+| 0.455 | **0.607–0.683** | **0.118** | 0.015 | **yes, in every state** | 0.55 |
+| 0.491 | **0.517–0.605** | **0.156** | 0.014 | **yes, in every state** | 0.51 |
+
+**Where the gap sits.**
+- The effective dispersion (panel c) shows modes below the gap softened (ω < |q|) and modes above stiffened (ω > |q|): a level repulsion.
+- The gap lies 8–16% below the Bragg-like estimate ½k_peak/K = 0.705 and 0.670, set by the first S(k) peak beyond K (S ≈ 2.2–2.5).
+
+**The gap is not a two-point property.** Keeping every |ρ(k)|, and so S(k) at every wave vector, while randomizing the phases fills the gap completely:
+- the density in the ground-state gap window rises from 0–0.01 to 0.69–0.79;
+- the largest spacing falls to 0.002;
+- 9–11% of the surrogate eigenvalues are negative, so no point configuration can produce them.
+
+The gap is therefore enforced by the constraint that the ρ(k) come from N points, that is, by correlations beyond S(k).
+
+**Finite size** (`figures/coupling_mp_finite_size`). Six 2D Poisson ground states per χ at N = 4096 (`flows2d/N4096`, starts `initial_conditions/n4096`, seed 20261108; 2.1 GPU-h), compared with N = 1024:
+
+| χ (N = 1024 / 4096) | ω gap at 1024 | ω gap at 4096 | shell spacing at 4096 | λ(C) dip near 0.5 | λ(C) dip near 1.1 |
+|---|---|---|---|---|---|
+| 0.455 / 0.451 | 0.609–0.682 (0.074 ± 0.007) | 0.626–0.667 (0.040 ± 0.012), in-gap states near 0.65 | 0.0048 | 0.219 → 0.231 | 0.102 → 0.069 |
+| 0.491 / 0.490 | 0.517–0.606 (0.089 ± 0.012) | **0.525–0.606 (0.082 ± 0.006)** | 0.0046 | 0.178 → 0.182 | 0.194 → 0.189 |
+
+- **χ = 0.49:** the frequency gap is N-independent within error and 18× the shell spacing.
+- **χ = 0.45:** the gap narrows as isolated in-gap (band-tail) states appear. Whether it survives as N → ∞ is open.
+- **λ(C) near 0.5:** the dip does not deepen with N, so it is a pseudo-gap.
+- **λ_min:** follows the MP hard edge at both N.
+
+**Not yet tested:** composites with finite inclusions and all plane waves.
+
+#### What the gap needs: phases, winding and the transparency interval
+
+These checks were run ad hoc, not by a committed script.
+
+**(a) Partial phase randomization** (χ = 0.491, one ground state). Each phase θ_k is shifted by ε·φ_k, with φ_k uniform in [−π, π]; every |ρ(k)| is kept.
+
+| ε | 0 | 0.05 | 0.1 | 0.2 | 0.3 | 0.5 | 1 |
+|---|---|---|---|---|---|---|---|
+| gap width (ω/K) | 0.092 | 0.089 | 0.075 | 0.038 | 0.006 | 0.003 | 0.002 |
+| density in the ground-state gap | 0 | 0 | 0 | 0.15 | 0.40 | 0.61 | 0.67 |
+| negative ω² | 0 | 0.062 | 0.081 | 0.099 | 0.109 | 0.110 | 0.106 |
+| Var λ(C) | 0.5735 at every ε | | | | | | |
+
+- Realizability is lost at the smallest noise (6% negative at ε = 0.05), while the gap survives to ε ≈ 0.1 and closes by 0.3. The gap is therefore a property of the phase arrangement, robust to phase errors of about ±0.1π, and not simply of positivity.
+- Var λ(C) depends only on |ρ| (an exact identity), so it is unchanged at every ε.
+
+**(b) Moments.** The third moment ⟨(λ − 1)³⟩ of λ(C) is a sum over closed triangles of pair vectors, ρ(a − b) ρ(b − c) ρ(c − a), so it carries the triad phases.
+- At χ = 0.455 it is −0.0005 ± 0.0010 in the ground states, indistinguishable from the phase-randomized value of +0.0001.
+- At χ = 0.491 it is −0.0053, against −0.0011 at ε = 1.
+- The gap therefore needs loops of four or more pair vectors, i.e. higher-order phase correlations.
+
+**(c) Winding does not set the gap.** Over 40 flows at χ = 0.455:
+- the gap width is 0.071 ± 0.011 (coefficient of variation 0.16) and the total winding is 1888 ± 119 (0.06);
+- Spearman correlation with total winding is −0.07 (p = 0.66); with winding of waves above 0.5K, −0.08; with path length, −0.10; with flow time, −0.01;
+- the third moment against winding gives +0.02.
+
+**(d) Leakage out of the transparent sector.** For each long wave (|q| < K/2) the leakage is r_q = Σ_p C²_qp over outer waves p (|p| ≥ K/2). Medians by |q|/K:
+
+| χ | 0–0.1 | 0.1–0.2 | 0.2–0.3 | 0.3–0.4 | 0.4–0.5 | r_q/(\|q\|/K) |
+|---|---|---|---|---|---|---|
+| 0.10 | 0.014 | 0.027 | 0.040 | 0.054 | 0.068 | 0.15 |
+| 0.25 | 0.030 | 0.067 | 0.108 | 0.143 | 0.175 | 0.40 |
+| 0.35 | 0.040 | 0.095 | 0.148 | 0.193 | 0.233 | 0.55 |
+| 0.40 | 0.057 | 0.107 | 0.158 | 0.216 | 0.288 | 0.62 |
+| 0.455 | 0.052 | 0.109 | 0.195 | 0.292 | 0.404 | 0.79 |
+| 0.491 | 0.056 | 0.132 | 0.238 | 0.378 | 0.518 | 1.03 |
+
+The leakage is close to linear in |q|: only partners with |p| > K − |q| couple, a rim of area ∝ 2πK|q|. Its slope grows sevenfold from χ = 0.1 to 0.49.
+
+**Effective dispersion** (`figures/coupling_phonon_dispersion`): one panel per χ, showing the median ω/K per bin of eigenvector mean |q|/K, with 16–84% and 2.5–97.5% bands. Bins with fewer than 10 modes are left out.
+- At every χ the curve crosses the uncoupled line ω = |q| near |q|/K ≈ 0.7–0.8: modes below the crossing are softened and modes above it stiffened.
+- At χ ≥ 0.45 the gap opens at this crossing.
+- At χ ≥ 0.40 no frequency mode has eigenvector mean |q|/K below about 0.3–0.45. The long waves are not normal modes in frequency: they hybridize with the soft outer modes. In λ(C) they still form a near-identity block.
+
+#### Loop moments and the thermal stability of the gap
+
+These checks were run ad hoc, not by a committed script. Three ground states per χ, against one phase-randomized surrogate each (every |ρ(k)| kept).
+
+**Moments are sums over closed polygons of momentum transfers.** In the complex wave basis K_qp = (q·p) ρ(q − p)/V with ρ(0) = N, so
+
+  tr K^n = V^(−n) Σ Π_i (q_i·q_(i+1)) ρ(k_i),   k_i = q_i − q_(i+1),   Σ k_i = 0.
+
+Each term is an n-point Fourier product whose phase is the translation-invariant loop phase Σ arg ρ(k_i). Terms in which the k_i cancel in pairs reduce to products of S(k) and survive phase randomization. Irreducible polygons (n = 3: bispectrum, g₃; n = 4: trispectrum, g₄; …) average to zero under it.
+
+Central moments of λ(K)/K², ground state against surrogate (relative difference):
+
+| χ | m₂ | m₃ | m₄ | m₆ | m₈ |
+|---|---|---|---|---|---|
+| 0.103 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
+| 0.401 | 0.00 | +0.02 | −0.07 | −0.13 | −0.19 |
+| 0.455 | 0.00 | +0.02 | −0.10 | −0.16 | −0.22 |
+| 0.491 | 0.00 | +0.01 | −0.11 | −0.18 | −0.23 |
+
+- m₂ is exactly S-only.
+- The triad (three-point) term changes m₃ by only 1–2%.
+- The first substantial phase-dependent contribution is at four-wave polygons, and it accumulates at higher orders.
+- At χ = 0.1 phases carry no spectral information at any order.
+- In λ(C) the same pattern appears, but larger (m₄ −23 to −32%), because the surrogates' negative eigenvalues inflate their tails.
+- Moments cannot by themselves certify a gap.
+
+**Thermal phase noise (harmonic).** For displacements u ~ N(0, T·H⁺) about a ground state, the waves outside K (K < |k| < 2K) acquire phase noise linear in √T. The rms phase per √T is 7.0 (|ρ|²-weighted) to 8.5 (median) at χ = 0.455, and 21 to 26 at χ = 0.491; the near-zero soft modes dominate H⁺.
+
+Mapped onto the partial-randomization curve, where uniform noise of half-width επ has rms επ/√3 (gap halves at ε ≈ 0.2, closes at ε ≈ 0.3), this gives:
+- χ = 0.455: halving at T ≈ 2–3·10⁻³, closing at 4–6·10⁻³;
+- χ = 0.491: halving at T ≈ 2–3·10⁻⁴, closing at 5–7·10⁻⁴.
+
+**Direct harmonic sampling** (gap of K at r + u; 2 states × 2 samples per T):
+
+| T | 0 | 10⁻⁵ | 10⁻⁴ | 3·10⁻⁴ | 10⁻³ | 3·10⁻³ | 10⁻² |
+|---|---|---|---|---|---|---|---|
+| χ = 0.455: gap (Φ/MT) | 0.075 | 0.075 (1.00) | 0.077 (1.03) | 0.066 (1.03) | 0.065 (1.16) | 0.042 (1.42) | 0.007 (2.31) |
+| χ = 0.491: gap (Φ/MT) | 0.092 | 0.091 (1.13) | 0.101 (2.31) | 0.078 (3.41) | 0.057 (10.3) | 0.007 (16.4) | 0.002 (30.4) |
+
+- At χ = 0.455 the linear estimate and the sampling agree, and the harmonic picture holds to T ≈ 10⁻³.
+- At χ = 0.491 Φ/(MT) departs from 1 already at T ≥ 10⁻⁴, so harmonic theory fails there and MD is needed.
+
+#### Isolating the loop (beyond-S(k)) contribution
+
+`batten2008_loop_moments.py` computes and caches `loops_chi<tag>.npz`; `batten2008_loop_moments_plot.py` writes `figures/loop_moments`. Data:
+- six χ at N = 1024 (6 ground states, 8 random-phase surrogates each);
+- χ = 0.45 and 0.49 at N = 4096 (4 states, 2 surrogates each).
+
+**Method.**
+- In the complex basis {±q}, H = D + W with H_ab = (Q_a·Q_b) ρ(Q_a − Q_b)/V. Its spectrum equals that of K: the Re/Im basis agrees to ≤ 10⁻¹².
+- w_n = (1/2M) tr (W/K²)ⁿ splits exactly into three parts:
+  - **non-crossing pairings:** the SCBA recursion with variance profile s_ab = |W_ab/K²|²;
+  - **crossing pairings:** surrogate mean minus SCBA;
+  - **irreducible loops:** ground state minus surrogate mean. Odd n are entirely irreducible.
+- The S(k)-only theory is the SCBA vector Dyson equation, G_a = 1/(z − D_a − Σ_b s_ab G_b).
+- **Checks:** a flat profile gives the Catalan numbers; a sampled Wigner matrix with a variance profile gives m₄ = 1.99 and m₆ = 4.94, against 2.00 and 5.01 non-crossing; the semicircle density at 0 is 0.318 (1/π).
+
+**Results:**
+- **The SCBA is the S(k)-only theory.** Crossing pairings are ≤ 1% of w₄ at every χ, so the SCBA reproduces the surrogates' paired part. Crossings grow at high order (36% of the non-crossing moment at n = 12, χ = 0.49).
+- **Irreducible share of the S(k)-only moment, I_n/P_n** (N = 4096 in brackets):
+
+  | χ | n = 4 | n = 6 | n = 8 | n = 12 |
+  |---|---|---|---|---|
+  | 0.10 | −0.03 | −0.07 | −0.11 | −0.19 |
+  | 0.40 | −0.20 | −0.41 | −0.57 | −0.79 |
+  | 0.455 | −0.236 (−0.235) | −0.452 (−0.452) | −0.618 (−0.620) | −0.826 (−0.832) |
+  | 0.491 | −0.246 (−0.248) | −0.466 (−0.471) | −0.633 (−0.640) | −0.838 (−0.844) |
+
+  The loops always reduce the moments relative to S(k) alone: the true spectrum has lighter tails. The effect grows with order and with χ, and is the same at N = 1024 and 4096, so it is not a finite-size effect.
+- **Triads are small.** The standardized third moment I₃/w₂^1.5 is 0.004–0.026.
+- **S(k) alone gives no gap.** In the ground-state gap window the density is 0.001–0.004 in the ground states, against 0.54–0.57 for the surrogates and 0.56–0.59 for the SCBA. The SCBA also puts weight at negative x, which a Gram matrix cannot have.
+- **How much S(k) misses.** The total-variation distance between the ground-state spectrum and the S(k)-only spectra rises from 0.03–0.05 (χ = 0.10) to 0.23–0.25 (χ = 0.49).
+- **Panel (e) shows where the loops act:**
+  - they remove weight from the soft shoulder below the gap (x ≈ 0.25–0.5) and from negative x;
+  - they move it into the soft-mode peak at x ≈ 0 and to just above the gap (x ≈ 0.6–0.9).
+
+**Cost:** SCBA 11–241 s per χ at N = 1024 and about 15 min at N = 4096, on CPU.
+
+#### Same two-point statistics, different loops
+
+`batten2008_loop_statistics_plot.py` writes `figures/loop_statistics` and caches `loopstats_chi<tag>.npz`. It uses 4 ground states per χ at N = 1024, with 4 surrogates each, and compares the three models of the vibrational spectrum:
+- ground states;
+- random-phase surrogates (same |ρ(k)| at every k);
+- the SCBA (a Gaussian field with the ground-state S(k)).
+
+**Two-point statistics are identical by construction:**
+- the surrogates match S(k) wave vector by wave vector, |ΔS| ≤ 5·10⁻¹⁶;
+- the SCBA input is the state-averaged S(k), which differs from a single state only by the about 10% state-to-state scatter.
+
+**Amplitude statistics also agree.** Beyond K the intensities |ρ|²/⟨|ρ|²⟩ are exponential, as for a Gaussian field: ⟨I²⟩ = 1.96–2.03 against 2, at every χ. So the SCBA's Gaussian-amplitude assumption holds.
+
+**The difference is in loop sums, not in single loop phases.**
+- Each closed walk's phase is nearly uniform: the |T|-weighted coherence per loop is ±0.01 in both ground states and surrogates.
+- There are about 2M times more irreducible walks than paired ones, so a coherence of order 1/(2M) suffices.
+- The difference is therefore measured exactly, from the diagonals of W³ and W⁴: the irreducible share of each wave's return amplitude.
+
+**Results:**
+- **Whole-spectrum quadrilateral share I₄/P₄:** −0.017, −0.083, −0.146, −0.209, −0.235 and −0.250 for χ = 0.10 → 0.49 (matching `loop_moments`).
+- **Triad share:** +0.003 to +0.011.
+- **Per wave (panel d):** the effect is concentrated on waves with |q|/K ≈ 0.35–0.5, just inside the K/2 edge of the uncoupled long-wave block. It reaches −0.42 at χ = 0.49 and is −0.16 to −0.07 at the outer edge.
+- **Per transfer length (panel e):** loops built from transfers in a single |k|/K band carry little (|share| ≤ 0.12, mixed signs; the largest is in the band 1.25–1.5, where the S(k) peak lies at χ ≥ 0.45). So the coherence that sets the gap comes mostly from loops that combine different transfer lengths.
+
+**Phase distributions** (panels g–i; cache `loopphase_chi<tag>.npz`). Three models, compared at the largest χ:
+- the ground states;
+- the random-phase model: the same |ρ(k)| with uniform phases;
+- Gaussian-field (SCBA) realizations: complex Gaussian ρ(k) with E|ρ|² = N·S̄(k), the state-averaged S.
+
+What each panel shows:
+- **(g) Single-wave phases** arg ρ(k), K < |k| < 2K: uniform in all three models. Absolute phases change under translation, so they carry no information.
+- **(h) Four-wave loop phases** arg T, |T|-weighted, from 5·10⁵ sampled walks per realization with no cancelling pair: flat within sampling noise (±0.1 per bin) in all three. The exact ground-state first harmonic, 2c₁ cos φ, has amplitude 0.004, far below that noise. Loop by loop, the ground states cannot be told apart from either random model.
+- **(i) The exact first harmonic** c₁ = Σ Re T / Σ |T| over irreducible loops, computed from traces with no sampling. For triads it is c₁ = tr W³ / tr |W|³; for quadrilaterals it is (tr W⁴ − P₄)/(tr |W|⁴ − P₄), with P₄ the pairing sum averaged over phase randomizations.
+
+  2M·c₁ by model (4 realizations each):
+
+  | χ | 0.10 | 0.25 | 0.35 | 0.40 | 0.45 | 0.49 |
+  |---|---|---|---|---|---|---|
+  | quadrilaterals, ground states | −0.51 | −1.25 | −2.34 | −3.25 | −3.35 | −3.47 |
+  | quadrilaterals, random-phase | −0.26 | −0.07 | +0.07 | −0.01 | −0.07 | −0.08 |
+  | quadrilaterals, Gaussian | −0.07 | +0.02 | −0.06 | +0.10 | +0.14 | +0.08 |
+  | triads, ground states | +3.1 | +9.2 | +11.2 | +23.6 | +19.2 | +10.4 |
+  | triads, random models | −2.6 to +3.1 (realization noise) | | | | | |
+
+- **Interpretation.** The ground states carry a weak, systematic loop-phase bias of order 1/2M per loop: positive for triads, negative for quadrilaterals. Summed over the roughly 2M times more irreducible loops than paired ones, it becomes the 25% reduction of the fourth moment.
+- **Triads are coherent too,** but they enter only odd moments, which barely move the spectrum (m₃ changes by 1–2%). This is why the scorecard (f) shows a small triad effect.
+
+#### The coupling and loop analyses for every start
+
+The coupling and loop figures above (`coupling_mp_compare`, `coupling_mp_shoulder`, `coupling_phonon_gap`, `coupling_phonon_dispersion`, `loop_moments`, `loop_statistics`) run for every 2D start: Gaussian, URL, saturated RSA and HIP besides Poisson. With `--prefix <start>` (gau2d, url2d, rsa2d, hip2d) the figures are named `<start>_<figure>` and carry the start as a title; without it the names and the Poisson figures are unchanged (re-rendered pixel-identical). Every script takes the χ tags present in its root unless `--tags` is given.
+- **Rectangular cells.** URL starts live in a 34.39 × 29.78 cell. The wave lattice is k = 2π(n_x/L_x, n_y/L_y), V = L_x L_y, with the integer reach ⌈K L_i/2π⌉ per axis (`batten2008_lattice.py`, NumPy only; sheared cells are rejected). Checks on URL ground states: ρ on the lattice matches the direct sum Σ_j exp(ik·r_j) to 6·10⁻¹³; S(k) ≤ 4·10⁻²³ for every lattice point inside K; the complex and Re/Im coupling spectra agree to 4·10⁻¹⁵ (relative); diag H = |k|²N/V to 10⁻¹⁵; C from ρ matches C from the gradients J to 2·10⁻¹⁴.
+- **Square cells are unchanged.** Recomputing every Poisson χ = 0.1 cache (`mp`, `mp_shoulder`, `phonon`, `loops`, `loopstats`, `loopphase`) reproduces the stored values bitwise, or to ≤ 1.3·10⁻¹⁴ where LAPACK threading enters.
+- **One SLURM CPU job per start** (`slurm/coupling_loops_cpu.slurm`) computes all caches and draws the six figures with the Poisson settings (20 flows for `mp`, 3 states for the shoulder, 6 for the phonon gap and the loop moments with 8 surrogates each, 4 for the loop statistics). With χ = 0.1 and 0.4 it takes 6–7 min on 16 cores, of which `mp` (20 starts and ends) takes 3 min and `loop_moments` about 2 min.
+
+`batten2008_starts_compare_plot.py` writes `figures/coupling_starts_compare` from these caches, one color per start (as in `hessian_sign_starts`):
+- (a) the relative width of the largest ω spacing in 0.3–1 K (median and 16–84% band over ground states; filled where it exceeds two uncoupled shell spacings);
+- (b) the gap edges, drawn only where (a) finds a gap;
+- (c) the irreducible share I_n/P_n at n = 4 and 12;
+- (d, e) the four-wave and triad loop-phase bias 2M·c₁ of the ground states, against the envelope of the random-phase and Gaussian models of every start;
+- (f) the Kolmogorov distance of λ(C) from MP with the measured variance, ground states and starts.
+
+**First results (χ = 0.1 and 0.4).**
+- **The loop share is universal.** I₄/P₄ = −0.009 to −0.052 at χ = 0.1 and −0.20 to −0.25 at χ = 0.4 for every start (Poisson −0.20); I₁₂/P₁₂ = −0.79 to −0.87 at χ = 0.4.
+- **URL and saturated RSA open a frequency gap already at χ = 0.4.** The largest spacing is 0.732–0.790 (URL, Δω/ω = 0.072) and 0.740–0.781 (RSA, 0.056): median widths of 5.2 and 2.6 uncoupled shell spacings (0.011 and 0.016; per state 0.034–0.074 and 0.028–0.058); Poisson, Gaussian and HIP have none at χ = 0.4 (0.009–0.011). In the URL ground states the density in that window is 0.012, against 0.36 for the random-phase surrogates and 0.43 for the SCBA.
+- **The four-wave bias tracks the gap.** 2M·c₁ (quadrilaterals) at χ = 0.4 is −6.5 (URL), −4.0 (RSA) and −3.1 to −3.3 (Poisson, Gaussian, HIP); the random models stay within ±0.25. The triad bias changes sign with the start: +24 to +28 (Poisson, Gaussian, HIP), −13 (RSA) and −43 (URL). URL keeps its Bragg-like S(k) peak at |k| ≈ 1.5 K, so its amplitudes are not Gaussian there (⟨I²⟩ = 2.48 against 2).
+- **The starts differ, the ground states less.** At χ = 0.1 the λ(C) spectrum of saturated-RSA ground states lies within 0.85–1.15 (5–95%), so its dip window near 0.5 is empty and the peak ratio at 1 is meaningless. HIP starts are not random gradients: at χ = 0.4 their C has 42–134 zero modes and Var λ = 2.96 c, so MP(c_eff) is undefined there (D-018, D-019).
+
+```bash
+# per start (16 CPUs; SCRIPTS points at the checkout whose scripts to run; TAGS optional)
+env -u JAX_PLATFORMS sbatch --export=ALL,ROOT=experiments/trajectories/hip2d/N1000,PREFIX=hip2d \
+    experiments/slurm/coupling_loops_cpu.slurm      # likewise gau2d/N1000, url2d/N1024, rsa2d/N999
+/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_starts_compare_plot.py   # coupling_starts_compare
+```
+
+**Data.** `trajectories/{gau2d/N1000,url2d/N1024,rsa2d/N999,hip2d/N1000}/{mp,mp_shoulder,phonon,loops,loopstats,loopphase}_chi<tag>.npz`.
+
+**Figures.** `figures/{gau2d,url2d,rsa2d,hip2d}_{coupling_mp_compare,coupling_mp_shoulder,coupling_phonon_gap,coupling_phonon_dispersion,loop_moments,loop_statistics}` and `figures/coupling_starts_compare`.
+
+#### All four χ for 2D Poisson
+
+`hessian_sign_mechanism`, `hessian_negative_compare` and `hessian_plateau_mechanism` now include 2D Poisson flows at χ = 0.25 (tag 1-4) and χ = 0.45 (tag 9-20), with 100 flows each. Pass the extra tags with `--extra-chi 1-4 9-20`; the other starts have χ = 0.1 and 0.4 only.
+- **Same structure at every χ:**
+  - the stiff band holds 2M directions;
+  - the soft ± branches shrink as √Φ;
+  - the plateau is n₋ = (Nd − 2M)/2;
+  - the cut crossing is near Φ ≈ 10⁻¹¹.
+- **The stiff band's lower edge λ₂ₘ:** 0.95–1.0 k₁² at χ = 0.1, 0.25 and 0.4, but 0.22 k₁² at χ = 0.45. This is the soft edge of the coupling spectrum above.
+- **Landscape figures (`--extra-chi 1-4 9-20`):** `landscape_wells`, `landscape_floor` and `landscape_valley` now include both new χ. The modes, winding and off-plane steps were run for them.
+  - **χ = 0.45 has the slowest flow.** The residual's decay rate falls to 0.22 k₁², against 0.85–1.0 k₁² at χ ≤ 0.4 (valley b), and u^T K u / u^T D u falls to 0.005 (valley a).
+  - **This is the soft edge of K setting the clock.** The same 0.22 k₁² appears as the stiff band's lower edge. The flow slows down as χ → 1/2.
+  - **χ = 0.25 sits between χ = 0.1 and 0.4** on every measure.
+- **The first-order agreement H ≈ PRP** still holds and falls as √Φ at every χ. Its prefactor grows with χ as the stiff gap closes: the largest deviation at Φ = 10⁻³ is 10⁻⁵, 8·10⁻⁵, 2·10⁻³ and 5·10⁻² of max |λ| for χ = 0.1, 0.25, 0.4 and 0.45.
+- **Open: a small, systematic sign asymmetry at large χ.** The cut-free soft spectrum (P R P) has slightly more positive than negative eigenvalues in every flow, at every Φ:
+  - (neg, pos) ≈ (200, 208) of 408 at χ = 0.4;
+  - ≈ (88, 100) of 188 at χ = 0.45, where tr(PRP)/Σ|λ| = +0.13;
+  - balanced at χ = 0.1 and 0.25.
+
+  The Φ-independent bias suggests that the stiff part of R, tr((1 − P) R), is correlated with the residual. This has not been examined further.
+
 #### The triad identity in detail
 
 **Derivation.** With ρ_k = Σ_j exp(ik·r_j) and Φ = (1/N) Σ_{q∈C} |ρ_q|² (C the constrained set), the force on particle j is −∇_jΦ = −(1/N) Σ_q [iq ρ_q* e^{iq·r_j} − iq ρ_q e^{−iq·r_j}]. Along the flow, dρ_k/dt = Σ_j ik·ṙ_j e^{ik·r_j}. Substituting the force and using Σ_j e^{i(k±q)·r_j} = ρ_{k±q} gives
@@ -715,6 +1136,98 @@ No approximation enters. Φ is a sum of |ρ|², and the product of two plane wav
   - Its short-wave value tracks the slip K·ℓ/2π, the phase a wave at K gains when particles move ℓ (`winding_cv` (g)).
   - The spiral number σ = Ω/(−½ d ln Φ/dt) is an instantaneous state function. Ω is the energy-weighted RMS winding rate, and σ is the ratio of iso-energetic (phase) motion to descent in collective-coordinate space. It marks the nonlinear stage. In 2D, σ ~ 0.1–1 above Φ ≈ 1 and falls to 10⁻³–10⁻² once Φ < 0.1, where the flow becomes nearly separable radial relaxation and winding stops. In 1D χ = 1/3 (not plotted), σ reaches about 14 near Φ = 0.1: the waves spiral more than they decay while the slow waves carry them.
 - **How winding builds up** (`*_winding_kymograph`, `winding_total`). Each wave winds between its own relaxation fronts (the last times its S exceeds 10⁻² and 10⁻⁸) and somewhat after. Short waves wind first, while long waves are still carrying their particles; the total saturates once Φ ≲ 10⁻². Against path fraction (not plotted), 1D χ = 1/3 winds at a nearly constant rate per unit arclength all the way to s = 1. 1D χ = 2/3 stops at s ≈ 0.3, where the lattice locks in. Every start finishes winding by Φ ≈ 10⁻²–10⁻³. Against path fraction the 2D starts split as their turning does: Poisson and HIP wind steadily along the path, while Gaussian, URL and RSA at χ = 0.1 gain much of their winding in the last 10% of it. Against time all 2D starts have the same shape, with HIP leading by about a decade.
+
+#### Why Ω, σ and |cos α| behave as they do (`winding_cv` (a), (b), (f))
+
+`batten2008_windcv_explain_plot.py` writes `figures/winding_cv_explained`.
+
+**The exact partition.** Write l_k = ln|ρ_k|, so that |ρ̇_k|² = |ρ_k|²(l̇_k² + θ̇_k²). The S-weighted mean square speed of the residual waves then splits exactly into three parts:
+
+  ⟨l̇² + θ̇²⟩_S = ⟨l̇⟩_S² + Var_S(l̇) + Ω².
+
+- **Coherent decay, ⟨l̇⟩_S²:** the waves shrink together. −⟨l̇⟩_S is the decay rate in the denominator of σ.
+- **Differential decay, Var_S(l̇):** different waves shrink at different rates.
+- **Rotation, Ω²:** the waves turn.
+
+Over all constrained waves, the left side equals ⟨K²⟩_u and −⟨l̇⟩_S equals ⟨K⟩_u = −½ d ln Φ/dt. Here K = (2/V)JJᵀ is the wave-coupling matrix of the landscape section, and the identities hold to 4 digits in the data.
+
+**Panels (a) and (b), Ω and σ.**
+- **Rotation is a small share.** At Φ = 10 it is 2–3% of the residual speed at χ = 0.1 (HIP 1.5%, RSA 0.7%) and 21–28% at χ = 0.4. By Φ = 10⁻³ it has fallen to at most 4 × 10⁻⁵ (χ = 0.1) and to 2 × 10⁻⁴–3 × 10⁻² (χ = 0.4) (`winding_cv_explained` (a–c)). Differential decay takes 13–43% at Φ = 10 and vanishes with it.
+- **σ is bounded by the stiffness spread.** Since Ω² ≤ ⟨K²⟩_u − ⟨K⟩_u², the spiral number obeys
+
+  σ = Ω/⟨K⟩_u ≤ CV_u(K),
+
+  the coefficient of variation of the collective stiffness over the residual (panel d; the grey region is forbidden).
+- **Why σ falls.** Every flow and level lies on or below the bound. Its largest σ/CV_u(K) is 0.90–1.00 for every start except URL at χ = 0.1 (0.40). σ falls because the residual concentrates on the softest collective modes of K, so CV_u(K) → 0.
+- **How close σ stays to the bound.** The median efficiency σ/CV_u(K) is 0.46–0.67 at χ = 0.4 and 0.02–0.55 at χ = 0.1. With independent wells, the stiffness spread shows up as differential decay rather than rotation (a diagonal K turns nothing).
+- **The late plateau of Ω and σ.** At χ = 0.4 (and for HIP at χ = 0.1), σ settles near 0.6–0.85 of its bound (URL χ = 0.4: 0.27). This is beating between near-degenerate soft collective modes: the last spread left in the residual is mostly rotation.
+
+**Panel (f), |cos α|.** It factorizes exactly as
+
+  |cos α_k| = (|θ̇_k|/|k|) · √(S_k/Φ) / √⟨K⟩_u,
+
+using |∇Φ|² = 2⟨K⟩_u Φ and |∇θ_k| = |k|/√(2S_k). The product matches the measured median to 3 digits (panel e).
+- **Why it is tiny.** Early on, the factors are a normalized winding rate of order 10⁻¹ and an energy share √(S_k/Φ) of order 10⁻², since one wave holds about 1/M of Φ. 1/√⟨K⟩_u grows toward 1/k₁ as the residual moves to the slow modes.
+- **Why it dips.** Both the rate and the share fall, to a minimum of about 10⁻⁵ near Φ ≈ 10⁻³.
+- **Why it rises late, which is a selection effect.** winding_cv keeps only waves with S_k > 10⁻⁸, and that set empties: half the constrained waves are gone by Φ ≈ 10⁻¹–10⁻⁴·², and 99% by Φ ≈ 10⁻⁴·²⁵–10⁻⁷·⁵ (panel f). The survivors are the last-relaxing waves, which hold most of the remaining energy (√(S_k/Φ) → 0.7). So their |cos α| rises to 10⁻³–10⁻². Below Φ ≈ 10⁻⁴, the three panels describe only a handful of slow waves, not the constrained set.
+
+#### Can single waves inside the exclusion region be excited independently?
+
+`batten2008_exclusion.py` analyses the coupling matrix K = (2/V)JJᵀ at 5 ground states of every 2D start (NumPy; seconds). `batten2008_exclusion_plot.py` writes `figures/exclusion_mode_control`.
+
+At a ground state, a displacement δr changes the constrained waves by δu = J δr. The energy is Φ = |u|²/V, gradient flow gives u̇ = −K u, and MD (mass 1) gives ü = −K u.
+
+**The question.** The coherent decay of `winding_cv_explained` suggests that, near the manifold, waves in the exclusion region can be excited one at a time, so that S(k) could be raised selectively at chosen |k|. The analysis checks this in three parts.
+
+**1. Statically, yes; it costs extra displacement at large χ (panel c).**
+- *Why it is possible.* For χ < ½, J has full row rank 2M. So any target δu, including one wave alone, is reachable with the least displacement |δr|² = (2/V) δuᵀK⁻¹δu.
+- *The energy cost is the same for every k.* Raising S(k) by s costs ΔΦ = s.
+- *The displacement cost relative to an independent well is |k|²(K⁻¹)_kk.* Its median is:
+
+  | χ | All waves | Long waves (\|k\| < 0.3K) | Marchenko–Pastur mean 1/(1 − 2M/Nd) |
+  |---|---|---|---|
+  | 0.1 | 1.01–1.20 | — | 1.25 |
+  | 0.4 | 4.3–6.3 | 1.6–1.7 | 5.0 |
+
+  At χ = 0.4 the cost rises with |k|.
+
+**2. Coherent decay is not independence (panels a, b).** In the gradient flow, coherent decay means the residual's waves all shrink at one rate.
+- *One stiffness band.* Below a start-dependent Φ (≈ 10 for HIP, 10⁻¹–10⁻³ for Poisson, RSA and Gaussian, ≈ 10⁻⁷ for URL), more than 95% of |u|² sits in collective modes within 10% of the residual's mean stiffness ⟨K⟩_u ≈ k₁².
+- *The longest waves carry it.* The longest-wave shell |k| = k₁ holds at least 97% of Σ S(k).
+- *Many modes, not one.* The single softest mode of K spans only 1–2 waves and holds 10–40% of the residual. The narrow band is made of the nearly degenerate long-wave modes.
+- *Everything else is slaved.* All other waves decay at the same rate because they are slaved to the long waves (`landscape_floor`). This is the opposite of independent excitation.
+
+**3. At fixed temperature every wave is equally excited, and excitations do not stay put (panels d–f).**
+- *Equipartition.* In the harmonic canonical ensemble, ⟨u uᵀ⟩ = (V T/2) I. So ⟨S(k)⟩ = (2/V)(J H⁺ Jᵀ)_kk · T = T for every constrained k, exactly (to 10⁻¹² at every ground state and start). The coupling K changes the dynamics, not this static distribution. Making S(k) selective at fixed T needs a weighted potential, ⟨S(k)⟩ = T/v(k), or a non-equilibrium drive.
+- *A one-wave excitation leaks.* Under the flow, the share of it still in its own wave after a time |k|²t = 1 is 0.90–0.99 at χ = 0.1 and 0.73–0.74 at χ = 0.4. By |k|²t = 3 it is 0.44–0.93 at χ = 0.1 and 0.37–0.39 at χ = 0.4 (panel e).
+- *In MD, one wave rings at many frequencies.* A single wave's fluctuation is spread over the collective frequencies √λ(K). At χ = 0.1 it is a narrow line at ω ≈ |k|: 9–56 modes, spread 0.11–0.20 of the mean. At χ = 0.4 it is a broad Marchenko–Pastur band: about 370 modes, spread 0.42, mean 0.92|k| (panel f).
+- *What this means for the MD winding experiment.* At χ = 0.4 one wave's phase is driven by hundreds of collective modes; at χ = 0.1 it is close to a single oscillator.
+
+**Verdict.**
+- *Correct:* the constrained waves are independent coordinates, so S(k) can be prepared selectively at small Φ, at a displacement cost that grows as 1/(1 − 2χ).
+- *Not correct, (i):* the coherent decay does not show independent excitation. It shows that everything left is slaved to the longest waves.
+- *Not correct, (ii):* at fixed low T such excitations are not stable or selective. Equipartition sets S(k) = T for every k, and the coupling K moves a single-wave excitation into other waves on its own relaxation time.
+
+**Drives that select one wave (`figures/exclusion_drive`; `batten2008_exclusion_spectra_plot.py`).** These are computed from the eigensystem of K at ground state 0 of every start, in the harmonic regime. Selectivity is the share of the response in the driven wave.
+
+| Drive | Physics | χ = 0.1 | χ = 0.4 |
+|---|---|---|---|
+| Static field −ε cos(k·r − φ) | an equilibrium tilt: minimizing \|u\|²/V − ε(cos φ a_k + sin φ b_k) gives u* = (Vε/2)(cos φ, sin φ) on wave k only (J has full rank), so ⟨S(k)⟩ = T + (Vε/2)²/N and every other wave stays at T, to first order | 1 (exact) | 1 (exact) |
+| Travelling field ε cos(k·r − Ωt), Langevin friction γ = 0.05\|k\|, Ω = \|k\|/2 | steady response û ∝ (K − Ω² − iγΩ)⁻¹ K (e_a + i e_b) | 0.72–0.99 | 0.25–0.28 |
+| The same, on resonance Ω = \|k\| | — | 0.23–0.80 | 0.11–0.17 |
+| The same, γ = 0.5\|k\|, Ω = \|k\| (2D Poisson) | — | ≈ 0.8 | ≈ 0.5 |
+| Heat bath acting only on wave k (overdamped) | excess covariance from K Σ + Σ K = 2D | 0.93–0.996 | 0.75–0.76 |
+
+**What the table means.**
+- *The static field is perfectly selective* to first order. It is not a drive: it changes the potential, shifting the mean ⟨ρ_k⟩ while the fluctuations stay at T.
+- *Periodic fields trade energy transfer against selectivity.* Selectivity is 1 at Ω → 0 and lowest near resonance, Ω ≈ |k|. There the field pumps every collective mode of that frequency, and those modes span many waves at χ = 0.4.
+- *Friction helps.* Strong friction suppresses those resonances (thin lines in panel a), at the cost of continuous dissipation.
+- *A heated wave shares its excess heat.* About 25% goes to other waves at χ = 0.4.
+
+**How one excited wave spreads over modes and waves (`figures/exclusion_mode_spectra`).** This extends panel (f) of `exclusion_mode_control` to every constrained wave.
+- *χ = 0.1.* Long waves sit on a single line ω = |k|: their excitation stays in one collective mode and its energy stays in that wave (panels a–c). From |k| ≈ 0.4K up, the frequency band broadens to about 50 modes, and the energy spreads to waves of similar |q|.
+- *χ = 0.4.* Every wave's weight spreads across the whole Marchenko–Pastur band, from ω ≈ 0.1K to 1.3K, over 10–450 modes (panel d). Over long times its energy spreads over essentially all waves: the median self-share is 0.004 at χ = 0.4, against 0.03 at χ = 0.1.
+- *The frequency moments.* The mean frequency stays at 0.9–1.0|k|, and the spread is 0.05–0.24|k| at χ = 0.1 against 0.25–0.5|k| at χ = 0.4 (panel h).
 
 ### Other initial conditions: Gaussian, URL, saturated RSA and HIP
 
@@ -773,6 +1286,18 @@ uv run --no-sync python -I experiments/scripts/batten2008_kl_plot.py --roots exp
 uv run --no-sync python -I experiments/scripts/batten2008_plateau.py --roots experiments/trajectories/{flows2d/N1024,...} --flows 10   # CPU, ~2 min per chi
 uv run --no-sync python -I experiments/scripts/batten2008_plateau_plot.py --roots ... --labels ...   # hessian_negative_compare, hessian_plateau_mechanism
 uv run --no-sync python -I experiments/scripts/batten2008_planes_mean_plot.py --root experiments/trajectories/flows2d/N1024 --prefix flows2d_N1024   # per start
+/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_hessian_sign_plot.py --roots experiments/trajectories/{flows2d/N1024,...} --labels ...   # hessian_sign_compare, hessian_sign_mechanism, hessian_sign_starts
+/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_sign_universal_plot.py --roots experiments/trajectories/{flows2d/N1024,...} --labels ...   # hessian_sign_universal
+/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_mp_plot.py   # coupling_mp_compare (computes and caches mp_chi<tag>.npz; ~10 CPU-min, use a SLURM CPU job)
+/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_mp_shoulder_plot.py   # coupling_mp_shoulder (caches mp_shoulder_chi<tag>.npz; ~2 CPU-min)
+/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_phonon_gap_plot.py   # coupling_phonon_gap (caches phonon_chi<tag>.npz)
+sbatch --cpus-per-task=16 --mem=48G --wrap ".../python -I experiments/scripts/batten2008_loop_moments.py --roots experiments/trajectories/flows2d/N1024 --tags 1-10 1-4 7-20 2-5 9-20 49-100 --states 6 --surrogates 8"   # and N4096: --tags 9-20 49-100 --states 4 --surrogates 2 (32 CPUs, 96G)
+/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_loop_moments_plot.py --roots experiments/trajectories/flows2d/N1024 experiments/trajectories/flows2d/N4096   # loop_moments
+# new chi for 2D Poisson (flows, tail, hessian, plateau, landscape, modes, winding, offplane): pass --chi 0.25 0.45 to each step; plots take --extra-chi 1-4 9-20
+/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_windcv_explain_plot.py --roots ... --labels ...   # winding_cv_explained (needs landscape_chi*.npz)
+uv run --no-sync python -I experiments/scripts/batten2008_exclusion.py --roots experiments/trajectories/{flows2d/N1024,...} --flows 5   # exclusion_chi*.npz
+/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_exclusion_plot.py --roots ... --labels ...   # exclusion_mode_control
+/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_exclusion_spectra_plot.py --roots ... --labels ...   # exclusion_mode_spectra, exclusion_drive
 uv run --no-sync python -I experiments/scripts/batten2008_landscape.py --roots experiments/trajectories/{flows2d/N1024,...} --flows 10   # CPU, 2-3 min per start
 uv run --no-sync python -I experiments/scripts/batten2008_landscape_plot.py --roots ... --labels ...   # landscape_wells, landscape_floor, landscape_valley
 uv run --no-sync python -I experiments/scripts/batten2008_winding_plot.py --roots experiments/trajectories/{flows2d/N1024,gau2d/N1000,url2d/N1024,rsa2d/N999,hip2d/N1000} \
@@ -783,7 +1308,7 @@ uv run --no-sync python -I experiments/scripts/batten2008_windcv_plot.py --total
 
 **Data.** `trajectories/{gau2d/N1000,url2d/N1024,rsa2d/N999,hip2d/N1000}/` with the same files as `flows2d/N1024`, plus `winding_chi<tag>.npz`, `plateau_chi<tag>.npz` and `landscape_chi<tag>.npz` everywhere. The 20-flow runs are kept in `trajectories/<start>/N<N>_n20/`. The tolerance checks are in `trajectories/{batten2008_tight/N1000,flows2d_tight/N1024}/` (flow 0, atol 10⁻¹¹, rtol 10⁻³).
 
-**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
+**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `hessian_sign_compare`, `hessian_sign_mechanism`, `hessian_sign_starts`, `hessian_sign_universal`, `coupling_mp_compare`, `coupling_mp_shoulder`, `coupling_phonon_gap`, `coupling_phonon_dispersion`, `coupling_mp_finite_size`, `coupling_starts_compare`, `loop_moments`, `loop_statistics`, `winding_cv_explained`, `exclusion_mode_control`, `exclusion_mode_spectra`, `exclusion_drive`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
 
 ### The 1D landscape against χ, in 3D
 

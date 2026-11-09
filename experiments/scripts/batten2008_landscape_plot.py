@@ -46,7 +46,7 @@ Samuel J. Dawley
 import argparse
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 # ----- numerics -----
 import numpy as np
@@ -64,6 +64,14 @@ from matplotlib.lines import Line2D  # noqa: E402
 COLORS = ("black", "#1f4e9c", "#c0392b", "#2e7d32", "#b9770e", "#7d3c98")
 MARKERS = "osD^vP"
 TAGS = (("1-10", r"$\chi = 0.1$", "-", "o"), ("2-5", r"$\chi = 0.4$", "--", "s"))
+STYLE = {
+    "1-10": (r"$\chi = 0.1$", "-", "o"),
+    "1-4": (r"$\chi = 0.25$", "-.", "D"),
+    "2-5": (r"$\chi = 0.4$", "--", "s"),
+    "9-20": (r"$\chi = 0.45$", ":", "^"),
+}  # every chi tag (extra tags only for the first root, --extra-chi)
+BASE_INDEX = {"1-10": 0, "2-5": 1}  # bar positions of the chi every start has
+OFFSET = {"1-10": -0.225, "1-4": -0.075, "2-5": 0.075, "9-20": 0.225}  # (valley d)
 GUIDE = "0.6"
 BANDS = ((0.0, 0.2), (0.2, 0.4), (0.4, 0.6), (0.6, 0.8), (0.8, 1.01))  # |k|/K
 FLOOR_S = 1e-8  # rates shown only above this S (integrator error below)
@@ -124,13 +132,27 @@ def two_efold(mz: Dict[str, np.ndarray], fz: Dict[str, np.ndarray]) -> np.ndarra
     return out
 
 
-def load_all(roots: List[Path]) -> List[Dict]:
-    """Per root, per chi tag: every input file."""
+def styled(sys_d: Dict) -> List[Tuple[str, str, str, str]]:
+    """(tag, label, line style, marker) of the chi tags one system has."""
+    out = [(t, *STYLE[t]) for t in STYLE if t in sys_d]
+    assert out and all(len(o) == 4 for o in out), "known chi tags"
+    return out
+
+
+def all_styles(data: List) -> List[Tuple[str, str, str, str]]:
+    """Styles of every chi tag present in any system, in increasing chi."""
+    out = [(t, *STYLE[t]) for t in STYLE if any(t in s for s in data)]
+    assert out and len(out) <= len(STYLE), "known chi tags"
+    return out
+
+
+def load_all(roots: List[Path], extra: List[str]) -> List[Dict]:
+    """Per root, per chi tag: every input file (extra tags: first root only)."""
     names = ("landscape", "modes", "flows", "winding", "hessian", "offplane")
     out = []
-    for root in roots:
+    for i, root in enumerate(roots):
         sys_d = {}
-        for tag, *_ in TAGS:
+        for tag in [t for t, *_ in TAGS] + (list(extra) if i == 0 else []):
             z = {n: load(root / f"{n}_chi{tag}.npz") for n in names if n != "flows"}
             with np.load(root / f"flows_chi{tag}.npz") as f:
                 z["flows"] = {"t_final": np.asarray(f["t_final"])}
@@ -221,7 +243,7 @@ def figure_wells(data: List, labels: List[str], out: Path, dpi: int) -> None:
     panel_collapse(axes[0, 3], data[0]["2-5"], "d", TAGS[1][1])
     axes[0, 3].legend(frameon=False, fontsize=10, loc="lower left")
     for i, sys_d in enumerate(data):
-        for tag, _, ls, mk in TAGS:
+        for tag, _, ls, mk in styled(sys_d):
             z, lz = sys_d[tag], sys_d[tag]["landscape"]
             x = two_efold(z["modes"], z["flows"])
             xk = z["modes"]["kmag"] / z["modes"]["kmag"][-1]
@@ -237,7 +259,7 @@ def figure_wells(data: List, labels: List[str], out: Path, dpi: int) -> None:
             band(axes[1, 2], phi, np.where(ok, lz["c_eig"][:, :, 0], np.nan),
                  COLORS[i], ls)  # fmt: skip
             band(axes[1, 3], phi, np.where(ok, lz["o_wells"], np.nan), COLORS[i], ls)
-    c_vals = {tag: ratio_c(data[0][tag]["landscape"]) for tag, *_ in TAGS}
+    c_vals = {tag: ratio_c(data[0][tag]["landscape"]) for tag, *_ in styled(data[0])}
     ax = axes[1, 0]
     ax.axhline(1.0, color=GUIDE, lw=0.8, zorder=0)
     ax.set_xlabel(r"Wavenumber, $|\mathbf{k}|/K$ (band centre)")
@@ -245,7 +267,7 @@ def figure_wells(data: List, labels: List[str], out: Path, dpi: int) -> None:
     ax.set_title("(e) first two e-folds: own well = 1", loc="left", fontsize=13)
     ax = axes[1, 1]
     x = np.geomspace(1e-3, 5.0, 400)
-    for tag, _, ls, _ in TAGS:
+    for tag, _, ls, _ in styled(data[0]):
         ax.plot(x, mp_cdf(c_vals[tag], x), color=GUIDE, lw=3.0, ls=ls, alpha=0.7)
     ax.axvline(1.0, color=GUIDE, lw=0.8, zorder=0)
     ax.set_xscale("log")
@@ -256,7 +278,7 @@ def figure_wells(data: List, labels: List[str], out: Path, dpi: int) -> None:
     ax = axes[1, 2]
     phi_axis(ax)
     ax.set_yscale("log")
-    for tag, _, ls, _ in TAGS:
+    for tag, _, ls, _ in styled(data[0]):
         ax.axhline((1.0 - np.sqrt(c_vals[tag])) ** 2, color=GUIDE, lw=1.2, ls=ls)
     ax.set_ylabel(r"Softest Coupled Mode, $\min \lambda(C)$")
     ax.set_title(r"(g) soft edge vs $(1-\sqrt{2M/Nd})^2$", loc="left", fontsize=13)
@@ -265,18 +287,20 @@ def figure_wells(data: List, labels: List[str], out: Path, dpi: int) -> None:
     ax.set_ylim(0.0, 1.0)
     ax.set_ylabel("Soft Modes on the Longest Waves' Own Axes")
     ax.set_title("(h) soft modes = single waves?", loc="left", fontsize=13)
-    legend(fig, labels, [r"Marchenko–Pastur, $c = 2M/(Nd)$"], GUIDE)
+    legend(fig, labels, [r"Marchenko–Pastur, $c = 2M/(Nd)$"], GUIDE, data)
     finish(fig, out / "landscape_wells", dpi)
 
 
-def legend(fig: plt.Figure, labels: List[str], extra: List[str], color: str) -> None:
+def legend(
+    fig: plt.Figure, labels: List[str], extra: List[str], color: str, data: List
+) -> None:
     """Starts, the chi styles and extra grey entries, in one row beneath."""
     handles = [Line2D([], [], color=COLORS[i], lw=2.0, marker=MARKERS[i])
                for i in range(len(labels))]  # fmt: skip
     handles += [Line2D([], [], color="0.3", lw=2.0, ls=ls, marker=mk, mfc="none")
-                for _, _, ls, mk in TAGS]  # fmt: skip
+                for _, _, ls, mk in all_styles(data)]  # fmt: skip
     handles += [Line2D([], [], color=color, lw=3.0, alpha=0.7) for _ in extra]
-    names = labels + [chi for _, chi, _, _ in TAGS] + extra
+    names = labels + [chi for _, chi, _, _ in all_styles(data)] + extra
     fig.legend(handles, names, loc="upper center", ncol=min(len(names), 8),
                bbox_to_anchor=(0.5, 0.0), frameon=False)  # fmt: skip
 
@@ -353,7 +377,8 @@ def figure_floor(data: List, labels: List[str], out: Path, dpi: int) -> None:
                  shrink=0.9)  # fmt: skip
     centres = [0.1, 0.3, 0.5, 0.7, 0.9]
     for i, sys_d in enumerate(data):
-        for t_i, (tag, _, ls, mk) in enumerate(TAGS):
+        for tag, _, ls, mk in styled(sys_d):
+            t_i = BASE_INDEX.get(tag)
             z = sys_d[tag]
             wz, lz = z["winding"], z["landscape"]
             os_ = onset_and_share(wz)
@@ -370,6 +395,8 @@ def figure_floor(data: List, labels: List[str], out: Path, dpi: int) -> None:
                             ls="", marker=mk, ms=3, color=COLORS[i],
                             alpha=0.5)  # fmt: skip
             sh = np.median(os_["share"][:, xk > 0.6])
+            if t_i is None:  # bars only for the two chi every start has
+                continue
             axes[1, 2].bar(i + 0.4 * t_i - 0.2, sh, width=0.38, color=COLORS[i],
                            alpha=1.0 if t_i else 0.45, hatch="//" if t_i else None,
                            edgecolor="white")  # fmt: skip
@@ -397,7 +424,7 @@ def figure_floor(data: List, labels: List[str], out: Path, dpi: int) -> None:
     ax.set_ylabel(r"Winding Share While Slaved ($|\mathbf{k}| > 0.6K$)")
     ax.set_title(r"(f) waves wind on the floor (light $\chi=0.1$, hatched 0.4)",
                  loc="left", fontsize=13)  # fmt: skip
-    legend(fig, labels, [r"(a, b) $S(\mathbf{k}) = 10^{-2}$ (white)"], GUIDE)
+    legend(fig, labels, [r"(a, b) $S(\mathbf{k}) = 10^{-2}$ (white)"], GUIDE, data)
     finish(fig, out / "landscape_floor", dpi)
 
 
@@ -411,7 +438,7 @@ def figure_valley(data: List, labels: List[str], out: Path, dpi: int) -> None:
     fig, axes = plt.subplots(2, 3, figsize=(20.0, 11.0), constrained_layout=True)
     sys_pts = []
     for i, sys_d in enumerate(data):
-        for tag, _, ls, mk in TAGS:
+        for tag, _, ls, mk in styled(sys_d):
             z = sys_d[tag]
             lz, k1 = z["landscape"], float(z["landscape"]["kmag"][0])
             ok = reached(lz)
@@ -424,7 +451,7 @@ def figure_valley(data: List, labels: List[str], out: Path, dpi: int) -> None:
             lv = list(np.round(hz["samples"], 2))
             jj = [lv.index(v) for v in (-2.0, -4.0, -6.0)]
             curv = -hz["lam"][:, jj, 0] / np.sqrt(hz["phi"][:, jj])
-            axes[1, 0].plot(i + (0.15 if tag == "2-5" else -0.15),
+            axes[1, 0].plot(i + OFFSET[tag],
                             np.median(curv), marker=mk, ms=10, ls="",
                             color=COLORS[i])  # fmt: skip
             m = z["metrics"]
@@ -489,7 +516,7 @@ def figure_valley(data: List, labels: List[str], out: Path, dpi: int) -> None:
     ax.set_title(f"(f) softer valley, slower flow (Spearman {rho:.2f})", loc="left",
                  fontsize=13)  # fmt: skip
     print(f"valley (f) Spearman {rho:.2f}", flush=True)
-    legend(fig, labels, [], GUIDE)
+    legend(fig, labels, [], GUIDE, data)
     finish(fig, out / "landscape_valley", dpi)
 
 
@@ -503,10 +530,12 @@ if __name__ == "__main__":
     parser.add_argument("--labels", nargs="+", required=True)
     parser.add_argument("--out", type=Path, default=Path("experiments/figures"))
     parser.add_argument("--dpi", type=int, default=600)
+    parser.add_argument("--extra-chi", nargs="*", default=[],
+                        help="extra chi tags of the first root")  # fmt: skip
     args = parser.parse_args()
     assert len(args.roots) == len(args.labels) <= len(COLORS), "one label per root"
     args.out.mkdir(parents=True, exist_ok=True)
-    data = load_all(args.roots)
+    data = load_all(args.roots, args.extra_chi)
     figure_wells(data, args.labels, args.out, args.dpi)
     figure_floor(data, args.labels, args.out, args.dpi)
     figure_valley(data, args.labels, args.out, args.dpi)

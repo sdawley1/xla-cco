@@ -37,7 +37,7 @@ Samuel J. Dawley
 import argparse
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 # ----- numerics -----
 import numpy as np
@@ -52,6 +52,12 @@ from matplotlib.lines import Line2D  # noqa: E402
 
 COLORS = ("black", "#1f4e9c", "#c0392b", "#2e7d32", "#b9770e", "#7d3c98")
 TAGS = (("1-10", r"$\chi = 0.1$", "-", "o"), ("2-5", r"$\chi = 0.4$", "--", "s"))
+STYLE = {
+    "1-10": (r"$\chi = 0.1$", "-", "o"),
+    "1-4": (r"$\chi = 0.25$", "-.", "D"),
+    "2-5": (r"$\chi = 0.4$", "--", "s"),
+    "9-20": (r"$\chi = 0.45$", ":", "^"),
+}  # every chi tag (extra tags only for the first root, --extra-chi)
 ZERO_REL = 1e-9  # the eigenvalue cut of batten2008_hessian.py
 GUIDE = "0.6"
 PHI_LABEL = r"Energy, $\Phi$"
@@ -100,12 +106,28 @@ def plateau_series(p: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
     }
 
 
-def load_all(roots: List[Path]) -> List[Dict[str, Dict[str, np.ndarray]]]:
-    """Per root, per chi tag: hessian and plateau series."""
+def styled(sys_d: Dict) -> List[Tuple[str, str, str, str]]:
+    """(tag, label, line style, marker) of the chi tags one system has."""
+    out = [(t, *STYLE[t]) for t in STYLE if t in sys_d]
+    assert out and all(len(o) == 4 for o in out), "known chi tags"
+    return out
+
+
+def all_styles(data: List) -> List[Tuple[str, str, str, str]]:
+    """Styles of every chi tag present in any system, in increasing chi."""
+    out = [(t, *STYLE[t]) for t in STYLE if any(t in s for s in data)]
+    assert out and len(out) <= len(STYLE), "known chi tags"
+    return out
+
+
+def load_all(
+    roots: List[Path], extra: List[str]
+) -> List[Dict[str, Dict[str, np.ndarray]]]:
+    """Per root, per chi tag: hessian and plateau series (extra: first root)."""
     out = []
-    for root in roots:
+    for i, root in enumerate(roots):
         sys_d = {}
-        for tag, *_ in TAGS:
+        for tag in [t for t, *_ in TAGS] + (list(extra) if i == 0 else []):
             h = hessian_series(load(root / f"hessian_chi{tag}.npz"))
             p = load(root / f"plateau_chi{tag}.npz")
             sys_d[tag] = {"h": h, "p": plateau_series(p), "raw": p}
@@ -120,10 +142,14 @@ def load_all(roots: List[Path]) -> List[Dict[str, Dict[str, np.ndarray]]]:
 
 def figure_compare(data: List, labels: List[str], out: Path, dpi: int) -> None:
     """Panels (c) and (g) of *_hessian_detail, every start on one set of axes."""
-    fig, axes = plt.subplots(2, 2, figsize=(14.0, 10.0), constrained_layout=True)
+    cols = all_styles(data)
+    fig, axes = plt.subplots(2, len(cols), figsize=(7.0 * len(cols), 10.0),
+                             constrained_layout=True, squeeze=False)  # fmt: skip
     for i, sys_d in enumerate(data):
         color = COLORS[i % len(COLORS)]
-        for col, (tag, _, _, marker) in enumerate(TAGS):
+        for col, (tag, _, _, marker) in enumerate(cols):
+            if tag not in sys_d:
+                continue
             h, p = sys_d[tag]["h"], sys_d[tag]["p"]
             band(axes[0, col], h["phi"], h["neg"], color, "-")
             axes[0, col].axhline(0.5 * h["tangent"], color=color, lw=0.8, ls=":")
@@ -131,28 +157,31 @@ def figure_compare(data: List, labels: List[str], out: Path, dpi: int) -> None:
                               marker=marker, ms=6, color=color, mfc="none")  # fmt: skip
             band(axes[1, col], h["phi"], h["lam_min"], color, "-")
             axes[1, col].plot(h["phi"], h["cut"], color=color, lw=0.8, ls=":")
-    for col, (_, chi, _, _) in enumerate(TAGS):
+    letters = "abcdefgh"
+    n = len(cols)
+    for col, (tag, chi, _, _) in enumerate(cols):
         ax = axes[0, col]
         phi_axis(ax)
-        ax.set_title(f"({'ab'[col]}) {chi}: negative curvature", loc="left")
+        ax.set_title(f"({letters[col]}) {chi}: negative curvature", loc="left")
         ax.set_ylabel(r"Number with $\lambda < 0$")
         ax = axes[1, col]
         phi_axis(ax)
         ax.set_yscale("log")
         x = np.geomspace(1e-12, 1e2, 20)
-        ref = np.median(data[0][TAGS[col][0]]["h"]["lam_min"], axis=0)
-        anchor = np.interp(-3.0, np.log10(data[0][TAGS[col][0]]["h"]["phi"])[::-1],
+        ref = np.median(data[0][tag]["h"]["lam_min"], axis=0)
+        anchor = np.interp(-3.0, np.log10(data[0][tag]["h"]["phi"])[::-1],
                            ref[::-1])  # fmt: skip
         ax.plot(x, 2.0 * anchor * np.sqrt(x / 1e-3), color=GUIDE, lw=1.0, ls="-.")
-        ax.set_title(f"({'cd'[col]}) {chi}: most negative eigenvalue", loc="left")
+        ax.set_title(f"({letters[n + col]}) {chi}: most negative eigenvalue",
+                     loc="left")  # fmt: skip
         ax.set_ylabel(r"$|\lambda_{\min}|$")
     handles = [Line2D([], [], color=COLORS[i], lw=2.0) for i in range(len(data))]
     handles += [Line2D([], [], color="0.3", lw=0.8, ls=":"),
                 Line2D([], [], color="0.3", ls="", marker="o", mfc="none"),
                 Line2D([], [], color=GUIDE, lw=1.0, ls="-.")]  # fmt: skip
     names = labels + [
-        r"(a, b) $(Nd-2M)/2$; (c, d) cut $10^{-9}\lambda_{\max}$",
-        r"(a, b) $\lambda(PRP) < 0$, no cut",
+        r"top: $(Nd-2M)/2$; bottom: cut $10^{-9}\lambda_{\max}$",
+        r"top: $\lambda(PRP) < 0$, no cut",
         r"$\propto\sqrt{\Phi}$",
     ]
     fig.legend(handles, names, loc="upper center", ncol=4, bbox_to_anchor=(0.5, 0.0),
@@ -196,7 +225,7 @@ def panel_check(ax: plt.Axes, data: List) -> None:
     """Soft eigenvalues of H against eigenvalues of P R P, flow 0, over sqrt(Phi)."""
     worst = 0.0
     for i, sys_d in enumerate(data):
-        for tag, _, _, marker in TAGS:
+        for tag, _, _, marker in styled(sys_d):
             p = sys_d[tag]["raw"]
             for j, level in enumerate(p["levels"]):
                 if level > -3.0:  # first order needs sqrt(Phi) << 1
@@ -246,7 +275,7 @@ def figure_mechanism(data: List, labels: List[str], out: Path, dpi: int) -> None
     panel_sketch(axes[0, 0])
     for i, sys_d in enumerate(data):
         color = COLORS[i % len(COLORS)]
-        for tag, _, ls, marker in TAGS:
+        for tag, _, ls, marker in styled(sys_d):
             h, p = sys_d[tag]["h"], sys_d[tag]["p"]
             band(axes[0, 1], h["phi"], h["neg"] / h["tangent"], color, ls)
             axes[0, 1].plot(p["phi"], np.median(p["neg_pr"], axis=0) / h["tangent"],
@@ -275,10 +304,11 @@ def figure_mechanism(data: List, labels: List[str], out: Path, dpi: int) -> None
     ax.set_ylabel(r"Negative Fraction of Particle Curvatures, $\lambda(R_j)$")
     ax.set_title("(f) per-particle curvature signs", loc="left")
     handles = [Line2D([], [], color=COLORS[i], lw=2.0) for i in range(len(data))]
-    handles += [Line2D([], [], color="0.3", lw=2.0, ls=ls) for _, _, ls, _ in TAGS]
+    handles += [Line2D([], [], color="0.3", lw=2.0, ls=ls)
+                for _, _, ls, _ in all_styles(data)]  # fmt: skip
     handles += [Line2D([], [], color="0.3", ls="", marker="o", mfc="none"),
                 Line2D([], [], color=GUIDE, lw=1.0, ls="-.")]  # fmt: skip
-    names = labels + [chi for _, chi, _, _ in TAGS]
+    names = labels + [chi for _, chi, _, _ in all_styles(data)]
     names += [r"(b) $PRP$, no cut", r"(e) $\propto\sqrt{\Phi}$"]
     fig.legend(handles, names, loc="upper center", ncol=5, bbox_to_anchor=(0.5, 0.0),
                frameon=False)  # fmt: skip
@@ -295,10 +325,12 @@ if __name__ == "__main__":
     parser.add_argument("--labels", nargs="+", required=True)
     parser.add_argument("--out", type=Path, default=Path("experiments/figures"))
     parser.add_argument("--dpi", type=int, default=600)
+    parser.add_argument("--extra-chi", nargs="*", default=[],
+                        help="extra chi tags of the first root")  # fmt: skip
     args = parser.parse_args()
     assert len(args.roots) == len(args.labels) <= len(COLORS), "one label per root"
     args.out.mkdir(parents=True, exist_ok=True)
-    data = load_all(args.roots)
+    data = load_all(args.roots, args.extra_chi)
     figure_compare(data, args.labels, args.out, args.dpi)
     figure_mechanism(data, args.labels, args.out, args.dpi)
     print("Done.", flush=True)
