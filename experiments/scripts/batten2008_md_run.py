@@ -31,10 +31,10 @@ omega_min (bench.json "chosen", when recorded). Every cell checkpoints to
 ``<output>.ckpt.npz`` (every 30 min and after each phase) and resumes when
 rerun with the same arguments. The SLURM jobs that worked on a cell are
 listed in ``<output>.jobs.json``; the cost is GPU-h = ElapsedRaw x n_gpu /
-3600 summed over them (sacct). Any protocol option changed from the plan default is recorded under
-``run_script.plan_deviations``; the provenance also records the git HEAD and
-whether tracked files had uncommitted changes (``git_dirty``,
-``git_changed``).
+3600 summed over them (sacct). Any protocol option changed from the plan
+default is recorded under ``run_script.plan_deviations``; the provenance also
+records the git HEAD and whether tracked files had uncommitted changes
+(``git_dirty``, ``git_changed``).
 
 Usage (from the repository root; SLURM: batten2008_md_gpu.slurm STEP=run):
   python batten2008_md_run.py --step run --system flows2d --chi 1-10 \
