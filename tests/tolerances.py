@@ -207,6 +207,27 @@ MD_SPECTRUM_BINS: float = 2.0
 # beyond ~2 bins, where they would count as (wrongly placed) peaks.
 MD_SPECTRUM_PEAK_FRAC: float = 1e-3
 
+# One winding step of the driver vs np.angle of NumPy rho at the same positions (D-060
+# test, N = 16): the two rho differ by <= ATOL_MD_WAVE_PER_PARTICLE N = 1.6e-11
+# (measured 3e-15), so the angle by <= 2 |d rho| / min|rho| = 2e-11 (min|rho| = 1.67);
+# measured 6e-16; 1e-10 leaves 5x over the bound (the defect is an O(1) rad jump).
+ATOL_MD_WIND_STEP_ORACLE: float = 1e-10
+# Same comparison in the CLI D-062 test (COM-corrected rho of thermal states near the
+# N = 32 ground states, where small constrained |rho| magnify d rho / |rho|): measured
+# <= 2.0e-13 over 6 phases; 1e-9 leaves 5000x, while the defect it guards (raw vs
+# corrected rho) shifts the first step by ~|k . R_cm| = O(1e-2..1) rad.
+ATOL_MD_CLI_WIND_STEP: float = 1e-9
+# Count-mode accumulator after 10 additions of p = 0.35 and 3 subtractions of 1
+# (values <= 1.4, each rounding <= ulp(1.4) / 2 = 1.1e-16): <= 1.5e-15 vs the exact
+# 10 p - 3 = 0.5; measured 5.6e-16; 1e-14.
+ATOL_MD_RESET_ACC: float = 1e-14
+# Nonzero eigenvalues of K = (2/V) Re(J^H J) vs the Hessian at the N = 32 ground state
+# (Phi < 1e-20): the Hessian adds (2/V) Re(conj(rho) d^2 rho), <= 2 |rho| K^2 / V per
+# wave with |rho| <= sqrt(V Phi) = 5.7e-10, i.e. <= 12 * 3.7e-10 = 4.4e-9 in total
+# (Weyl), relative to lambda_min = 0.86: 5e-9 (eigh rounding eps lambda_max / lambda_min
+# ~ 4e-15 is negligible); measured 1.7e-12; 1e-8 leaves 2x over the bound.
+RTOL_MD_GS_EIG: float = 1e-8
+
 # ----- C++ MD reference (tests/unit/test_md_cxx_reference.py, plan T4) -----
 # Unit gate: xla Phi vs the full-precision C++ ShiftedCCPotential energy of the same
 # configuration. Both are a sum of M = 50 positive terms |rho_k|^2 / V with rho_k a

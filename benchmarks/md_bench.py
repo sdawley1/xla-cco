@@ -147,7 +147,7 @@ def load_system(
         "system": system, "tag": tag, "chi": CHI_TAGS[tag], "energy": energy,
         "waves": wv, "basis": basis, "basis_j": jnp.asarray(basis),
         "s_final": s_final, "K": k_outer, "M": m, "N": int(s_final.shape[1]),
-        "W": int(wv.kvec.shape[0]),
+        "d": int(s_final.shape[2]), "W": int(wv.kvec.shape[0]),
     }  # fmt: skip
 
 
@@ -258,9 +258,11 @@ def time_group(args: argparse.Namespace) -> List[Dict[str, Any]]:
         t0 = time.perf_counter()
         state = md_run.simulate(sysd["energy"], sysd["waves"], sysd["basis_j"],
                                 settings, state, 1).state  # fmt: skip
+        jax.block_until_ready(state.r)  # type: ignore[no-untyped-call]
         t1 = time.perf_counter()
         out = md_run.simulate(sysd["energy"], sysd["waves"], sysd["basis_j"],
                               settings, state, args.n_steps).state  # fmt: skip
+        jax.block_until_ready(out.r)  # type: ignore[no-untyped-call]
         t2 = time.perf_counter()
         assert np.all(np.isfinite(np.asarray(out.phi))), "finite energies"
         rows.append(_throughput_row(args, sysd, we, t1 - t0, t2 - t1, every, cap))
@@ -417,7 +419,7 @@ def drift_trial(
     wall = time.perf_counter() - t0
     ke = ke_tot / n_tot
     e_snap = np.asarray(state.snap.phi) + np.asarray(state.snap.kinetic)
-    dof_half = 0.5 * 2 * (sysd["N"] - 1) * np.asarray(state.temperature)
+    dof_half = 0.5 * sysd["d"] * (sysd["N"] - 1) * np.asarray(state.temperature)
     assert np.all(np.asarray(state.snap.count) == 256), "all snapshots taken"
     slope = np.polyfit(np.arange(N_WINDOWS), e_win, 1)[0] / ke
     return {

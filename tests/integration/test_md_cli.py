@@ -42,6 +42,7 @@ from md_states import (
     fake_maxwell_boltzmann,
 )
 from systems import small_system
+from tolerances import ATOL_MD_CLI_WIND_STEP
 
 # ----- project -----
 from xla_cco.cli import md
@@ -912,7 +913,28 @@ def test_regression_D062_andersen_after_nve_restarts_winding(
     monkeypatch.setattr(md_run, "simulate", spy)
     assert md.main(_argv(tmp_path)) == 0
     assert len(errors) >= 4  # equil halves (x2 if extended), andersen0, andersen1
-    assert max(errors) < 1e-9, errors
+    assert max(errors) < ATOL_MD_CLI_WIND_STEP, errors
+
+
+@pytest.mark.high
+@pytest.mark.slow
+def test_md_cli_device_cpu_computes_on_cpu(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--device cpu puts every simulate output on the CPU, also when the
+    backend (e.g. the GPU suite's) was initialized before main (D-085)."""
+    _write_input(tmp_path, s_final=_ground_states())
+    real = md_run.simulate
+    platforms: List[str] = []
+
+    def spy(*args: Any, **kw: Any) -> Any:
+        out = real(*args, **kw)
+        platforms.extend(d.platform for d in out.state.r.devices())
+        return out
+
+    monkeypatch.setattr(md_run, "simulate", spy)
+    assert md.main(_argv(tmp_path)) == 0
+    assert len(platforms) >= 4 and set(platforms) == {"cpu"}, platforms
 
 
 # ============================================================

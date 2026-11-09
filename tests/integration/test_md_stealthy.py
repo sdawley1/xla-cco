@@ -34,10 +34,12 @@ from scipy import stats
 # ----- project -----
 from systems import stealthy_ground_state
 from tolerances import (
+    ATOL_MD_WAVE_PER_PARTICLE,
     ATOL_MD_WINDING,
     MD_FAMILY_ALPHA,
     MD_SPECTRUM_BINS,
     MD_SPECTRUM_PEAK_FRAC,
+    RTOL_MD_GS_EIG,
     RTOL_MD_LINEAR,
     RTOL_MD_WINDING,
 )
@@ -184,7 +186,7 @@ def test_power_spectrum_peaks_on_sqrt_eig_k(system: Dict[str, Any]) -> None:
     eig_k = np.linalg.eigvalsh(2.0 / system["vol"] * jr @ jr.T)
     w_modes = np.sqrt(eig_k)
     lam = system["lam"][system["lam"] > ZERO_REL * system["lam"][-1]]
-    np.testing.assert_allclose(np.sort(eig_k), np.sort(lam), rtol=1e-8)
+    np.testing.assert_allclose(np.sort(eig_k), np.sort(lam), rtol=RTOL_MD_GS_EIG)
     bin_w = 2.0 * math.pi / (dt * n_steps)
     peaks = [i for i in range(1, half - 1) if folded[i] >= folded[i - 1]
              and folded[i] >= folded[i + 1]
@@ -260,7 +262,8 @@ def _check_snapshot_rho(sys_: Dict[str, Any], state: MDState, scheme: str) -> No
         every = 1 if scheme == "verlet" else (2 if scheme == "andersen" else 3)
         fresh = np.ones(kv.shape[0], bool)
         fresh[sys_["waves"].n_constrained :] = int(snap.step[0, j]) % every == 0
-        np.testing.assert_allclose(got[fresh], rho[fresh], atol=1e-10)
+        np.testing.assert_allclose(got[fresh], rho[fresh],
+                                   atol=ATOL_MD_WAVE_PER_PARTICLE * N)  # fmt: skip
 
 
 # ============================================================

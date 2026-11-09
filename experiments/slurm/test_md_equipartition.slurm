@@ -5,9 +5,10 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
 #SBATCH --time=01:30:00
-#SBATCH --output=/scratch/gpfs/TORQUATO/sd2402/xla_cco_runs/v1/slurm-%x-%j.out
+#SBATCH --output=experiments/trajectories/slurm-%x-%j.out
 # V1 statistical validation of the MD library on a CPU node. Submit from the
 # repository root (worktree) with
+#   mkdir -p experiments/trajectories  # job logs (relative to the submit dir)
 #   env -u JAX_PLATFORMS sbatch experiments/slurm/test_md_equipartition.slurm
 # Samuel J. Dawley, 11/2026
 set -euo pipefail

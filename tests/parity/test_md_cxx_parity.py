@@ -381,10 +381,17 @@ def test_controls_seed_pairs_pass_and_hot_jax_fails(
 def test_live_replica_from_cxx_configurations(
     ref: Dict[str, Any], pooled: Dict[str, np.ndarray]
 ) -> None:
-    """Live CPU run of the replica's sample stage (one Andersen 5e4 + NVE 5e4
-    cycle) from each stored C++ configuration with fresh MB velocities, i.e.
-    a canonical start: its Phi and KE must pass the parity tests against
-    pooled C++ (one sample per lane, so lanes are the independent groups)."""
+    """Smoke test of the replica's code path, run live on the CPU: its sample
+    stage (one Andersen 5e4 + NVE 5e4 cycle) from each stored C++
+    configuration with fresh MB velocities; Phi and KE must pass the parity
+    tests against pooled C++.
+
+    Not a parity test in its own right (AUDIT-V2 F3): the 15 starts are the
+    first 5 consecutive samples of each C++ seed (C++ lag-1 autocorrelation
+    ~0.2), so the lanes (one sample each, the groups of the SE) are only
+    approximately independent and the SE is slightly underestimated; and
+    with 15 lanes its power is low (about 6.5 % in T, AUDIT-V2 F3). The
+    parity verdict rests on test_jax_matches_pooled_cxx (stored replica)."""
     with np.load(CXX_NPZ) as z:
         s, basis = np.asarray(z["s"]), np.asarray(z["basis"])
     system = REP.build_system(ref)

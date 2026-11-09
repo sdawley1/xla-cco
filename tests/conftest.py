@@ -70,6 +70,20 @@ def _clear_jax_caches() -> Iterator[None]:
     jax.clear_caches()
 
 
+@pytest.fixture(autouse=True)
+def _restore_default_device() -> Iterator[None]:
+    """Restore jax_default_device after each test.
+
+    The CLIs' select_device sets it process-wide (D-085); without the reset
+    one in-process CLI test would move the rest of the GPU suite to the CPU.
+    """
+    saved = jax.config.jax_default_device
+    assert saved is None or hasattr(saved, "platform"), "a device or None"
+    yield
+    jax.config.update("jax_default_device", saved)
+    assert jax.config.jax_default_device == saved, "default device restored"
+
+
 @pytest.fixture
 def poisson_configs() -> Callable[[int, int, int, int], np.ndarray]:
     """Return a factory ``(seed, b, n, d) -> (b, n, d)`` uniform fractional."""

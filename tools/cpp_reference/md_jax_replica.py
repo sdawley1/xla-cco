@@ -202,8 +202,11 @@ def init_lanes(
     keys = jnp.stack([jax.random.PRNGKey(sd) for sd in seeds])
 
     def one(r: jax.Array, v: jax.Array, t: jax.Array, k: jax.Array) -> MDState:
-        return run.init_state(system.energy, system.waves, system.basis, r, v,
-                              t, k, st)  # fmt: skip
+        assert r.shape == v.shape and r.ndim == 2, "one lane's (n, d) arrays"
+        out: MDState = run.init_state(system.energy, system.waves, system.basis,
+                                      r, v, t, k, st)  # fmt: skip
+        assert out.r.shape == r.shape, "init_state keeps the lane shape"
+        return out
 
     lanes: MDState = jax.vmap(one)(jnp.asarray(r0), jnp.asarray(v0),
                                    jnp.asarray(temps, jnp.float64), keys)  # fmt: skip
@@ -222,11 +225,12 @@ def _begin(state: MDState, st: MDSettings) -> MDState:
 def redraw_velocities(state: MDState, vel_keys: jax.Array, i: int) -> MDState:
     """C++ SetRandomSpeed: every component of every lane's v ~ N(0, T_lane)."""
     n, d = state.r.shape[1:]
+    assert i >= 0 and vel_keys.shape[0] == state.step.shape[0], "one key per lane"
     keys = jax.vmap(lambda k: jax.random.fold_in(k, i))(vel_keys)
     v = jax.vmap(lambda k, t: maxwell_boltzmann(k, n, d, t, False))(
         keys, state.temperature
     )
-    assert v.shape == state.v.shape and i >= 0, "one draw per lane"
+    assert v.shape == state.v.shape, "one draw per lane"
     return dataclasses.replace(state, v=v)
 
 
@@ -261,6 +265,7 @@ def run_protocol(
     equilibration cycle (two redraws).
     """
     st_nve, st_and = settings_pair(proto)
+    assert vel_keys.shape[0] == state.step.shape[0], "one velocity key per lane"
     eq: List[Tuple[np.ndarray, np.ndarray]] = []
     out: List[Tuple[np.ndarray, np.ndarray]] = []
     t0 = time.monotonic()
@@ -304,6 +309,7 @@ def task_lanes(task: int, lanes_per_t: int) -> Tuple[List[int], np.ndarray]:
 
 def _git_commit() -> str:
     """HEAD of the repository (or 'unknown')."""
+    assert ROOT.is_dir(), f"repository root {ROOT} missing"
     try:
         out = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"],
                              capture_output=True, text=True, check=True)  # fmt: skip
@@ -315,6 +321,7 @@ def _git_commit() -> str:
 
 def run_task(task: int, lanes_per_t: int, n_samples: int, root: Path) -> Path:
     """Run one task's lanes through the full protocol; write task<I>.json."""
+    assert task >= 0 and lanes_per_t >= 1 and n_samples >= 1, "bad task layout"
     ref = json.loads(REF_JSON.read_text())
     system, proto = build_system(ref), protocol_from_reference(ref, n_samples)
     ids, factors = task_lanes(task, lanes_per_t)
