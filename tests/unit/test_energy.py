@@ -345,13 +345,19 @@ def _table_rho_impl(s: jnp.ndarray, en: StealthyEnergy) -> jnp.ndarray:
 def test_value_grad_density_bitwise_trig(
     dim: int, n: int, chunk: Any, jit: bool
 ) -> None:
-    s, en = _vgd_case(dim, n, chunk, tables=False)
-    vgd = eqx.filter_jit(en.value_grad_density) if jit else en.value_grad_density
-    vag = eqx.filter_jit(en.value_and_grad) if jit else en.value_and_grad
-    cd = eqx.filter_jit(collective_density) if jit else collective_density
-    val, grad, re, im = vgd(s)
-    _assert_bitwise((val, grad), vag(s))
-    _assert_bitwise((re, im), cd(s, en.n_vectors, chunk))
+    """Trig path: value_grad_density is bitwise value_and_grad and
+    collective_density. Pinned to the CPU (D-086): separately compiled GPU
+    programs may reduce in different orders (~1 ulp)."""
+    cpu = jax.devices("cpu")[0]
+    with jax.default_device(cpu):
+        s, en = _vgd_case(dim, n, chunk, tables=False)
+        vgd = eqx.filter_jit(en.value_grad_density) if jit else en.value_grad_density
+        vag = eqx.filter_jit(en.value_and_grad) if jit else en.value_and_grad
+        cd = eqx.filter_jit(collective_density) if jit else collective_density
+        val, grad, re, im = vgd(s)
+        _assert_bitwise((val, grad), vag(s))
+        _assert_bitwise((re, im), cd(s, en.n_vectors, chunk))
+    assert grad.devices() == {cpu} and re.devices() == {cpu}, "ran on the CPU"
     pad = np.asarray(en.weights) == 0.0
     assert np.all(np.asarray(re)[pad] == n) and np.all(np.asarray(im)[pad] == 0.0)
 

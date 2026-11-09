@@ -57,6 +57,9 @@ Statuses:
 | D-082 | fixed | `dynamics/run.py` (`begin_segment`) | begin_segment reset lanes already stopped (STATUS_DRIFT): their max_drift, sums and winding were zeroed, so the CLI reported 0 drift and 0 winding for a drifted lane. |
 | D-083 | fixed | `dynamics/run.py` (`init_state`, `simulate`) | The constrained waves were never checked against the energy's n_vectors; mismatched waves silently used padding rows (n = 0, rho = N) as constrained densities. |
 | D-084 | fixed | `dynamics/run.py` (`_step`) | Drift limit drift_tol * dof T / 2 is inf * 0 = NaN at T = 0 with drift_tol = inf, so every "verlet" lane aborted at step 1. |
+| D-085 | fixed | `cli/relax.py` (`select_device`) | `--device cpu` failed once a GPU backend was initialized in the same process: `jax_platforms` is ignored after init and `jax.devices()[0]` stayed the GPU (76 in-process CLI test failures on the GPU suite). |
+| D-086 | fixed | `tests/unit/test_energy.py` (`test_value_grad_density_bitwise_trig`) | Bitwise equality of separately compiled programs is a CPU property; on the GPU the jitted variants differ by ~1 ulp. |
+| D-087 | fixed | `tests/property/test_energy_props.py` (D-011 regression) | The D-011 demonstration (the old tolerance fails on the pinned input) depends on CPU rounding; on the GPU the old tolerance passes. |
 
 ## D-006 — `unit_ball_volume` is not bit-equal to the C++ hard-coded constants
 - **Found:** 2026-11-05, by the T4 auditor's preview parity
@@ -409,3 +412,33 @@ Statuses:
 - **Impact:** unreachable from the CLI (T > 0 enforced). tests/unit/test_md_run.py::test_com_rule_under_rigid_translation[verlet] runs at T = 0 and so checked one step instead of 50; it passes over all 50 after the fix
 - **Regression test:** tests/unit/test_md_run.py::test_regression_D084_infinite_drift_tol_at_zero_temperature
 - **Fix:** the guard is skipped statically when drift_tol is infinite
+
+## D-085 — `select_device("cpu")` fails after a GPU backend started
+- **Found:** 2026-11-08, GPU test suite (slurm/test_gpu.slurm, job 17137898, JAX_PLATFORMS=cuda,cpu, A100)
+- **Status:** fixed
+- **Where:** src/xla_cco/cli/relax.py (`select_device`), used by the relax and md CLIs
+- **Symptom:** `select_device("cpu")` only did `jax.config.update("jax_platforms", "cpu")`, which JAX ignores once the backend is initialized; `jax.devices()[0]` was then the GPU and the call raised "requested --device cpu but JAX uses gpu". In one pytest process every in-process CLI test after the first GPU computation failed (13 in test_cli.py, 63 in test_md_cli.py; the FileNotFoundError of test_md_cli_inphase_checkpoint_behind_is_ignored is the same failure: the CLI exited 1 before writing c.npz). The check also looked at `jax.devices()[0]`, not at the device computations actually use
+- **Repro:** in a process with a GPU backend: `jax.devices(); select_device("cpu")` -> RuntimeError. On a CPU-only host: monkeypatch `jax.devices()` to list a GPU first
+- **Impact:** test-only on the GPU suite; production CLI runs start a fresh process and select the device before any computation. Fails loudly, never silently
+- **Regression test:** tests/integration/test_cli.py::test_regression_D085_select_device_cpu_after_backend_init (plus test_select_device_gpu_never_falls_back)
+- **Fix:** select_device sets `jax_default_device` to the first device of the requested platform (cpu, or a GPU after require_gpu) and checks the platform of a freshly placed array; tests/conftest.py restores `jax_default_device` after each test so a CLI test does not move the rest of the GPU suite to the CPU
+
+## D-086 — Bitwise `value_grad_density` test is CPU-only by nature
+- **Found:** 2026-11-08, GPU test suite (job 17137898)
+- **Status:** fixed
+- **Where:** tests/unit/test_energy.py::test_value_grad_density_bitwise_trig (jit = True, 6 parameter sets)
+- **Symptom:** gradients of `filter_jit(value_grad_density)` and `filter_jit(value_and_grad)` differ by <= 2.1e-14 absolute (7.5e-16 relative) on the A100
+- **Repro:** `JAX_PLATFORMS=cuda,cpu pytest tests/unit/test_energy.py -k bitwise_trig` on a GPU node
+- **Impact:** test-only. The test asserts that the two entry points share one computation; XLA's CPU backend compiles them to the same arithmetic, but separately compiled GPU programs may fuse and reduce in different orders (GPU kernels are not bitwise reproducible across programs). Device agreement is covered by tests/integration/test_gpu_device.py with tolerances
+- **Regression test:** tests/unit/test_energy.py::test_value_grad_density_bitwise_trig (now asserts its outputs live on the CPU)
+- **Fix:** the test runs under `jax.default_device(cpu)`, keeping the bitwise check where it is meaningful
+
+## D-087 — D-011 regression demonstration depends on CPU rounding
+- **Found:** 2026-11-08, GPU test suite (job 17137898)
+- **Status:** fixed
+- **Where:** tests/property/test_energy_props.py::test_regression_D011_grad_sum_tolerance_scales_with_gradient_magnitude
+- **Symptom:** "old tolerance no longer reproduces D-011": the test asserts that the pre-fix tolerance fails on the pinned input, i.e. that the rounding error of the gradient sum exceeds 1e-11; on the GPU the sum rounds differently and stays below it
+- **Repro:** run the test with a GPU default device
+- **Impact:** test-only. The pinned repro is a statement about CPU (float64, XLA CPU reduction order) rounding; the fixed tolerance (D-011) bounds the error on any device
+- **Regression test:** the same test, now pinned to the CPU device (asserts the gradient lives on the CPU)
+- **Fix:** the test runs under `jax.default_device(cpu)`
