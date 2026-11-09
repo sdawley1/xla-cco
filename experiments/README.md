@@ -907,6 +907,48 @@ The leakage is close to linear in |q|: only partners with |p| > K − |q| couple
 - At χ ≥ 0.45 the gap opens at this crossing.
 - At χ ≥ 0.40 no frequency mode has eigenvector mean |q|/K below about 0.3–0.45. The long waves are not normal modes in frequency: they hybridize with the soft outer modes. In λ(C) they still form a near-identity block.
 
+#### Loop moments and the thermal stability of the gap
+
+These checks were run ad hoc, not by a committed script. Three ground states per χ, against one phase-randomized surrogate each (every |ρ(k)| kept).
+
+**Moments are sums over closed polygons of momentum transfers.** In the complex wave basis K_qp = (q·p) ρ(q − p)/V with ρ(0) = N, so
+
+  tr K^n = V^(−n) Σ Π_i (q_i·q_(i+1)) ρ(k_i),   k_i = q_i − q_(i+1),   Σ k_i = 0.
+
+Each term is an n-point Fourier product whose phase is the translation-invariant loop phase Σ arg ρ(k_i). Terms in which the k_i cancel in pairs reduce to products of S(k) and survive phase randomization. Irreducible polygons (n = 3: bispectrum, g₃; n = 4: trispectrum, g₄; …) average to zero under it.
+
+Central moments of λ(K)/K², ground state against surrogate (relative difference):
+
+| χ | m₂ | m₃ | m₄ | m₆ | m₈ |
+|---|---|---|---|---|---|
+| 0.103 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
+| 0.401 | 0.00 | +0.02 | −0.07 | −0.13 | −0.19 |
+| 0.455 | 0.00 | +0.02 | −0.10 | −0.16 | −0.22 |
+| 0.491 | 0.00 | +0.01 | −0.11 | −0.18 | −0.23 |
+
+- m₂ is exactly S-only.
+- The triad (three-point) term changes m₃ by only 1–2%.
+- The first substantial phase-dependent contribution is at four-wave polygons, and it accumulates at higher orders.
+- At χ = 0.1 phases carry no spectral information at any order.
+- In λ(C) the same pattern appears, but larger (m₄ −23 to −32%), because the surrogates' negative eigenvalues inflate their tails.
+- Moments cannot by themselves certify a gap.
+
+**Thermal phase noise (harmonic).** For displacements u ~ N(0, T·H⁺) about a ground state, the waves outside K (K < |k| < 2K) acquire phase noise linear in √T. The rms phase per √T is 7.0 (|ρ|²-weighted) to 8.5 (median) at χ = 0.455, and 21 to 26 at χ = 0.491; the near-zero soft modes dominate H⁺.
+
+Mapped onto the partial-randomization curve, where uniform noise of half-width επ has rms επ/√3 (gap halves at ε ≈ 0.2, closes at ε ≈ 0.3), this gives:
+- χ = 0.455: halving at T ≈ 2–3·10⁻³, closing at 4–6·10⁻³;
+- χ = 0.491: halving at T ≈ 2–3·10⁻⁴, closing at 5–7·10⁻⁴.
+
+**Direct harmonic sampling** (gap of K at r + u; 2 states × 2 samples per T):
+
+| T | 0 | 10⁻⁵ | 10⁻⁴ | 3·10⁻⁴ | 10⁻³ | 3·10⁻³ | 10⁻² |
+|---|---|---|---|---|---|---|---|
+| χ = 0.455: gap (Φ/MT) | 0.075 | 0.075 (1.00) | 0.077 (1.03) | 0.066 (1.03) | 0.065 (1.16) | 0.042 (1.42) | 0.007 (2.31) |
+| χ = 0.491: gap (Φ/MT) | 0.092 | 0.091 (1.13) | 0.101 (2.31) | 0.078 (3.41) | 0.057 (10.3) | 0.007 (16.4) | 0.002 (30.4) |
+
+- At χ = 0.455 the linear estimate and the sampling agree, and the harmonic picture holds to T ≈ 10⁻³.
+- At χ = 0.491 Φ/(MT) departs from 1 already at T ≥ 10⁻⁴, so harmonic theory fails there and MD is needed.
+
 #### All four χ for 2D Poisson
 
 `hessian_sign_mechanism`, `hessian_negative_compare` and `hessian_plateau_mechanism` now include 2D Poisson flows at χ = 0.25 (tag 1-4) and χ = 0.45 (tag 9-20), with 100 flows each. Pass the extra tags with `--extra-chi 1-4 9-20`; the other starts have χ = 0.1 and 0.4 only.
