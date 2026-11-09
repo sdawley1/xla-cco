@@ -849,9 +849,19 @@ Consequences at a ground state, where ρ = 0 inside K:
 
 The gap is therefore enforced by the constraint that the ρ(k) come from N points, that is, by correlations beyond S(k).
 
-**Not yet tested:**
-- finite size (`batten2008_mp_finite_size_plot.py` with the N = 4096 flows);
-- composites with finite inclusions and all plane waves.
+**Finite size** (`figures/coupling_mp_finite_size`). Six 2D Poisson ground states per χ at N = 4096 (`flows2d/N4096`, starts `initial_conditions/n4096`, seed 20261108; 2.1 GPU-h), compared with N = 1024:
+
+| χ (N = 1024 / 4096) | ω gap at 1024 | ω gap at 4096 | shell spacing at 4096 | λ(C) dip near 0.5 | λ(C) dip near 1.1 |
+|---|---|---|---|---|---|
+| 0.455 / 0.451 | 0.609–0.682 (0.074 ± 0.007) | 0.626–0.667 (0.040 ± 0.012), in-gap states near 0.65 | 0.0048 | 0.219 → 0.231 | 0.102 → 0.069 |
+| 0.491 / 0.490 | 0.517–0.606 (0.089 ± 0.012) | **0.525–0.606 (0.082 ± 0.006)** | 0.0046 | 0.178 → 0.182 | 0.194 → 0.189 |
+
+- **χ = 0.49:** the frequency gap is N-independent within error and 18× the shell spacing.
+- **χ = 0.45:** the gap narrows as isolated in-gap (band-tail) states appear. Whether it survives as N → ∞ is open.
+- **λ(C) near 0.5:** the dip does not deepen with N, so it is a pseudo-gap.
+- **λ_min:** follows the MP hard edge at both N.
+
+**Not yet tested:** composites with finite inclusions and all plane waves.
 
 #### What the gap needs: phases, winding and the transparency interval
 
@@ -1140,7 +1150,7 @@ uv run --no-sync python -I experiments/scripts/batten2008_windcv_plot.py --total
 
 **Data.** `trajectories/{gau2d/N1000,url2d/N1024,rsa2d/N999,hip2d/N1000}/` with the same files as `flows2d/N1024`, plus `winding_chi<tag>.npz`, `plateau_chi<tag>.npz` and `landscape_chi<tag>.npz` everywhere. The 20-flow runs are kept in `trajectories/<start>/N<N>_n20/`. The tolerance checks are in `trajectories/{batten2008_tight/N1000,flows2d_tight/N1024}/` (flow 0, atol 10⁻¹¹, rtol 10⁻³).
 
-**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `hessian_sign_compare`, `hessian_sign_mechanism`, `hessian_sign_starts`, `hessian_sign_universal`, `coupling_mp_compare`, `coupling_mp_shoulder`, `coupling_phonon_gap`, `coupling_phonon_dispersion`, `winding_cv_explained`, `exclusion_mode_control`, `exclusion_mode_spectra`, `exclusion_drive`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
+**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `hessian_sign_compare`, `hessian_sign_mechanism`, `hessian_sign_starts`, `hessian_sign_universal`, `coupling_mp_compare`, `coupling_mp_shoulder`, `coupling_phonon_gap`, `coupling_phonon_dispersion`, `coupling_mp_finite_size`, `winding_cv_explained`, `exclusion_mode_control`, `exclusion_mode_spectra`, `exclusion_drive`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
 
 ### The 1D landscape against χ, in 3D
 
