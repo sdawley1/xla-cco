@@ -18,7 +18,8 @@ a pseudo-gap. Writes <out>/coupling_mp_finite_size.png:
   ground states;
 - (e) the smallest eigenvalue against N with the MP hard edge (1 - sqrt c)^2
   of each system's own c = 2M/(N d);
-- (f) the peak ratio at lambda = 1 against N.
+- (f) the edges of the largest gap in omega/K (omega^2 = lambda(K), the
+  vibrational frequencies) against N; (c) shows the omega density.
 
 Samuel J. Dawley
 11/2026
@@ -46,6 +47,7 @@ from batten2008_mp_shoulder_plot import (  # noqa: E402
     peak_ratio,
     waves,
 )
+from batten2008_phonon_gap_plot import k_matrix, largest_gap  # noqa: E402
 from batten2008_plot import finish, plt  # noqa: E402  (house rcParams)
 from matplotlib.lines import Line2D  # noqa: E402
 
@@ -76,12 +78,16 @@ def spectra(root: Path, tag: str, n_states: int) -> Dict[str, np.ndarray]:
         states = np.asarray(f["s_final"][:n_states]) % 1.0 * side
         energy = np.asarray(f["energy_final"][:n_states])
     assert np.all(energy < 1e-12), f"not all at ground states: {energy.max():.1e}"
-    ev = []
+    ev, om = [], []
     for b, x in enumerate(states):
-        c = coupling_from_rho(lattice_rho(x, side, nmax), nq, side)
-        ev.append(np.linalg.eigvalsh(c))
+        rho = lattice_rho(x, side, nmax)
+        ev.append(np.linalg.eigvalsh(coupling_from_rho(rho, nq, side)))
+        lam = np.linalg.eigvalsh(k_matrix(rho, nq, side))
+        om.append(np.sqrt(np.maximum(lam, 0.0)) / k_cut)
         print(f"  {root.name} chi{tag}: state {b + 1}/{len(states)}", flush=True)
-    out = {"ev": np.asarray(ev), "c": np.array(2.0 * nq.shape[0] / (2 * n)),
+    kq = np.linalg.norm(nq * 2.0 * np.pi / side, axis=1) / k_cut
+    out = {"ev": np.asarray(ev), "om": np.asarray(om), "ref": largest_gap(kq),
+           "c": np.array(2.0 * nq.shape[0] / (2 * n)),
            "chi": np.array(float(meta["chi_actual"])), "n": np.array(n)}  # fmt: skip
     return out
 
@@ -92,7 +98,7 @@ def load_or_compute(root: Path, tag: str, n_states: int) -> Dict[str, np.ndarray
     if path.exists():
         with np.load(path) as z:
             cached = {k: np.asarray(z[k]) for k in z.files}
-        if cached["ev"].shape[0] >= n_states:
+        if cached["ev"].shape[0] >= n_states and "om" in cached:
             return cached
     res = spectra(root, tag, n_states)
     np.savez(path, **res)
@@ -126,12 +132,13 @@ def figure(data: Dict[str, Dict[int, Dict]], out: Path, dpi: int) -> None:
                     rf"$\chi = {float(d['chi']):.3f}$")  # fmt: skip
         ax.set_ylim(0.0, 3.0)
         ax.legend(frameon=False, fontsize=11)
+    obins = np.linspace(0.3, 1.0, 141)
     for tag in tags:
         for n, d in data[tag].items():
-            h, _ = np.histogram(d["ev"].ravel(), bins=BINS, density=True)
+            h, _ = np.histogram(d["om"].ravel(), bins=obins, density=True)
             ls, _ = N_STYLE[n]
-            axes[0, 2].plot(0.5 * (BINS[1:] + BINS[:-1]), np.maximum(h, 1e-4), ls=ls,
-                            lw=1.6, color=CHI_COLOR[tag])  # fmt: skip
+            axes[0, 2].plot(0.5 * (obins[1:] + obins[:-1]), np.maximum(h, 1e-4),
+                            ls=ls, lw=1.6, color=CHI_COLOR[tag])  # fmt: skip
     for tag in tags:
         ns = sorted(data[tag])
         for (lo, hi), mk in zip(WINDOWS, ("o", "s"), strict=True):
@@ -149,12 +156,13 @@ def figure(data: Dict[str, Dict[int, Dict]], out: Path, dpi: int) -> None:
         axes[1, 1].plot(ns, lam, color=CHI_COLOR[tag], marker="o", ms=8, lw=2.0)
         axes[1, 1].plot(ns, edge, color=CHI_COLOR[tag], marker="x", ms=10, lw=1.0,
                         ls=":")  # fmt: skip
-        pk = [per_state(data[tag][n]["ev"], peak_ratio) for n in ns]
-        axes[1, 2].errorbar(ns, [v.mean() for v in pk],
-                            yerr=[v.std(ddof=1) / np.sqrt(v.size) if v.size > 1
-                                  else 0.0 for v in pk],
-                            color=CHI_COLOR[tag], marker="o", ms=8, lw=2.0,
-                            capsize=4)  # fmt: skip
+        for col, mk in ((0, "o"), (1, "s")):
+            edge_n = [np.array([largest_gap(o)[col] for o in data[tag][n]["om"]])
+                      for n in ns]  # fmt: skip
+            axes[1, 2].errorbar(ns, [v.mean() for v in edge_n],
+                                yerr=[v.std(ddof=1) / np.sqrt(v.size) for v in edge_n],
+                                color=CHI_COLOR[tag], marker=mk, ms=8, lw=2.0,
+                                capsize=4, mfc="none" if col else None)  # fmt: skip
     style(axes, data)
     finish(fig, out / "coupling_mp_finite_size", dpi)
 
@@ -172,13 +180,12 @@ def style(axes: np.ndarray, data: Dict[str, Dict[int, Dict]]) -> None:
                      loc="left", fontsize=13)  # fmt: skip
     ax = axes[0, 2]
     ax.set_yscale("log")
-    ax.set_xlim(0.0, 2.0)
+    ax.set_xlim(0.3, 1.0)
     ax.set_ylim(1e-3, 10.0)
-    ax.axvline(1.0, color=GUIDE, lw=0.8, zorder=0)
-    ax.set_xlabel(r"Coupling Spectrum, $\lambda(C)$")
-    ax.set_ylabel("Eigenvalue Density")
-    ax.set_title("(c) the dips on a log scale (dashed 1024, solid 4096)", loc="left",
-                 fontsize=13)  # fmt: skip
+    ax.set_xlabel(r"Frequency, $\omega/K$, $\omega^2 = \lambda(K)$")
+    ax.set_ylabel("Density of Nonzero Modes")
+    ax.set_title("(c) vibrational DOS near the gap (dashed 1024, solid 4096)",
+                 loc="left", fontsize=13)  # fmt: skip
     for ax in axes[1, :]:
         ax.set_xscale("log", base=2)
         ax.set_xlabel(r"Number of Particles, $N$")
@@ -190,9 +197,8 @@ def style(axes: np.ndarray, data: Dict[str, Dict[int, Dict]]) -> None:
     axes[1, 1].set_ylabel(r"Smallest Eigenvalue, $\lambda_{\min}(C)$")
     axes[1, 1].set_title(r"(e) soft edge vs MP $(1-\sqrt{c})^2$ (x)", loc="left",
                          fontsize=13)  # fmt: skip
-    axes[1, 2].axhline(1.0, color=GUIDE, lw=0.8, zorder=0)
-    axes[1, 2].set_ylabel(r"Peak Ratio, $\rho(1)/\frac{1}{2}[\rho(0.8)+\rho(1.2)]$")
-    axes[1, 2].set_title("(f) the long-wave peak at 1", loc="left", fontsize=13)
+    axes[1, 2].set_ylabel(r"Gap Edges, $\omega/K$ (filled: lower, open: upper)")
+    axes[1, 2].set_title("(f) the frequency gap at two $N$", loc="left", fontsize=13)
     handles = [Line2D([], [], color=CHI_COLOR[t], lw=2.0) for t in tags]
     handles += [Line2D([], [], color="0.3", lw=1.8, ls=N_STYLE[n][0])
                 for n in sorted(N_STYLE)]  # fmt: skip
@@ -229,6 +235,7 @@ if __name__ == "__main__":
                 per_state(d["ev"], lambda e, w=w: min_density(e, *w)) for w in WINDOWS
             ]
             pk = per_state(d["ev"], peak_ratio)
+            gaps = np.array([largest_gap(o) for o in d["om"]])
             rows.append(f"chi{tag} N={n} (chi {float(d['chi']):.4f}, "
                         f"c {float(d['c']):.4f},"
                         f" {d['ev'].shape[0]} states): dip 0.3-0.8 {dips[0].mean():.3f}"
@@ -236,7 +243,11 @@ if __name__ == "__main__":
                         f" 1.05-1.5 {dips[1].mean():.3f} +- "
                         f"{dips[1].std(ddof=1) / np.sqrt(dips[1].size):.3f}, peak "
                         f"{pk.mean():.2f}, lambda_min {np.median(d['ev'][:, 0]):.2e} "
-                        f"(MP {(1 - np.sqrt(float(d['c']))) ** 2:.2e})")  # fmt: skip
+                        f"(MP {(1 - np.sqrt(float(d['c']))) ** 2:.2e}); omega gap "
+                        f"{gaps[:, 0].mean():.3f}-{gaps[:, 1].mean():.3f} (width "
+                        f"{np.mean(gaps[:, 1] - gaps[:, 0]):.3f} +- "
+                        f"{np.std(gaps[:, 1] - gaps[:, 0], ddof=1):.3f}; shell "
+                        f"spacing {float(np.diff(d['ref'])[0]):.4f})")  # fmt: skip
     print("\n".join(rows), flush=True)
     figure(data, args.out, args.dpi)
     print("Done.", flush=True)
