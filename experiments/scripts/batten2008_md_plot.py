@@ -30,6 +30,11 @@ to --out:
   (needs md_analysis_langevin*; skipped with a note otherwise).
 - F10 ``md_F10_spectra``: rho_k power spectra of the dense trace against the
   sqrt(eig K) density (needs md_analysis_spectra*; skipped otherwise).
+- X1 ``md_X1_pooled_posthoc_chi<tag>`` (only with --exploratory): POST HOC,
+  NOT PRE-REGISTERED. H1 <S>/T and H2 rate / Rice per pre-registered bin
+  (median over ground states, thin) and per pooled bin (>= W_min waves,
+  batten2008_md_stats.exploratory_pooled; median with +-1 SE bars, dashed);
+  rows statistics, columns starts.
 
 Render with the plottime environment:
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I
@@ -56,9 +61,11 @@ from scipy import stats
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from batten2008_md_analysis import N_BINS, TWO_PI, collapse_metric  # noqa: E402
 from batten2008_md_stats import (  # noqa: E402
+    EXPL_W_MIN,
     H3_TOL,
     H4_ALPHA,
     cliffs_delta,
+    exploratory_pooled,
     kruskal_eta2,
     load_analysis,
     temp_indices,
@@ -670,6 +677,61 @@ def figure_spectra(data: Dict[str, object], out: Path, dpi: int) -> None:
     finish(fig, out / f"{PREFIX}_F10_spectra", dpi)
 
 
+def _x1_panel(ax: plt.Axes, z: Data, stat: str, rows: List[Dict]) -> None:
+    """X1 panel: pre-registered per-bin medians and pooled medians +- SE per T."""
+    assert stat in ("S/T", "Rice"), "known statistic"
+    xc = bin_centers()[:N_BINS]
+    pre = z["s_over_t_bin"] if stat == "S/T" else z["ratio_bin"]
+    for i in temp_indices(z["temps"], True):
+        color, cell_t = T_COLORS[i % 4], float(z["temps"][i])
+        med = _median_rows(pre[:, i, :N_BINS])
+        fin = np.isfinite(med)
+        ax.plot(xc[fin], med[fin], color=color, lw=0.8, marker="o", ms=3,
+                mfc="none", alpha=0.6)  # fmt: skip
+        mine = [r for r in rows if r["statistic"] == stat
+                and np.isclose(float(r["cell"].split("T=")[1]), cell_t)]  # fmt: skip
+        x = np.array([0.5 * sum(r["k_over_K"]) for r in mine])
+        xerr = np.array([0.5 * (r["k_over_K"][1] - r["k_over_K"][0]) for r in mine])
+        y = np.array([r["median"] for r in mine])
+        ax.errorbar(x, y, yerr=[r["se"] for r in mine], xerr=xerr, color=color,
+                    ls="--", lw=2.0, capsize=2, label=t_label(cell_t))  # fmt: skip
+    ax.axhspan(0.95, 1.05, color="0.85", zorder=0)
+    ax.axhline(1.0, color="0.6", lw=0.8, zorder=0)
+
+
+def figure_pooled_posthoc(data: Dict[str, object], tag: str, out: Path,
+                          dpi: int) -> None:  # fmt: skip
+    """X1 (post hoc, not pre-registered): H1 / H2 on bins pooled to >= W_min waves."""
+    assert dpi > 0, "positive dpi"
+    main = data["main"]  # type: ignore[assignment]
+    starts = starts_of(main, tag)
+    fig, axes = plt.subplots(2, len(starts), figsize=(4.6 * len(starts), 7.0),
+                             sharex=True, squeeze=False)  # fmt: skip
+    for j, s in enumerate(starts):
+        z = main[(s, tag)]
+        rows = exploratory_pooled([z], EXPL_W_MIN)["rows"]
+        for r, stat in enumerate(("S/T", "Rice")):
+            _x1_panel(axes[r, j], z, stat, rows)
+        axes[0, j].set_title(f"{START_LABELS.get(s, s)}, {chi_label(data, tag)}"
+                             "\npost hoc pooled (not pre-registered)",
+                             fontsize=11)  # fmt: skip
+        axes[1, j].set_xlabel(r"Wavenumber, $|\mathbf{k}|/K$")
+    axes[0, 0].set_ylabel(r"Structure Factor, $\langle S(\mathbf{k})\rangle / T$")
+    axes[1, 0].set_ylabel(r"Rate / Rice, $\dot W / \dot W_{\rm Rice}$")
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    handles += [Line2D([], [], color="0.4", lw=0.8, marker="o", ms=3, mfc="none")]
+    labels += [
+        rf"per bin (pre-registered); pooled: $W_{{\min}}$ = "
+        rf"{EXPL_W_MIN['S/T']} ($S$), {EXPL_W_MIN['Rice']} (rate)"
+    ]
+    ncol = len(labels) if len(starts) > 2 else 2
+    fig.legend(handles, labels, loc="upper center", ncol=ncol,
+               bbox_to_anchor=(0.5, 0.0), frameon=False, fontsize=11)  # fmt: skip
+    fig.tight_layout()
+    assert len(starts) >= 1, "a start at this chi"
+    finish(fig, out / f"{PREFIX}_X1_pooled_posthoc_chi{tag}", dpi)
+
+
 # ============================================================
 # __main__
 # ============================================================
@@ -695,6 +757,14 @@ if __name__ == "__main__":
         default=0,
         help="temperature index of the F4 MSD panels",
     )
+    parser.add_argument(
+        "--exploratory",
+        action="store_true",
+        help="also write X1, the post hoc (not pre-registered) pooled-bin figure",
+    )
+    parser.add_argument(
+        "--exploratory-only", action="store_true", help="write X1 only (no F1-F10)"
+    )
     args = parser.parse_args()
 
     # =========================================================
@@ -704,6 +774,11 @@ if __name__ == "__main__":
     if not runs["main"]:
         sys.exit("no md_analysis_chi*.npz under --root")
     args.out.mkdir(parents=True, exist_ok=True)
+    if args.exploratory or args.exploratory_only:
+        for chi_tag in runs["tags"]:  # type: ignore[attr-defined]
+            figure_pooled_posthoc(runs, chi_tag, args.out, args.dpi)
+    if args.exploratory_only:
+        sys.exit(0)
     for chi_tag in runs["tags"]:  # type: ignore[attr-defined]
         figure_kymograph(runs, chi_tag, args.out, args.dpi)
     figure_rates(runs, args.out, args.dpi)

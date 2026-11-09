@@ -735,6 +735,8 @@ def test_clean_json_and_markdown(null_set: Path) -> None:
     json.dumps(mds.clean_json(res), allow_nan=False)
     table = mds.markdown(res)
     assert all(f"| {h} |" in table for h in mds.HYPOTHESES)
+    assert res["exploratory"]["label"] == mds.EXPL_LABEL  # post hoc, separate
+    assert table.index("Exploratory (post hoc") > table.index("| H8 |")
 
 
 def _cell_data(net: np.ndarray, alpha: np.ndarray, d_theta: np.ndarray, tag: str,

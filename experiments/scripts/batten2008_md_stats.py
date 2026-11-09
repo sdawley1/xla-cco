@@ -20,6 +20,9 @@ into parts (one per cell, bin or segment); each part is
 A hypothesis is FAIL if any part fails, else INCONCLUSIVE if any part is,
 else PASS; NOT_EVALUATED when its inputs are absent. Harmonic T means
 T <= 1e-4; T = 1e-3 parts are listed under "descriptive" with no verdict.
+A separate ``exploratory`` section (post hoc, NOT pre-registered; never
+part of a verdict) pools adjacent low-|k| bins of H1 <S>/T and H2 rate /
+Rice to at least W_min waves (see exploratory_pooled).
 
 Deviation measures: |median - 1| for the ratios (H1-H3, H6 rates, H7);
 |mean net rate| / mean unsigned rate (H4); |alpha - 1| (H4);
@@ -56,7 +59,7 @@ import numpy as np
 from scipy import stats
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from batten2008_md_analysis import N_BINS, collapse_metric  # noqa: E402
+from batten2008_md_analysis import BIN_EDGES_C, N_BINS, collapse_metric  # noqa: E402
 
 # ============================================================
 # CONSTANTS
@@ -95,6 +98,16 @@ TITLES = {
     "H7": "Thermostat independence",
     "H8": "chi dependence",
 }
+
+# ----- exploratory (post hoc, not pre-registered) -----
+EXPL_LABEL = "exploratory (post hoc, not pre-registered)"
+EXPL_SE_TARGET = 0.03  # wanted SE of a pooled-bin mean over ground states
+EXPL_N_GS = 10  # ground states per cell (plan E1)
+EXPL_K_MAX = 0.35  # |k|/K of the few-wave pilot bins (1-6) whose scatter sets W_min
+# Per-wave sd across ground states (rms over harmonic T and the waves with
+# |k|/K <= EXPL_K_MAX), measured on the pilot flows2d chi = 0.1 (job 17148922)
+# by per_wave_scatter: 0.3576 for <S>/T and 0.1664 for rate / Rice.
+EXPL_SIGMA_W: Dict[str, float] = {"S/T": 0.358, "Rice": 0.166}
 
 Data = Dict[str, np.ndarray]
 Part = Dict[str, Any]
@@ -670,6 +683,160 @@ def h8_parts(main: List[Data], h2: List[Part]) -> List[Part]:
 
 
 # ============================================================
+# EXPLORATORY: POOLED LOW-|k| BINS (POST HOC, NOT PRE-REGISTERED)
+# ============================================================
+
+
+def w_min_from_scatter(sigma_w: float, n_gs: int, se_target: float) -> int:
+    """Fewest waves W with sigma_w / sqrt(n_gs W) <= se_target (independent waves).
+
+    The noise argument behind the exploratory pooling: a ground state's
+    bin value is the mean over the W waves of the bin; if the per-wave
+    values scatter with sd sigma_w across ground states and are independent
+    within a ground state, the SE of the bin mean over n_gs ground states is
+    sigma_w / sqrt(n_gs W). With the pilot's sigma_w (EXPL_SIGMA_W), n_gs =
+    10 and SE <= 3 %: W_min = ceil(0.358^2 / (10 x 0.03^2)) = ceil(14.2) =
+    15 for <S>/T and ceil(0.166^2 / 0.009) = ceil(3.06) = 4 for rate / Rice.
+    Waves in one bin are positively correlated in the pilot (they share the
+    soft modes), so the realised SE is larger; exploratory_pooled reports
+    the measured SE, never this model value.
+    """
+    assert sigma_w >= 0.0 and n_gs >= 1, "non-negative scatter, ground states"
+    assert se_target > 0.0, "positive SE target"
+    out = max(1, math.ceil(sigma_w**2 / (n_gs * se_target**2) - 1e-12))
+    assert sigma_w / math.sqrt(n_gs * out) <= se_target * (1.0 + 1e-9), "target met"
+    return int(out)
+
+
+EXPL_W_MIN: Dict[str, int] = {
+    k: w_min_from_scatter(v, EXPL_N_GS, EXPL_SE_TARGET) for k, v in EXPL_SIGMA_W.items()
+}
+
+
+def pool_bins(counts: np.ndarray, w_min: int) -> List[Tuple[int, int]]:
+    """Merge adjacent occupied bins from low |k| upward until each has >= w_min waves.
+
+    Returns inclusive (first, last) occupied-bin ranges in order. A group
+    closes once its wave count reaches w_min; a final group left below
+    w_min joins the previous one (or is the only group if all waves together
+    are fewer than w_min). Empty bins never start or end a group.
+    """
+    c = np.asarray(counts, dtype=np.int64)
+    assert c.ndim == 1 and np.all(c >= 0), "non-negative counts per bin"
+    assert w_min >= 1, "w_min >= 1"
+    groups: List[Tuple[int, int]] = []
+    lo, acc = -1, 0
+    for b in np.flatnonzero(c > 0).tolist():
+        lo = b if acc == 0 else lo
+        acc += int(c[b])
+        if acc >= w_min:
+            groups.append((lo, b))
+            acc = 0
+    if acc > 0:  # remainder below w_min
+        last = int(np.flatnonzero(c > 0)[-1])
+        groups[-1:] = [(groups[-1][0] if groups else lo, last)]
+    assert all(a <= b for a, b in groups), "ordered ranges"
+    return groups
+
+
+def per_wave_scatter(z: Data, k_max: float) -> Dict[str, float]:
+    """sigma_w of <S>/T and rate / Rice: sqrt of the mean over harmonic T and the
+    constrained waves with |k|/K <= k_max of the variance across ground states."""
+    assert 0.0 < k_max <= 1.0, "k_max in (0, 1]"
+    sel = z["constrained"].astype(bool) & (z["kmag"] / float(z["K"]) <= k_max)
+    harm = temp_indices(z["temps"], True)
+    assert sel.any() and harm, "waves and harmonic temperatures"
+    temps = z["temps"][None, :, None]
+    out = {}
+    for stat, vals in (("S/T", z["s_mean"] / temps), ("Rice", z["ratio"])):
+        v = vals[:, harm][..., sel]
+        out[stat] = float(np.sqrt(np.nanmean(np.nanvar(v, axis=0, ddof=1))))
+    return out
+
+
+def _pooled_row(
+    z: Data, ti: int, stat: str, values: np.ndarray, group: Tuple[int, int]
+) -> Dict[str, Any]:
+    """One pooled bin: per-ground-state mean over its waves, located against 1."""
+    lo, hi = group
+    ids, con = z["bin_id"], z["constrained"].astype(bool)
+    cols = con & (ids >= lo) & (ids <= hi)
+    assert cols.any() and 0 <= lo <= hi < N_BINS, "an occupied constrained group"
+    loc = location(np.mean(values[:, ti][:, cols], axis=-1), 1.0)
+    band = H1_S if stat == "S/T" else H2_BAND
+    return {
+        "hypothesis": "H1" if stat == "S/T" else "H2", "statistic": stat,
+        "cell": label(z, float(z["temps"][ti])), "bins": [lo, hi],
+        "k_over_K": [float(BIN_EDGES_C[lo]), float(BIN_EDGES_C[hi + 1])],
+        "n_waves": int(cols.sum()), "median": loc["median"], "mean": loc["mean"],
+        "se": loc["se"], "z": loc["z"], "n": loc["n"], "band": list(band),
+        "in_band": bool(band[0] <= loc["median"] <= band[1]),
+    }  # fmt: skip
+
+
+def exploratory_pooled(main: List[Data], w_min: Dict[str, int]) -> Dict[str, Any]:
+    """Post hoc, NOT pre-registered: H1 <S>/T and H2 rate / Rice on pooled bins.
+
+    Per cell and harmonic T, adjacent constrained |k|/K bins are merged from
+    low |k| upward until each holds >= w_min[stat] waves (pool_bins; W_min
+    from w_min_from_scatter). Each pooled bin reports the median, mean,
+    ground-state SE and z = (mean - 1) / SE of the per-ground-state mean
+    over its waves, and whether the median lies in the pre-registered band
+    (H1 [0.95, 1.05], H2 [0.95, 1.05]). Never enters a verdict.
+    """
+    assert set(w_min) == {"S/T", "Rice"}, "one W_min per statistic"
+    assert all(w >= 1 for w in w_min.values()), "W_min >= 1"
+    rows: List[Dict[str, Any]] = []
+    for z in main:
+        con = z["constrained"].astype(bool)
+        counts = np.bincount(z["bin_id"][con], minlength=N_BINS)[:N_BINS]
+        temps = z["temps"][None, :, None]
+        for stat, vals in (("S/T", z["s_mean"] / temps), ("Rice", z["ratio"])):
+            for ti in temp_indices(z["temps"], True):
+                rows += [_pooled_row(z, ti, stat, vals, g)
+                         for g in pool_bins(counts, w_min[stat])]  # fmt: skip
+    return {
+        "label": EXPL_LABEL, "w_min": dict(w_min), "se_target": EXPL_SE_TARGET,
+        "sigma_w": dict(EXPL_SIGMA_W), "k_max": EXPL_K_MAX,
+        "derivation": " ".join(str(w_min_from_scatter.__doc__).split()),
+        "rows": rows,
+        "in_band": {h: [sum(r["in_band"] for r in rows if r["hypothesis"] == h),
+                        sum(r["hypothesis"] == h for r in rows)]
+                    for h in ("H1", "H2")},
+    }  # fmt: skip
+
+
+def exploratory_markdown(expl: Dict[str, Any]) -> List[str]:
+    """Markdown lines of the post hoc section: the merged (multi-bin) groups."""
+    assert expl["label"] == EXPL_LABEL, "an exploratory_pooled result"
+    rows = [
+        "", "## Exploratory (post hoc, not pre-registered): pooled low-|k| bins", "",
+        f"Low-|k| bins pooled to >= W_min waves (S/T: {expl['w_min']['S/T']}, "
+        f"rate / Rice: {expl['w_min']['Rice']}); W_min = ceil(sigma_w^2 / (n "
+        f"SE^2)) with the pilot per-wave sd sigma_w = {expl['sigma_w']} (|k|/K "
+        f"<= {expl['k_max']}), n = {EXPL_N_GS}, SE = {expl['se_target']}. Not a "
+        "verdict; the pre-registered table above is unchanged. Medians within "
+        "the band (all pooled bins): "
+        + ", ".join(f"{h} {a} / {b}" for h, (a, b) in expl["in_band"].items()),
+        "", "Merged groups only (single bins equal the pre-registered parts):", "",
+        "| Hyp | Cell | Bins (|k|/K) | Waves | Median | Mean ± SE | z | In band |",
+        "|---|---|---|---|---|---|---|---|",
+    ]  # fmt: skip
+    for r in expl["rows"]:
+        if r["bins"][0] == r["bins"][1]:
+            continue
+        rows.append(
+            f"| {r['hypothesis']} {r['statistic']} | {r['cell']} | "
+            f"{r['bins'][0]}-{r['bins'][1]} ({r['k_over_K'][0]:.2f}, "
+            f"{r['k_over_K'][1]:.2f}] | {r['n_waves']} | {r['median']:.4f} | "
+            f"{r['mean']:.4f} ± {r['se']:.4f} | {r['z']:.2f} | "
+            f"{'yes' if r['in_band'] else 'no'} |"
+        )
+    assert len(rows) >= 8, "header lines"
+    return rows
+
+
+# ============================================================
 # EVALUATION AND OUTPUT
 # ============================================================
 
@@ -746,7 +913,8 @@ def evaluate(main: List[Data], lang: List[Data]) -> Dict[str, Any]:
                           for h in HYPOTHESES},
            "descriptive": {h: summarize(v) for h, v in descriptive.items()},
            "reports": {"H5_harmonic": report, "H5_descriptive": desc_report},
-           "notes": notes}  # fmt: skip
+           "notes": notes,
+           "exploratory": exploratory_pooled(main, EXPL_W_MIN)}  # fmt: skip
     assert set(out["hypotheses"]) == set(HYPOTHESES), "every hypothesis"
     return out
 
@@ -828,6 +996,8 @@ def markdown(result: Dict[str, Any]) -> str:
         "",
     ]
     rows += [f"- {n}" for n in result["notes"]]
+    if "exploratory" in result:
+        rows += exploratory_markdown(result["exploratory"])
     assert len(rows) >= len(HYPOTHESES) + 2, "table rows"
     return "\n".join(rows) + "\n"
 
