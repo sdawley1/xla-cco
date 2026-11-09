@@ -8,14 +8,23 @@ with GPU-h = ElapsedRaw × n_gpu / 3600. A job is not submitted if its projected
 
 | Line | Allocation (GPU-h) | Used (GPU-h) |
 |---|---|---|
-| Verification and benchmarks (V3, GPU tests) | 8 | 0.00 |
+| Verification and benchmarks (V3, GPU tests) | 8 | 3.05 |
 | Pilot | 4 | 0.00 |
 | Production (E1, E1b) | 60 | 0.00 |
 | Langevin subset (E4) | 12 | 0.00 |
 | Reserve | 16 | 0.00 |
-| **Total** | **100** | **0.00** |
+| **Total** | **100** | **3.05** |
 
 ## Jobs
 
 | Date | JobID | Name | Line | ElapsedRaw (s) | GPUs | GPU-h |
 |---|---|---|---|---|---|---|
+| 2026-11-08 | 17117101 | mdw_bench (V3) | Verification | 52 | 1 | 0.01 |
+| 2026-11-08 | 17117175 | mdw_bench (V3) | Verification | 1823 | 1 | 0.51 |
+| 2026-11-08 | 17117177 | mdw_bench (V3) | Verification | 993 | 1 | 0.28 |
+| 2026-11-08 | 17117178 | mdw_bench (V3) | Verification | 1987 | 1 | 0.55 |
+| 2026-11-08 | 17119585 | mdw_bench (V3) | Verification | 1328 | 1 | 0.37 |
+| 2026-11-08 | 17119586 | mdw_bench (V3) | Verification | 1852 | 1 | 0.51 |
+| 2026-11-08 | 17121008 | mdw_bench (V3) | Verification | 512 | 1 | 0.14 |
+| 2026-11-08 | 17121010 | mdw_bench (V3) | Verification | 965 | 1 | 0.27 |
+| 2026-11-08 | 17137898 | xla-cco-test-gpu (V4, 83 failed) | Verification | 1454 | 1 | 0.40 |
