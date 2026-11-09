@@ -21,12 +21,17 @@ random-phase surrogates of rho with the same lattice: phase-randomized (each
 and an ideal gas (S = 1). Writes <out>/coupling_mp_shoulder.png:
 
 - (a) the density of lambda(C) at the ground states, every chi;
-- (b) log10 |C_qp| of one chi = 0.45 ground state, waves ordered by |q|;
+- (b) log10 |C_qp| of one ground state at the largest chi, waves by |q|;
 - (c) each eigenvalue against the mean |q|/K of its eigenvector;
-- (d) the density near lambda = 1 at chi = 0.45: ground state, surrogates;
-- (e) F - F_MP (ratio c) of the full spectrum and of the outer waves only
-  (|q| >= K/2), every chi: the shoulder of coupling_mp_compare (e);
-- (f) the peak ratio, density at 1 over the mean density at 0.8 and 1.2.
+- (d) the dips: least density in 0.3 <= lambda <= 0.8 and 1.05 <= lambda
+  <= 1.5 (inside the 5-95 % quantiles) against chi (ground states; step-S
+  surrogate for reference);
+- (e) the density at the largest chi: ground state and surrogates;
+- (f) F - F_MP (ratio c) of the full spectrum and of the outer waves only
+  (|q| >= K/2), every chi: the shoulder of coupling_mp_compare;
+- (g) the peak ratio, density at 1 over the mean density at 0.8 and 1.2;
+- (h) the smallest eigenvalue against chi with the MP hard edge
+  (1 - sqrt c)^2, c = 2M/(N d) -> 1 as chi -> 1/2.
 
 Samuel J. Dawley
 11/2026
@@ -230,8 +235,8 @@ def hist(ax: plt.Axes, ev: np.ndarray, color: str, ls: str, label: str) -> None:
 
 
 def figure(data: Dict[str, Dict], out: Path, dpi: int) -> None:
-    """Six panels: density, the zero block, eigenvectors, surrogates, F - F_MP, peak."""
-    fig, axes = plt.subplots(2, 3, figsize=(20.0, 11.5), constrained_layout=True)
+    """Density, zero block, eigenvectors, dips, surrogates, F - F_MP, peak, edge."""
+    fig, axes = plt.subplots(2, 4, figsize=(26.0, 11.5), constrained_layout=True)
     for tag, d in data.items():
         hist(axes[0, 0], d["ground"], CHI_COLOR[tag], "-",
              rf"$\chi = {float(d['chi']):.2f}$")  # fmt: skip
@@ -243,6 +248,8 @@ def figure(data: Dict[str, Dict], out: Path, dpi: int) -> None:
                            label=rf"$\chi = {float(d['chi']):.2f}$")  # fmt: skip
     for key, (color, ls) in SUR_STYLE.items():
         hist(axes[1, 0], hi[key], color, ls, SUR_LABEL[key])
+    panel_dips(axes[0, 3], data)
+    panel_edge(axes[1, 3], data)
     x = np.geomspace(1e-3, 5.0, 2000)
     for tag, d in data.items():
         c = float(d["c"])
@@ -257,8 +264,61 @@ def figure(data: Dict[str, Dict], out: Path, dpi: int) -> None:
         axes[1, 2].plot(chi, [peak_ratio(d[key]) for d in data.values()], color=color,
                         ls=ls, lw=2.0, marker="o", ms=6,
                         label=SUR_LABEL[key])  # fmt: skip
-    style(axes)
+    style(axes, float(hi["chi"]))
     finish(fig, out / "coupling_mp_shoulder", dpi)
+
+
+def min_density(ev: np.ndarray, lo: float, hi: float) -> float:
+    """Least histogram density (bins of 0.05) in [lo, hi] inside the support.
+
+    The window is clipped to the 5-95 % quantiles of the spectrum, so a window
+    reaching past an edge of the support does not read as a gap.
+    """
+    q05, q95 = np.quantile(np.ravel(ev), [0.05, 0.95])
+    lo, hi = max(lo, float(q05)), min(hi, float(q95))
+    edges = np.arange(lo, hi + 1e-9, 0.05) if hi > lo else np.array([lo, lo])
+    h, _ = np.histogram(np.ravel(ev), bins=np.arange(-1.0, 4.0 + 1e-9, 0.05),
+                        density=True)  # fmt: skip
+    centres = np.arange(-1.0, 4.0, 0.05) + 0.025
+    sel = (centres >= edges[0]) & (centres <= edges[-1])
+    assert np.any(sel), "window inside the histogram"
+    return float(h[sel].min())
+
+
+def panel_dips(ax: plt.Axes, data: Dict[str, Dict]) -> None:
+    """Least density near 0.5 and near 1.1 against chi."""
+    chi = np.array([float(d["chi"]) for d in data.values()])
+    for (lo, hi), mk in (((0.3, 0.8), "o"), ((1.05, 1.5), "s")):
+        for key in ("ground", "step"):
+            color, ls = SUR_STYLE[key]
+            ax.plot(chi, [min_density(d[key], lo, hi) for d in data.values()],
+                    color=color, ls=ls, lw=2.0, marker=mk, ms=7,
+                    mfc=None if key == "ground" else "none",
+                    label=f"{SUR_LABEL[key]}, {lo:g}-{hi:g}")  # fmt: skip
+    ax.set_ylim(0.0, None)
+    ax.set_xlabel(r"Constraint Ratio, $\chi$")
+    ax.set_ylabel(r"Least Density in the Window")
+    ax.legend(frameon=False, fontsize=9)
+    ax.set_title("(d) the dips near 0.5 and 1.1", loc="left", fontsize=13)
+
+
+def panel_edge(ax: plt.Axes, data: Dict[str, Dict]) -> None:
+    """Smallest eigenvalue against chi with the MP hard edge."""
+    chi = np.array([float(d["chi"]) for d in data.values()])
+    c = np.array([float(d["c"]) for d in data.values()])
+    lam_min = [float(np.median(d["ground"][:, 0])) for d in data.values()]
+    ax.plot(chi, lam_min, color="black", lw=2.0, marker="o", ms=7,
+            label="ground states (median)")  # fmt: skip
+    x = np.linspace(0.05, 0.4999, 400)
+    ax.plot(x, (1.0 - np.sqrt(2.0 * x)) ** 2, color="#b9770e", lw=2.0, ls="--",
+            label=r"MP edge $(1-\sqrt{c})^2$, $c \approx 2\chi$")  # fmt: skip
+    ax.plot(chi, (1.0 - np.sqrt(c)) ** 2, ls="", marker="x", ms=9, color="#b9770e")
+    ax.set_yscale("log")
+    ax.set_xlabel(r"Constraint Ratio, $\chi$")
+    ax.set_ylabel(r"Smallest Eigenvalue, $\lambda_{\min}(C)$")
+    ax.legend(frameon=False, fontsize=10)
+    ax.set_title(r"(h) the soft edge closes as $\chi \to 1/2$", loc="left",
+                 fontsize=13)  # fmt: skip
 
 
 def outer_c(d: Dict[str, np.ndarray]) -> float:
@@ -287,7 +347,7 @@ def panel_matrix(ax: plt.Axes, fig: plt.Figure, d: Dict[str, np.ndarray]) -> Non
                  fontsize=13)  # fmt: skip
 
 
-def style(axes: np.ndarray) -> None:
+def style(axes: np.ndarray, chi_hi: float) -> None:
     """Labels and titles."""
     ax = axes[0, 0]
     ax.set_xlabel(r"Coupling Spectrum, $\lambda(C)$")
@@ -309,8 +369,8 @@ def style(axes: np.ndarray) -> None:
     ax.set_xlabel(r"Coupling Spectrum, $\lambda(C)$")
     ax.set_ylabel("Eigenvalue Density")
     ax.legend(frameon=False, fontsize=10)
-    ax.set_title(r"(d) $\chi = 0.45$: ground state and random-phase surrogates",
-                 loc="left", fontsize=13)  # fmt: skip
+    ax.set_title(rf"(e) $\chi = {chi_hi:.2f}$: ground state and random-phase "
+                 "surrogates", loc="left", fontsize=13)  # fmt: skip
     ax = axes[1, 1]
     ax.set_xscale("log")
     ax.set_xlim(1e-3, 5.0)
@@ -318,14 +378,14 @@ def style(axes: np.ndarray) -> None:
     ax.axvline(1.0, color=GUIDE, lw=0.8, zorder=0)
     ax.set_xlabel(r"Coupling Spectrum, $\lambda(C)$")
     ax.set_ylabel(r"$F(\lambda) - F_{\rm MP}(\lambda)$")
-    ax.set_title(r"(e) solid: all waves; dotted: $|\mathbf{q}| \geq K/2$ only",
+    ax.set_title(r"(f) solid: all waves; dotted: $|\mathbf{q}| \geq K/2$ only",
                  loc="left", fontsize=13)  # fmt: skip
     ax = axes[1, 2]
     ax.axhline(1.0, color=GUIDE, lw=0.8, zorder=0)
     ax.set_xlabel(r"Constraint Ratio, $\chi$")
     ax.set_ylabel(r"Peak Ratio, $\rho(1) / \frac{1}{2}[\rho(0.8) + \rho(1.2)]$")
     ax.legend(frameon=False, fontsize=10)
-    ax.set_title("(f) the peak needs the exclusion region and large $\\chi$",
+    ax.set_title("(g) the peak needs the exclusion region and large $\\chi$",
                  loc="left", fontsize=13)  # fmt: skip
 
 
