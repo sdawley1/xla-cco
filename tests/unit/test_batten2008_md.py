@@ -1075,3 +1075,42 @@ def _d088_fixture() -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
 
 
 _D088_FIXTURE = _d088_fixture()
+
+
+# ============================================================
+# D-089: SHARED --out-dir
+# ============================================================
+
+
+@pytest.mark.critical
+def test_regression_D089_out_dir_keeps_starts_apart(tmp_path: Path) -> None:
+    """D-089: two starts at one chi get distinct analysis files under one --out-dir."""
+    out = tmp_path / "results"
+    a = tmp_path / "flows2d" / "N1024" / "md_chi1-10.npz"
+    b = tmp_path / "gau2d" / "N1000" / "md_chi1-10.npz"
+    c = tmp_path / "gau2d" / "N1000" / "md_langevin_g0.03_chi1-10.npz"
+    old = {(out / ana.output_name(p)) for p in (a, b)}  # pre-fix destination
+    assert len(old) == 1  # the starts collided
+    dests = [ana.output_path(p, out) for p in (a, b, c)]
+    assert dests[0] == out / "flows2d" / "N1024" / "md_analysis_chi1-10.npz"
+    assert dests[1] == out / "gau2d" / "N1000" / "md_analysis_chi1-10.npz"
+    assert dests[2].name == "md_analysis_langevin_g0.03_chi1-10.npz"
+    assert ana.output_path(a, None) == a.parent / "md_analysis_chi1-10.npz"
+
+
+@pytest.mark.high
+@given(
+    systems=st.lists(
+        st.text("abcdefghij0123456789", min_size=1, max_size=6),
+        min_size=2, max_size=5, unique=True,
+    ),
+    tag=st.sampled_from(["1-10", "2-5"]),
+)  # fmt: skip
+@example(systems=["flows2d", "gau2d"], tag="1-10")
+def test_regression_D089_out_dir_property(systems: List[str], tag: str) -> None:
+    """D-089: distinct (system, N) inputs never share an analysis file."""
+    root, out = Path("/data"), Path("/results")
+    paths = [root / s / "N1000" / f"md_chi{tag}.npz" for s in systems]
+    dests = [ana.output_path(p, out) for p in paths]
+    assert len(set(dests)) == len(systems)
+    assert all(d.parent.parent.name == s for d, s in zip(dests, systems, strict=True))

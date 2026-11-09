@@ -61,6 +61,8 @@ Statuses:
 | D-085 | fixed | `cli/relax.py` (`select_device`) | `--device cpu` failed once a GPU backend was initialized in the same process: `jax_platforms` is ignored after init and `jax.devices()[0]` stayed the GPU (76 in-process CLI test failures on the GPU suite). |
 | D-086 | fixed | `tests/unit/test_energy.py` (`test_value_grad_density_bitwise_trig`) | Bitwise equality of separately compiled programs is a CPU property; on the GPU the jitted variants differ by ~1 ulp. |
 | D-087 | fixed | `tests/property/test_energy_props.py` (D-011 regression) | The D-011 demonstration (the old tolerance fails on the pinned input) depends on CPU rounding; on the GPU the old tolerance passes. |
+| D-088 | fixed | `batten2008_md_analysis.py` (`_trace_spectra`) | E1b power spectrum mixed the thermostatted phases into the NVE spectrum (table row added with D-089; section below). |
+| D-089 | fixed | `batten2008_md_analysis.py` (`__main__`, `output_path`) | A shared `--out-dir` wrote every start's `md_analysis_chi<tag>.npz` to the same file, so the starts overwrote one another silently. |
 
 ## D-006 — `unit_ball_volume` is not bit-equal to the C++ hard-coded constants
 - **Found:** 2026-11-05, by the T4 auditor's preview parity
@@ -462,3 +464,13 @@ Statuses:
 - **Impact:** F10 spectra would be broadened by the Andersen collisions and dominated by the equilibration; H-tests unaffected (F10 is descriptive). E1 files also get a `spec_power` from their 2000-step trace (Nyquist 0.04 << omega_min 0.17), which is aliased and should not be plotted.
 - **Regression test:** tests/unit/test_batten2008_md.py::test_regression_D088_trace_spectrum_production_only, ::test_regression_D088_spectrum_ignores_non_production_property (Hypothesis; repro pinned by `@example`)
 - **Fix:** feat/md-E1fix: `_trace_spectra(arrays, meta, g, n_t)` takes only the trace rows whose step (trace_time / dt) lies in a production segment (s0, s0 + n] (the JSON phases, as `trace_inverse_modulus`), transforms the first Q rows of each segment (Q = fewest rows of any segment) and averages the normalized spectra over segments; it also stores `spec_rows`, `spec_segments` and `spec_nyquist` = pi / (cadence dt), so an E1 file's aliased 2000-step spectrum is identifiable (F10 plots only `md_analysis_spectra*`). Before the fix, the repro's spectrum (2020 rows) peaked at the out-of-production tone (omega 1.257) instead of the production tone (0.314).
+
+## D-089 — A shared --out-dir lets the starts overwrite one another's analysis
+- **Found:** 2026-11-09, while running E2 on the complete production data (wt-E5)
+- **Status:** fixed
+- **Where:** experiments/scripts/batten2008_md_analysis.py (`__main__`: `dest = (args.out_dir or md_path.parent) / output_name(md_path)`)
+- **Symptom:** the analysis file name depends only on the input stem (`md_chi1-10.npz` -> `md_analysis_chi1-10.npz`), not on the start, so with `--out-dir DIR` the five starts at one chi all write `DIR/md_analysis_chi1-10.npz`; the last one wins and batten2008_md_stats.py then sees one start per chi (H5 NOT_EVALUATED, the other hypotheses on one start) with no error
+- **Repro:** `batten2008_md_analysis.py --md flows2d/N1024/md_chi1-10.npz gau2d/N1000/md_chi1-10.npz --out-dir R` leaves one file, `R/md_analysis_chi1-10.npz` (gau2d)
+- **Impact:** none on the results: the production run (job 17171421) passed a per-start `--out-dir R/<system>/N<N>` from the SLURM script, so all 28 analyses are distinct (`collect` finds 10 production, 8 Langevin and 10 spectra files); the hazard was for any later rerun with one --out-dir
+- **Regression test:** tests/unit/test_batten2008_md.py::test_regression_D089_out_dir_keeps_starts_apart, ::test_regression_D089_out_dir_property (Hypothesis; repro pinned by `@example`); both failed before the fix
+- **Fix:** `output_path(path, out_dir)` mirrors the input's `<system>/N<N>` directories under `--out-dir` (unchanged without it); experiments/slurm/batten2008_md_analysis_cpu.slurm passes one `--out-dir`, which yields the same layout as job 17171421

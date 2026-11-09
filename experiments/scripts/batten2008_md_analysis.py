@@ -37,7 +37,7 @@ NumPy only at import (batten2008_landscape, which imports JAX, is loaded
 only for the K spectra), so the plot environment can import the constants.
 
 Usage: python -I batten2008_md_analysis.py --md A/md_chi1-10.npz [...]
-       [--flows auto|none|PATH] [--out-dir DIR]
+       [--flows auto|none|PATH] [--out-dir DIR (-> DIR/<system>/N<N>/)]
 
 Samuel J. Dawley
 11/2026
@@ -408,6 +408,23 @@ def output_name(path: Path) -> str:
         raise ValueError(f"{path}: expected md[_<kind>]_chi<tag>.npz")
     out = "md_analysis_" + stem[3:] + ".npz"
     assert out.endswith(".npz") and "_chi" in out, "analysis file name"
+    return out
+
+
+def output_path(path: Path, out_dir: Optional[Path]) -> Path:
+    """Analysis file of an MD output: beside it, or under out_dir/<system>/N<N>/.
+
+    D-089: every start writes ``md_analysis_chi<tag>.npz``, so a shared
+    --out-dir mirrors the input's ``<system>/N<N>`` directories instead of
+    letting the starts overwrite one another.
+    """
+    path = Path(path)
+    name = output_name(path)
+    if out_dir is None:
+        return path.parent / name
+    cell = path.resolve().parent
+    out = Path(out_dir) / cell.parent.name / cell.name / name
+    assert out.name == name and out.parent.name == cell.name, "mirrored layout"
     return out
 
 
@@ -787,7 +804,10 @@ if __name__ == "__main__":
         help="'auto' (sibling flows_chi<tag>.npz), 'none' or PATH",
     )
     parser.add_argument(
-        "--out-dir", type=Path, default=None, help="default: beside each input"
+        "--out-dir",
+        type=Path,
+        default=None,
+        help="default: beside each input; else DIR/<system>/N<N>/ (D-089)",
     )
     args = parser.parse_args()
 
@@ -796,7 +816,7 @@ if __name__ == "__main__":
     # =========================================================
     for md_path in args.md:
         res = analyze_file(md_path, resolve_flows(md_path, args.flows))
-        dest = (args.out_dir or md_path.parent) / output_name(md_path)
+        dest = output_path(md_path, args.out_dir)
         dest.parent.mkdir(parents=True, exist_ok=True)
         np.savez(dest, **res)
         med = float(np.nanmedian(res["nu_c"]))
