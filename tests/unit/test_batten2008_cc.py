@@ -2,7 +2,8 @@
 
 """
 Tests for the collective-coordinate analyses of the 2008 flows
-(experiments/scripts/batten2008_{modes,hessian,floor}.py).
+(experiments/scripts/batten2008_{modes,hessian,floor}.py) and of the wave
+lattices of the coupling and loop analyses (batten2008_lattice.py).
 
 Samuel J. Dawley
 11/2026
@@ -32,6 +33,7 @@ from xla_cco.minimize import relax
 from xla_cco.minimize.lbfgs import LBFGSSettings
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "experiments" / "scripts"))
+import batten2008_lattice as lat  # noqa: E402
 from batten2008_floor import (  # noqa: E402
     FiberEnergy,
     fractional_plane,
@@ -694,3 +696,144 @@ def test_spectra_of_a_diagonal_k_are_independent_wells() -> None:
     assert soft_count(kmag) == 4  # the whole k_1 shell, Re and Im
     q = np.linalg.qr(np.random.default_rng(0).normal(size=(6, 2)))[0]
     assert overlap(q, q) == pytest.approx(1.0)
+
+
+# ============================================================
+# TESTS: WAVE LATTICES OF RECTANGULAR CELLS (batten2008_lattice)
+# ============================================================
+
+
+def _rect_case(seed: int, lx: float, ly: float, n: int = 9) -> Tuple:
+    """Random positions in an L_x x L_y cell with K reaching a few shells."""
+    rng = np.random.default_rng(seed)
+    side = np.array([lx, ly])
+    x = rng.uniform(size=(n, 2)) * side
+    k_cut = 2.0 * np.pi * 2.6 / min(lx, ly)
+    return side, x, k_cut
+
+
+@pytest.mark.medium
+@given(
+    seed=st.integers(0, 2**31 - 1),
+    lx=st.floats(3.0, 9.0),
+    ly=st.floats(3.0, 9.0),
+)
+@settings(max_examples=25, deadline=None)
+def test_lattice_rho_is_the_direct_sum_in_a_rectangular_cell(
+    seed: int, lx: float, ly: float
+) -> None:
+    side, x, k_cut = _rect_case(seed, lx, ly)
+    nmax = lat.lattice_limits(side, k_cut)
+    rho = lat.lattice_rho(x, side, nmax)
+    assert rho.shape == tuple(4 * nmax + 1)
+    nx, ny = np.meshgrid(np.arange(-2 * nmax[0], 2 * nmax[0] + 1),
+                         np.arange(-2 * nmax[1], 2 * nmax[1] + 1),
+                         indexing="ij")  # fmt: skip
+    k = np.stack([nx, ny], -1) * 2.0 * np.pi / side  # (gx, gy, 2)
+    direct = np.exp(1j * np.einsum("abd,jd->abj", k, x)).sum(-1)
+    assert np.allclose(rho, direct, atol=1e-11 * x.shape[0])
+    assert np.allclose(lat.lattice_kmag(nmax, side), np.linalg.norm(k, axis=-1))
+
+
+@pytest.mark.medium
+@given(lx=st.floats(3.0, 9.0), ly=st.floats(3.0, 9.0), kfac=st.floats(1.1, 3.9))
+@settings(max_examples=25, deadline=None)
+def test_waves_are_the_half_space_inside_k_sorted_by_k(
+    lx: float, ly: float, kfac: float
+) -> None:
+    side = np.array([lx, ly])
+    k_cut = 2.0 * np.pi * kfac / min(lx, ly)
+    n = lat.waves(side, k_cut)
+    kmag = np.linalg.norm(lat.wave_vectors(n, side), axis=1)
+    assert np.all((kmag > 0.0) & (kmag < k_cut))
+    assert np.all(np.diff(kmag) >= -1e-12 * k_cut)
+    full = np.concatenate([n, -n])
+    assert len({tuple(v) for v in full.tolist()}) == full.shape[0]  # one of +-k
+    g = np.stack(np.meshgrid(np.arange(-20, 21), np.arange(-20, 21), indexing="ij"), -1)
+    g = g.reshape(-1, 2)
+    kg = np.linalg.norm(g * 2.0 * np.pi / side, axis=1)
+    assert 2 * n.shape[0] == int(np.sum((kg > 0.0) & (kg < k_cut)))  # brute force
+
+
+@pytest.mark.medium
+@given(side=st.floats(3.0, 9.0), seed=st.integers(0, 2**31 - 1))
+@settings(max_examples=20, deadline=None)
+def test_square_cell_scalar_and_pair_sides_agree_bitwise(
+    side: float, seed: int
+) -> None:
+    pair, x, k_cut = _rect_case(seed, side, side)
+    nmax = lat.lattice_limits(side, k_cut)
+    assert np.array_equal(nmax, lat.lattice_limits(pair, k_cut))
+    nq = lat.waves(side, k_cut)
+    assert np.array_equal(nq, lat.waves(pair, k_cut))
+    rho = lat.lattice_rho(x, side, int(nmax[0]))
+    assert np.array_equal(rho, lat.lattice_rho(x, pair, nmax))
+    assert np.array_equal(lat.lattice_kmag(int(nmax[0]), side),
+                          lat.lattice_kmag(nmax, pair))  # fmt: skip
+    assert np.array_equal(lat.k_matrix(rho, nq, side), lat.k_matrix(rho, nq, pair))
+    assert np.array_equal(lat.scaled(nq, pair), nq.astype(float))
+    # sorted by the integer norm |n|, as the square-only helpers were
+    assert np.all(np.diff(np.linalg.norm(nq, axis=1)) >= 0.0)
+
+
+@pytest.mark.medium
+@given(
+    seed=st.integers(0, 2**31 - 1),
+    lx=st.floats(3.0, 9.0),
+    ly=st.floats(3.0, 9.0),
+)
+@settings(max_examples=15, deadline=None)
+def test_couplings_from_rho_match_the_gradients_in_a_rectangular_cell(
+    seed: int, lx: float, ly: float
+) -> None:
+    side, x, k_cut = _rect_case(seed, lx, ly, n=16)
+    nq = lat.waves(side, k_cut)
+    rho = lat.lattice_rho(x, side, lat.lattice_limits(side, k_cut))
+    kv = lat.wave_vectors(nq, side)
+    ph = x @ kv.T  # (N, M); u = (Re, Im) of sum exp(i k.r)
+    ja = -(np.sin(ph)[:, :, None] * kv[None]).transpose(1, 0, 2).reshape(len(kv), -1)
+    jb = (np.cos(ph)[:, :, None] * kv[None]).transpose(1, 0, 2).reshape(len(kv), -1)
+    jac = np.concatenate([ja, jb])
+    vol = side[0] * side[1]
+    k_direct = 2.0 / vol * jac @ jac.T
+    kmat = lat.k_matrix(rho, nq, side)
+    assert np.allclose(kmat, k_direct, atol=1e-10 * np.abs(k_direct).max())
+    h = lat.h_matrix(rho, lat.full_waves(side, k_cut), side)
+    top = np.abs(np.linalg.eigvalsh(kmat)).max()
+    assert np.allclose(
+        np.linalg.eigvalsh(h), np.linalg.eigvalsh(kmat), atol=1e-10 * top
+    )
+    kfull = np.linalg.norm(lat.wave_vectors(lat.full_waves(side, k_cut), side), axis=1)
+    assert np.allclose(np.real(np.diag(h)), kfull**2 * x.shape[0] / vol)
+    c = lat.coupling_from_rho(rho, nq, side)
+    assert np.allclose(np.diag(c), 1.0)
+
+
+@pytest.mark.medium
+@given(seed=st.integers(0, 2**31 - 1), gx=st.integers(1, 6), gy=st.integers(1, 6))
+@settings(max_examples=25, deadline=None)
+def test_random_phase_models_are_hermitian_on_rectangular_lattices(
+    seed: int, gx: int, gy: int
+) -> None:
+    rng = np.random.default_rng(seed)
+    shape = (2 * gx + 1, 2 * gy + 1)
+    x = rng.uniform(size=(7, 2)) * np.array([5.0, 3.0])
+    rho = lat.lattice_rho(x, np.array([5.0, 3.0]), np.array([1, 1]))
+    rho = np.resize(rho, shape)  # any lattice values; only the shape matters here
+    rho = 0.5 * (rho + np.conj(rho[::-1, ::-1]))
+    out = lat.phase_randomized(rho, rng)
+    assert np.allclose(out, np.conj(out[::-1, ::-1]))
+    assert np.allclose(np.abs(out), np.abs(rho))
+    assert out[gx, gy] == rho[gx, gy]
+    g = lat.surrogate(np.ones(shape), 7, rng)
+    assert np.allclose(g, np.conj(g[::-1, ::-1])) and g[gx, gy] == 7
+
+
+@pytest.mark.medium
+def test_lattice_cell_lengths_rejects_shear_and_present_tags(tmp_path: Path) -> None:
+    assert lat.cell_lengths([[3.0, 0.0], [0.0, 2.0]]).tolist() == [3.0, 2.0]
+    with pytest.raises(AssertionError):
+        lat.cell_lengths([[3.0, 0.5], [0.0, 2.0]])
+    for name in ("flows_chi1-10.npz", "flows_chi1-10.json", "flows_chi2-5.npz"):
+        (tmp_path / name).write_text("")
+    assert lat.present_tags(tmp_path, ("1-10", "1-4", "2-5")) == ["1-10"]

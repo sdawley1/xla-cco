@@ -3,17 +3,20 @@
 """
 The coupling spectrum of the waves against the Marchenko-Pastur law, all chi.
 
-For 2D Poisson starts evolved to stealthy ground states at every chi tag
-given (--tags), the waves u = (Re rho_q, Im rho_q) over the constrained set
-(2M numbers) have gradients J (2M, N d), coupling K = (2/V) J J^T and the
-normalized coupling C = D^-1/2 K D^-1/2 (D = diag K, unit diagonal). If the
-rows of J were independent random vectors, the spectrum of C would follow
+For 2D starts (Poisson by default; --root, --prefix for the others)
+evolved to stealthy ground states at every chi tag given (--tags; default
+0.1, 0.25, 0.4 and 0.45, those present in the root), the waves
+u = (Re rho_q, Im rho_q) over the constrained set (2M numbers) have
+gradients J (2M, N d), coupling K = (2/V) J J^T and the normalized coupling
+C = D^-1/2 K D^-1/2 (D = diag K, unit diagonal). If the rows of J were
+independent random vectors, the spectrum of C would follow
 the Marchenko-Pastur (MP) law with ratio c = 2M / (N d): support
 [(1 - sqrt c)^2, (1 + sqrt c)^2], mean 1, variance c, <1/lambda> =
 1 / (1 - c). The spectrum is computed at the ground states (s_final) and,
-as a random-gradient reference, at the Poisson starts (s0) of flows
-0..F-1 (--flows), and cached in <root>/mp_chi<tag>.npz. Writes
-<out>/coupling_mp_compare.png:
+as a random-gradient reference, at the starts (s0) of flows 0..F-1
+(--flows), and cached in <root>/mp_chi<tag>.npz. Rectangular cells use
+k = 2 pi (n_x / L_x, n_y / L_y) and V = L_x L_y. Writes
+<out>/[<prefix>_]coupling_mp_compare.png:
 
 The entries of C are set by the density at the pair wave vectors:
 C(Re q, Re p) = (q.p)/(V K_qq^1/2 K_pp^1/2) Re[rho(q-p) - rho(q+p)], so at
@@ -23,7 +26,7 @@ over pairs ("pair prediction"; S = 1 everywhere gives MP, S = 0 inside K
 and 1 outside the geometric factor g).
 
 - (a-d) cumulative fraction of the eigenvalues of C, one panel per chi:
-  ground states, Poisson starts, the MP law (ratio c) and MP with the
+  ground states, starts, the MP law (ratio c) and MP with the
   measured variance (ratio c_eff = Var lambda);
 - (e) the difference of the cumulative fractions from MP (ratio c);
 - (f) Var(lambda) / c against the pair prediction (3 ground states) and g;
@@ -49,6 +52,7 @@ from typing import Dict, List
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from batten2008_lattice import cell_lengths, present_tags  # noqa: E402
 from batten2008_plot import finish, plt  # noqa: E402  (house rcParams)
 from matplotlib.lines import Line2D  # noqa: E402
 
@@ -64,6 +68,12 @@ CHI_COLOR = {
     "9-20": "#2e7d32",
     "49-100": "#16a085",
 }  # increasing chi
+DEFAULT_TAGS = ("1-10", "1-4", "2-5", "9-20")  # the chi panels of this figure
+START_LABELS = {"": "Poisson", "flows2d": "Poisson", "gau2d": "Gaussian",
+                "url2d": "URL", "rsa2d": "saturated RSA", "hip2d": "HIP"}  # fmt: skip
+# per start, as in batten2008_hessian_sign_plot (roots in this order)
+START_COLORS = {"flows2d": "black", "gau2d": "#1f4e9c", "url2d": "#c0392b",
+                "rsa2d": "#2e7d32", "hip2d": "#b9770e"}  # fmt: skip
 START_COLOR = "0.55"
 MP_COLOR = "#b9770e"
 GUIDE = "0.6"
@@ -73,6 +83,44 @@ PAIR_STATES = 3  # ground states per chi for the pair prediction (M^2 N cost)
 # ============================================================
 # HELPERS
 # ============================================================
+
+
+def start_label(prefix: str) -> str:
+    """Start name for titles and legends ("" and flows2d: Poisson)."""
+    out = START_LABELS.get(prefix, prefix)
+    assert isinstance(out, str) and out, "a start name"
+    return out
+
+
+def figure_path(out: Path, prefix: str, name: str) -> Path:
+    """<out>/<name> for the default (Poisson) run, else <out>/<prefix>_<name>."""
+    assert name and "/" not in prefix, "a figure name and a plain prefix"
+    return out / (f"{prefix}_{name}" if prefix else name)
+
+
+def root_n(root: Path) -> int:
+    """Particle count N of the flows in root (from any flows_chi*.json)."""
+    path = next(iter(sorted(root.glob("flows_chi*.json"))), None)
+    assert path is not None, f"no flows_chi*.json in {root}"
+    out = int(json.loads(path.read_text())["N"])
+    assert out > 0, "particle count"
+    return out
+
+
+def start_title(fig: plt.Figure, prefix: str, n: int) -> None:
+    """Start label above the figure; none for the default (Poisson) run."""
+    assert n > 0, "particle count"
+    if prefix:
+        fig.suptitle(f"{start_label(prefix)} starts, $N = {n}$", fontsize=18)
+
+
+def default_tags(root: Path, tags: List[str], order: tuple) -> List[str]:
+    """--tags if given ("all": every tag present), else those of `order` present."""
+    if tags == ["all"]:
+        tags, order = [], tuple(CHI_COLOR)
+    out = list(tags) if tags else present_tags(root, order)
+    assert out and set(out) <= set(CHI_COLOR), f"no usable chi tags in {root}"
+    return out
 
 
 def half_space_waves(side: np.ndarray, k_cut: float, m: int) -> np.ndarray:
@@ -121,9 +169,9 @@ def pair_factor(x: np.ndarray, kvec: np.ndarray, k_cut: float) -> tuple:
 
 
 def compute(root: Path, tag: str, n_flows: int) -> Dict[str, np.ndarray]:
-    """Spectra of C at the ground states and Poisson starts of n_flows flows."""
+    """Spectra of C at the ground states and starts of n_flows flows."""
     meta = json.loads((root / f"flows_chi{tag}.json").read_text())
-    side = np.diag(np.asarray(meta["basis"], dtype=float))
+    side = cell_lengths(meta["basis"])
     kvec = half_space_waves(side, float(meta["K"]), int(meta["M"]))
     volume = float(np.prod(side))
     with np.load(root / f"flows_chi{tag}.npz", mmap_mode="r") as f:
@@ -200,7 +248,8 @@ def stats(ev: np.ndarray, c: float) -> Dict[str, float]:
 # ============================================================
 
 
-def figure(data: Dict[str, Dict], out: Path, dpi: int) -> None:
+def figure(data: Dict[str, Dict], out: Path, dpi: int, root: Path,
+           prefix: str = "") -> None:  # fmt: skip
     """Cumulative spectra per chi against MP, and the summary statistics."""
     n = len(data)
     assert 1 <= n <= 6, "at most six chi panels"
@@ -247,13 +296,15 @@ def figure(data: Dict[str, Dict], out: Path, dpi: int) -> None:
                 Line2D([], [], color="0.3", lw=1.0, ls=":", marker="s",
                        mfc="none")]  # fmt: skip
     names = [f"ground states, $\\chi = {float(d['chi']):.2f}$" for d in data.values()]
-    names += ["Poisson starts (top row)", "MP, ratio $c$",
+    start = start_label(prefix)
+    names += [f"{start} starts (top row)", "MP, ratio $c$",
               r"MP, ratio $c_{\rm eff} = \mathrm{Var}\,\lambda$ (ground states)",
               "ground states (bottom row)",
-              "Poisson starts (bottom row)"]  # fmt: skip
+              f"{start} starts (bottom row)"]  # fmt: skip
     fig.legend(handles, names, loc="upper center", ncol=4, bbox_to_anchor=(0.5, 0.0),
                frameon=False)  # fmt: skip
-    finish(fig, out / "coupling_mp_compare", dpi)
+    start_title(fig, prefix, root_n(root))
+    finish(fig, figure_path(out, prefix, "coupling_mp_compare"), dpi)
 
 
 def summary(axes: np.ndarray, rows: List) -> None:
@@ -326,13 +377,21 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     default_root = Path("experiments/trajectories/flows2d/N1024")
     parser.add_argument("--root", type=Path, default=default_root)
-    parser.add_argument("--tags", nargs="+", default=["1-10", "1-4", "2-5", "9-20"])
+    parser.add_argument("--tags", nargs="+", default=None,
+                        help="default: 0.1, 0.25, 0.4, 0.45 where present; "
+                        "'all': every tag present")  # fmt: skip
     parser.add_argument("--flows", type=int, default=20)
     parser.add_argument("--out", type=Path, default=Path("experiments/figures"))
+    parser.add_argument("--prefix", default="",
+                        help="figure name prefix and start, e.g. hip2d")  # fmt: skip
     parser.add_argument("--dpi", type=int, default=600)
+    parser.add_argument("--cache-only", action="store_true",
+                        help="compute the caches, draw nothing")  # fmt: skip
     args = parser.parse_args()
-    assert args.flows >= 1 and set(args.tags) <= set(CHI_COLOR), "tags and flows"
+    tags = default_tags(args.root, args.tags, DEFAULT_TAGS)
+    assert args.flows >= 1, "flows"
     args.out.mkdir(parents=True, exist_ok=True)
-    data = {tag: load_or_compute(args.root, tag, args.flows) for tag in args.tags}
-    figure(data, args.out, args.dpi)
+    data = {tag: load_or_compute(args.root, tag, args.flows) for tag in tags}
+    if not args.cache_only:
+        figure(data, args.out, args.dpi, args.root, args.prefix)
     print("Done.", flush=True)

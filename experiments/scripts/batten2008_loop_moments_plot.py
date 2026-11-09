@@ -3,24 +3,25 @@
 """
 Isolating the loop (beyond-S(k)) contribution to the vibrational spectrum.
 
-Reads <root>/loops_chi<tag>.npz (batten2008_loop_moments.py) for the 2D
-Poisson ground states (--roots: N = 1024 first, then optional larger N).
+Reads <root>/loops_chi<tag>.npz (batten2008_loop_moments.py) for 2D ground
+states (--roots: the smallest N is the base, larger N are drawn dashed;
+Poisson by default, --prefix names the start: gau2d, url2d, rsa2d, hip2d).
 With H = D + W in the complex wave basis and w_n = (1/2M) tr (W/K^2)^n, each
 moment splits into non-crossing pairings (SCBA), crossing pairings (random-
 phase surrogate mean minus SCBA) and irreducible loops (ground state minus
-surrogate mean). Writes <out>/loop_moments.png:
+surrogate mean). Writes <out>/[<prefix>_]loop_moments.png:
 
 - (a) the total moments w_n of the ground states against n, every chi;
 - (b) the three parts as fractions of w_n against n (even n), largest chi;
 - (c) the irreducible share of the S(k)-only (paired) moment, I_n / P_n,
-  against even n, every chi; dashed: N = 4096 (odd n are entirely
+  against even n, every chi; dashed: larger N (odd n are entirely
   irreducible and are printed: n = 3 is the triad term);
 - (d) the density of states in x = lambda(K)/K^2 = (omega/K)^2 at the largest
   chi: ground states, random-phase surrogates and the SCBA (S(k)-only)
   theory, with the ground-state gap shaded (y clipped at 2.5: the soft-mode
   spike at x = 0 reaches about 11);
 - (e) the loop contribution to the density, rho_GS - rho_surrogate, for the
-  three largest chi (dashed: N = 4096; y clipped, the x = 0 spike is cut);
+  three largest chi (dashed: larger N; y clipped, the x = 0 spike is cut);
 - (f) the total-variation distance between the ground-state density and
   the surrogate and SCBA densities, against chi.
 
@@ -42,7 +43,7 @@ from typing import Dict, List
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from batten2008_mp_plot import CHI_COLOR  # noqa: E402
+from batten2008_mp_plot import CHI_COLOR, figure_path, start_title  # noqa: E402
 from batten2008_plot import finish, load, plt  # noqa: E402  (house rcParams)
 from matplotlib.lines import Line2D  # noqa: E402
 
@@ -111,7 +112,8 @@ def scba_on_bins(d: Dict[str, np.ndarray]) -> np.ndarray:
 # ============================================================
 
 
-def figure(data: Dict[int, Dict[str, Dict]], out: Path, dpi: int) -> None:
+def figure(data: Dict[int, Dict[str, Dict]], out: Path, dpi: int,
+           prefix: str = "") -> None:  # fmt: skip
     """Moments by order, their split, and the loop contribution to the density."""
     fig, axes = plt.subplots(2, 3, figsize=(20.0, 11.5), constrained_layout=True)
     base = data[min(data)]
@@ -166,13 +168,14 @@ def figure(data: Dict[int, Dict[str, Dict]], out: Path, dpi: int) -> None:
                     label="ground states vs surrogates")  # fmt: skip
     axes[1, 2].plot(chi, tv_c, color=PART_COLORS["nc"], marker="s", lw=2.0, ls="--",
                     label="ground states vs SCBA")  # fmt: skip
-    style(axes, float(d["chi"]))
-    legend(fig, base, tags)
+    style(axes, float(d["chi"]), sorted(data)[1:])
+    legend(fig, base, tags, sorted(data)[1:])
     report(data, tags)
-    finish(fig, out / "loop_moments", dpi)
+    start_title(fig, prefix, min(data))
+    finish(fig, figure_path(out, prefix, "loop_moments"), dpi)
 
 
-def style(axes: np.ndarray, chi_big: float) -> None:
+def style(axes: np.ndarray, chi_big: float, larger: List[int]) -> None:
     """Labels and titles."""
     ax = axes[0, 0]
     ax.set_yscale("log")
@@ -194,7 +197,8 @@ def style(axes: np.ndarray, chi_big: float) -> None:
     ax.axhline(0.0, color=GUIDE, lw=0.8, zorder=0)
     ax.set_xlabel(r"Order, $n$ (even)")
     ax.set_ylabel(r"Irreducible Share of the $S$-Only Moment, $I_n / P_n$")
-    ax.set_title("(c) the loop contribution by order (dashed: $N = 4096$)",
+    note = f" (dashed: $N = {larger[0]}$)" if larger else ""
+    ax.set_title(f"(c) the loop contribution by order{note}",
                  loc="left", fontsize=13)  # fmt: skip
     ax = axes[1, 0]
     ax.set_xlim(-0.6, 2.4)
@@ -225,12 +229,14 @@ def style(axes: np.ndarray, chi_big: float) -> None:
                  fontsize=13)  # fmt: skip
 
 
-def legend(fig: plt.Figure, base: Dict[str, Dict], tags: List[str]) -> None:
-    """Shared chi legend beneath the panels."""
+def legend(fig: plt.Figure, base: Dict[str, Dict], tags: List[str],
+           larger: List[int]) -> None:  # fmt: skip
+    """Shared chi legend beneath the panels (and the larger N, if any)."""
     handles = [Line2D([], [], color=CHI_COLOR[t], lw=2.0) for t in tags]
-    handles += [Line2D([], [], color="0.3", lw=1.6, ls="--")]
     names = [rf"$\chi = {float(base[t]['chi']):.2f}$" for t in tags]
-    names += ["$N = 4096$ (c, e)"]
+    for n_sys in larger:
+        handles.append(Line2D([], [], color="0.3", lw=1.6, ls="--"))
+        names.append(f"$N = {n_sys}$ (c, e)")
     fig.legend(handles, names, loc="upper center", ncol=len(names),
                bbox_to_anchor=(0.5, 0.0), frameon=False)  # fmt: skip
 
@@ -264,17 +270,22 @@ def report(data: Dict[int, Dict[str, Dict]], tags: List[str]) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--roots", nargs="+", type=Path, required=True)
+    parser.add_argument("--tags", nargs="+", default=list(TAGS),
+                        help="default: every chi tag with a loops cache")  # fmt: skip
     parser.add_argument("--out", type=Path, default=Path("experiments/figures"))
+    parser.add_argument("--prefix", default="",
+                        help="figure name prefix and start, e.g. hip2d")  # fmt: skip
     parser.add_argument("--dpi", type=int, default=600)
     args = parser.parse_args()
+    assert set(args.tags) <= set(TAGS), "known chi tags"
     args.out.mkdir(parents=True, exist_ok=True)
     data: Dict[int, Dict[str, Dict]] = {}
     for root in args.roots:
-        for tag in TAGS:
+        for tag in [t for t in TAGS if t in args.tags]:
             path = root / f"loops_chi{tag}.npz"
             if path.exists():
                 d = load(path)
                 data.setdefault(int(d["n"]), {})[tag] = d
     assert data, "no loops_chi*.npz found"
-    figure(data, args.out, args.dpi)
+    figure(data, args.out, args.dpi, args.prefix)
     print("Done.", flush=True)
