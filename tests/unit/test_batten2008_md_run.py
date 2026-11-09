@@ -422,6 +422,7 @@ def test_run_cell_end_to_end_tiny(
     bench = _tiny_cell(tmp_path)
     monkeypatch.setitem(mdr.SYSTEMS, "flows2d", f"N{TINY_N}")
     monkeypatch.delenv("SLURM_JOB_ID", raising=False)
+    monkeypatch.setattr(mdr, "git_changes", lambda repo=mdr.REPO: ["src/x.py"])
     over = {"n_gs": 2, "temperature": [1e-4, 1e-3], "n_equil": 40, "n_andersen": 20,
             "n_nve": 1000, "n_snapshots": 30}  # fmt: skip
     args = _args("run", data_root=tmp_path, bench=bench, device="cpu", **over)
@@ -435,8 +436,7 @@ def test_run_cell_end_to_end_tiny(
     assert rs["cli_argv"][rs["cli_argv"].index("--seed") + 1] == str(
         mdr.cell_seed("run", "flows2d", "1-10", None))  # fmt: skip
     assert len(rs["git_head"]) in (0, 40) and rs["omega_min"] is None
-    assert rs["git_dirty"] is (None if rs["git_changed"] is None
-                               else bool(rs["git_changed"]))  # fmt: skip
+    assert rs["git_dirty"] is True and rs["git_changed"] == ["src/x.py"]  # F3
     assert meta["resumed"] is False and len(meta["phase_seconds"]) >= 6
     assert meta["cost"]["available"] is False and meta["jobs"] == []
     assert meta["status_counts"] == {"STATUS_RUNNING": 4}
