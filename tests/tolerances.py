@@ -226,7 +226,8 @@ MD_CXX_UNITS_TOL: float = 0.1
 # ----- MD statistical validation (V1, tests/integration/test_md_equipartition.py) -----
 # Power requirement of the plan: a relative bias of MD_BIAS_DETECT in <Phi>/(M T) must
 # stand MD_POWER_Z standard errors from 1, i.e. SE <= 0.05 / 6 = 8.3e-3. At z = 6 a
-# real 5 % bias is missed (|z| < t_crit ~ 3.5 for m = 8) with probability < 1e-2.
+# real 5 % bias is missed (|t| < t_crit = 3.87 for m = 8 at 511 dof) with
+# probability Phi(3.87 - 6) ~ 1.7 % (AUDIT-V1 F2).
 MD_POWER_Z: float = 6.0
 # Effective sample size behind that power: Phi / T ~ Gamma(M, 1), so one sample of
 # Phi / (M T) has variance 1/M and SE = 1 / sqrt(M n_eff); z = MD_BIAS_DETECT
@@ -242,3 +243,33 @@ MD_CONTROL_T_FACTOR: float = 1.1
 # predicted bias stays below a quarter of the SE: it then shifts t by < 0.25 (and the
 # family false-alarm rate from 1e-3 to < 2e-3).
 MD_SHADOW_BIAS_FRAC: float = 0.25
+
+# ----- MD C++ parity (V2, tests/parity/test_md_cxx_parity.py) -----
+# Two-sample KS acceptance of JAX vs pooled C++ samples of Phi/(M T) and
+# KE/(N d T/2) (the plan's V2 criterion); also applied to C++ seed A vs seed B.
+MD_PARITY_KS_PVALUE: float = 1e-3
+# Mean agreement: z = (m_jax - m_cxx) / sqrt(se_jax^2 + se_cxx^2) with both SEs from
+# (nearly) independent groups (JAX lanes, 40; C++ batch means, 60 pooled / 20 per
+# seed). Under the null |z| > 4 has probability 6e-5 (normal) to 1e-3 (Student t
+# with 19 dof, the per-seed control), so the ~10 comparisons of the file keep a
+# family false-alarm rate <~ 5e-3. Resolution (pooled): 4 sqrt(0.0057^2 + 0.0050^2)
+# ~ 3 % in <Phi>/(M T) and ~ 1.6 % in <KE>/(N d T/2).
+MD_PARITY_Z: float = 4.0
+# Negative control: JAX run at 1.1 T against C++ must fail the KS test with p below
+# this. Expected: a 10 % shift is 0.7 sd of Phi/(M T) (sd = 1/sqrt(M) = 0.14) and
+# 1.6 sd of KE/(N d T/2) (sd = sqrt(2/(N d)) = 0.0625), i.e. KS distances D ~ 0.28
+# and ~ 0.58; with 400 vs 300 thinned samples (sqrt(n m/(n + m)) = 13.1) the
+# asymptotic p ~ 2 exp(-2 (13.1 D)^2) ~ 3e-12 and < 1e-100.
+MD_PARITY_CONTROL_P: float = 1e-6
+# Thinning before every KS test: consecutive C++ samples (and JAX samples of one
+# lane) are correlated through the ~(1 - 1/N)^501 = 14 % of velocities that one
+# Andersen call leaves untouched and through the positions; measured lag-1
+# autocorrelation 0.17-0.21 (KE) and -0.02-0.21 (Phi). Keeping every 2nd sample
+# leaves lag ~ 0.2^2 = 0.04, which changes the KS null distribution (effective n
+# factor (1 - rho) / (1 + rho)) by < 8 %, against the 1e-3 threshold negligible.
+MD_PARITY_KS_THIN: int = 2
+# Batch-mean length for the C++ standard errors (one series of 200 per seed): for
+# an AR(1) series with rho = 0.21 the correlation of adjacent means of B = 10
+# samples is rho (1 - rho^B)^2 / (B (1 - rho^2)) = 0.022, so the 20 means per seed
+# are nearly independent and the SE is underestimated by ~ 2 %.
+MD_PARITY_BLOCK: int = 10

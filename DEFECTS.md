@@ -39,6 +39,8 @@ needed for parity, reproduce the behaviour.
 | D-051 | wontfix-upstream | `MD_System.cpp:19-30, 128-136` | The MD system starts with zero acceleration, so the first Verlet half-kick after construction omits the force. |
 | D-052 | wontfix-upstream | `main.cpp:864-877` | MD sample log prints energy, KE, dt and pressure with the 6-significant-digit stream default. |
 | D-053 | fixed | `tools/cpp_reference/md_reference.py` (`shell_table`) | Shells grouped with exact float equality, so an ulp split of one shell put K inside it. |
+| D-080 | documented | `tests/integration/test_md_equipartition.py` (V1) | Plan deviations of V1: lane-level t statistics instead of Flyvbjerg-Petersen blocking, and the Andersen KE target d N T / 2 (not d (N - 1) T / 2). |
+| D-081 | documented | `tests/parity/test_md_cxx_parity.py` (V2) | Plan deviations of V2: the full JAX replica runs offline (SLURM CPU array) and the test reads its committed output; the C++ Andersen schedule is reproduced through `reset_acc`, D-051 is not replicated. |
 
 ## D-006 — `unit_ball_volume` is not bit-equal to the C++ hard-coded constants
 - **Found:** 2026-11-05, by the T4 auditor's preview parity
@@ -311,3 +313,23 @@ needed for parity, reproduce the behaviour.
 - **Impact:** none on the committed data (L = sqrt(1000), M = 50 was unaffected: the cutoff K was checked by enumeration and the C++ harness), only on other boxes
 - **Regression test:** tests/unit/test_md_cxx_reference.py::test_regression_D053_shell_split_by_ulp, plus the `@example` pins in `test_choose_k_outer_properties`
 - **Fix:** group sorted |k|^2 into shells with relative tolerance `SHELL_RTOL = 1e-9` and place K between the largest value of one shell and the smallest of the next
+
+## D-080 — V1 uses lane-level errors and a d N Andersen KE target
+- **Found:** 2026-11-08, audit of V1 (AUDIT-V1 F4)
+- **Status:** documented (plan deviation, accepted)
+- **Where:** tests/integration/test_md_equipartition.py; experiments/md_winding/V1_validation.md
+- **Symptom:** the plan asks for Flyvbjerg-Petersen blocked errors and <KE> / (d (N - 1) T / 2) = 1; V1 instead uses Student t over 512 independent lanes per T, and for the Andersen branch the target d N T / 2. Both were recorded only in the test docstring and V1_validation.md
+- **Repro:** read `_lane_t` and `_summary(..., dof = D * N)` for the Andersen branches
+- **Impact:** none on the verdict. Lane means are exactly independent (each lane has its own start and key), so their t statistic needs no correlation model, whereas within-lane blocking would miss the near-integrable NVE harmonic dynamics that keep each lane's mode energies for the whole run (blocking would underestimate the SE). Andersen redraws whole velocity rows without COM removal, so the COM momentum is thermalized and the canonical KE has d N quadratic degrees of freedom; the NVE branch removes the COM at begin_segment and keeps d (N - 1). The difference (1/N = 1.6 %) is below V1's resolution (AUDIT-V1 F2), so the choice is a matter of correctness, not of passing
+- **Regression test:** tests/integration/test_md_equipartition.py::test_energy_means_match_harmonic_values (asserts both targets)
+- **Fix:** none needed; recorded here (V2 uses the same d N target, `protocol.ke_dof = 512`, for the C++ protocol, which never removes the COM)
+
+## D-081 — V2 parity reads an offline replica; Andersen schedule via reset_acc
+- **Found:** 2026-11-08, while implementing V2
+- **Status:** documented (plan deviation, accepted)
+- **Where:** tests/parity/test_md_cxx_parity.py, tools/cpp_reference/md_jax_replica.py, slurm/md_jax_replica_cpu.slurm, tests/data/md_jax_replica.json
+- **Symptom:** (1) the plan's V2 test "runs on CPU", but the full C++ protocol (2e6 equilibration steps + 1e5 steps per sample, N = 256, M = 50) costs ~1e8 lane-steps for >= 600 samples plus the 1.1 T control, i.e. ~110-300 us per lane-step on CPU and hours of wall time (measured: SLURM array 17122788, 10 tasks x 8 lanes x 2 CPUs, 2.2-3.1 h each, 26.3 task-hours = 53 core-hours); (2) the library count-mode Andersen (fires when acc + p >= 1, accumulator carried across calls) gives 500 resets per 5e4-step call starting at step 100, the C++ rule (counter reset to 0 per call, fires while > 0) 501 starting at step 1 (D-050); (3) the C++ zero-acceleration first kick (D-051)
+- **Repro:** `andersen_reset` iterated 5e4 times from reset_acc = 0 vs `md_reference.andersen_reset_steps(50000, 0.01)`
+- **Impact:** (1) the parity statistics come from committed data produced by the replica script at a recorded commit; the test file also reruns the replica's sample stage live on CPU (15 C++ configurations, one Andersen + NVE cycle) and checks the stored protocol record against the C++ JSON. (2) none: setting reset_acc = 1.0 (the C++ counter plus one) at the start of each Andersen phase through the public state reproduces the C++ reset steps exactly, so no library knob was added. (3) not replicated: one kick from a relaxed start (|F| ~ 0) 2e6 steps before the first sample
+- **Regression test:** tests/parity/test_md_cxx_parity.py::test_andersen_phase_reproduces_cxx_schedule, ::test_stored_replica_ran_the_cxx_protocol
+- **Fix:** none needed; regenerate the data with `env -u JAX_PLATFORMS sbatch slurm/md_jax_replica_cpu.slurm` then `md_jax_replica.py collect` after any change to the dynamics
