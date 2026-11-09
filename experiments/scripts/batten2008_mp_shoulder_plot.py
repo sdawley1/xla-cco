@@ -354,7 +354,7 @@ def style(axes: np.ndarray, chi_hi: float) -> None:
     ax.set_ylabel("Eigenvalue Density")
     ax.axvline(1.0, color=GUIDE, lw=0.8, zorder=0)
     ax.legend(frameon=False, fontsize=11)
-    ax.set_title("(a) ground states: a peak at 1 grows with $\\chi$", loc="left",
+    ax.set_title("(a) ground-state density, every $\\chi$", loc="left",
                  fontsize=13)  # fmt: skip
     ax = axes[0, 2]
     ax.set_xscale("log")
