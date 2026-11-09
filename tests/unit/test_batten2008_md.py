@@ -15,6 +15,7 @@ Samuel J. Dawley
 # ----- standard library -----
 import json
 import math
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -739,6 +740,46 @@ def test_clean_json_and_markdown(null_set: Path) -> None:
     assert table.index("Exploratory (post hoc") > table.index("| H8 |")
 
 
+@pytest.mark.slow
+@pytest.mark.critical
+def test_exploratory_rows_never_enter_registered_parts(null_set: Path) -> None:
+    """H1 / H2 verdict parts are the registered per-bin parts only (AUDIT-E5 F1).
+
+    The post hoc pooled groups must never be appended to, or replace, the
+    registered parts, so H1 holds exactly h1_parts and H2 exactly h2_parts
+    (mutants M6a and M6c of the audit).
+    """
+    main, lang, _ = mds.collect([null_set])
+    res = mds.evaluate(main, lang)
+    patterns = {"H1": r"^(phi|S bin \d+)$", "H2": r"^(Rice bin|T ratio bin) \d+$"}
+    registered = {"H1": mds.h1_parts(main, True), "H2": mds.h2_parts(main, True)}
+    for h, rx in patterns.items():
+        parts = res["hypotheses"][h]["parts"]
+        bad = [p["part"] for p in parts if not re.match(rx, p["part"])]
+        assert not bad, (h, bad[:3])
+        assert [(p["part"], p["cell"]) for p in parts] == [
+            (p["part"], p["cell"]) for p in registered[h]
+        ], h
+    assert res["exploratory"]["rows"], "the null set has pooled rows to leak"
+
+
+@pytest.mark.slow
+@pytest.mark.critical
+@pytest.mark.parametrize("w_min", [1, 50])
+def test_verdicts_independent_of_exploratory_w_min(
+    null_set: Path, monkeypatch: pytest.MonkeyPatch, w_min: int
+) -> None:
+    """Changing the post hoc W_min changes the pooled rows, never a verdict (F1)."""
+    main, lang, _ = mds.collect([null_set])
+    base = mds.evaluate(main, lang)
+    monkeypatch.setattr(mds, "EXPL_W_MIN", {"S/T": w_min, "Rice": w_min})
+    other = mds.evaluate(main, lang)
+    assert len(other["exploratory"]["rows"]) != len(base["exploratory"]["rows"])
+    for h in mds.HYPOTHESES:
+        a, b = base["hypotheses"][h], other["hypotheses"][h]
+        assert (a["verdict"], a["counts"]) == (b["verdict"], b["counts"]), h
+
+
 def _cell_data(net: np.ndarray, alpha: np.ndarray, d_theta: np.ndarray, tag: str,
                chi: float) -> Dict[str, Any]:  # fmt: skip
     """Minimal analysis dict (one start, one harmonic T) for h4 / h8 parts."""
@@ -1075,3 +1116,61 @@ def _d088_fixture() -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
 
 
 _D088_FIXTURE = _d088_fixture()
+
+
+# ============================================================
+# D-089: SHARED --out-dir
+# ============================================================
+
+
+@pytest.mark.critical
+def test_regression_D089_out_dir_keeps_starts_apart(tmp_path: Path) -> None:
+    """D-089: two starts at one chi get distinct analysis files under one --out-dir."""
+    out = tmp_path / "results"
+    a = tmp_path / "flows2d" / "N1024" / "md_chi1-10.npz"
+    b = tmp_path / "gau2d" / "N1000" / "md_chi1-10.npz"
+    c = tmp_path / "gau2d" / "N1000" / "md_langevin_g0.03_chi1-10.npz"
+    old = {(out / ana.output_name(p)) for p in (a, b)}  # pre-fix destination
+    assert len(old) == 1  # the starts collided
+    dests = [ana.output_path(p, out) for p in (a, b, c)]
+    assert dests[0] == out / "flows2d" / "N1024" / "md_analysis_chi1-10.npz"
+    assert dests[1] == out / "gau2d" / "N1000" / "md_analysis_chi1-10.npz"
+    assert dests[2].name == "md_analysis_langevin_g0.03_chi1-10.npz"
+    assert ana.output_path(a, None) == a.parent / "md_analysis_chi1-10.npz"
+
+
+@pytest.mark.high
+@given(
+    systems=st.lists(
+        st.text("abcdefghij0123456789", min_size=1, max_size=6),
+        min_size=2, max_size=5, unique=True,
+    ),
+    tag=st.sampled_from(["1-10", "2-5"]),
+)  # fmt: skip
+@example(systems=["flows2d", "gau2d"], tag="1-10")
+def test_regression_D089_out_dir_property(systems: List[str], tag: str) -> None:
+    """D-089: distinct (system, N) inputs never share an analysis file."""
+    root, out = Path("/data"), Path("/results")
+    paths = [root / s / "N1000" / f"md_chi{tag}.npz" for s in systems]
+    dests = [ana.output_path(p, out) for p in paths]
+    assert len(set(dests)) == len(systems)
+    assert all(d.parent.parent.name == s for d, s in zip(dests, systems, strict=True))
+
+
+@pytest.mark.medium
+@given(
+    rest=st.sampled_from(["", "_langevin_g0.03", "_spectra"]),
+    tag=st.sampled_from(["1-10", "2-5", "7-20"]),
+)
+@example(rest="", tag="1-10")
+def test_regression_D090_analysis_output_is_not_an_input(rest: str, tag: str) -> None:
+    """D-090: an md_analysis*_chi<tag>.npz is rejected as an MD input by name.
+
+    The README glob ``md_*chi*.npz`` matched a stray analysis file, which then
+    failed in load_md with a missing-arrays error; the name check fails first,
+    with a message naming the cause. Genuine MD outputs keep their names.
+    """
+    with pytest.raises(ValueError, match="analysis output"):
+        ana.output_name(Path(f"/d/flows2d/N1024/md_analysis{rest}_chi{tag}.npz"))
+    good = ana.output_name(Path(f"/d/flows2d/N1024/md{rest}_chi{tag}.npz"))
+    assert good == f"md_analysis{rest}_chi{tag}.npz"

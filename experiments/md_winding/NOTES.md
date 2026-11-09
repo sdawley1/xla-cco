@@ -19,3 +19,14 @@ W_min = ceil(sigma_w^2 / (n SE^2)) with n = 10 ground states and SE = 3 %. sigma
 - rate / Rice: sigma_w = 0.166, so W_min = 4.
 
 The pilot output is in `experiments/trajectories/md_pilot_exploratory/`. The X1 figure is written by `batten2008_md_plot.py --exploratory`.
+
+## 3. The 2x-cycles reruns are independent replicates, not bitwise extensions
+
+The INCONCLUSIVE-remedy reruns (jobs 17173885–7; `--cycles 4`, the production seeds, data root `experiments/trajectories/md_rerun/`) were expected to reproduce the 2 production cycles bitwise and then add 2. They do not. `batten2008_md_remedy.py` compares each rerun with its production run where they overlap (`md_rerun/results/remedy.{json,md}`):
+- the set-up arrays (temperatures, ground states, waves) and the step counts agree exactly;
+- the dense rho_k trace agrees to 1.6e-13–5.8e-12 relative at the first shared row (t = 40 or 80), and the difference then grows exponentially to 10 % of |rho_k| before equilibration ends (t = 240 at chi = 0.4 under Andersen; t = 2480 and 6880 under BAOAB at gamma = 0.003 and 0.03);
+- the unsigned constrained winding of the shared cycles, rerun over production per (cycle, lane), has median 0.99999–1.00000.
+
+Seeds, initial conditions and the GPU model (A100 80 GB) are the same. The reruns compile a different program (`max_rho_records` 2200 instead of 1200), and separately compiled A100 programs round differently (D-086); run-to-run GPU nondeterminism is not excluded. Either way, a rounding-level difference grows to O(1) under the chaotic dynamics.
+
+**Consequence.** Each rerun is a second sample of the same cell, not a continuation. The remedy evaluates H3 and H7 on all 4 rerun cycles exactly as registered. For a bitwise continuation, a rerun would have to keep the production program shape (same `max_rho_records`) and resume from the production checkpoint; we did not attempt this.
