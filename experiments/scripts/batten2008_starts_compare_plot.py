@@ -14,7 +14,8 @@ batten2008_hessian_sign_plot):
   largest spacing of omega/K in 0.3-1 (phonon_chi<tag>.npz): median and
   16-84 % band over ground states; filled markers where the median width
   exceeds twice the uncoupled shell spacing (a gap), open otherwise;
-- (b) the edges omega_- (solid) and omega_+ (dashed) of that spacing;
+- (b) the gap edges omega_- (solid) and omega_+ (dashed), only where (a)
+  finds a gap;
 - (c) the irreducible share of the S(k)-only moment, I_n / P_n with
   I_n = <w_n>_GS - <w_n>_sur and P_n = <w_n>_sur, at n = 4 (solid) and
   n = 12 (dashed) (loops_chi<tag>.npz), with the standard error;
@@ -171,12 +172,13 @@ def panel_gap(axes: np.ndarray, data: Dict[str, Dict], color: str) -> None:
     for mask, mfc in ((real, color), (~real, "white")):
         axes[0].plot(chi[mask], rel[mask, 1], ls="", marker="o", ms=8, color=color,
                      mfc=mfc)  # fmt: skip
-    for key, ls, mk in (("lo", "-", "o"), ("hi", "--", "s")):
-        y = np.array([r[key] for r in rows])
-        axes[1].plot(chi, y, color=color, lw=2.0, ls=ls)
-        for mask, mfc in ((real, color), (~real, "white")):
-            axes[1].plot(chi[mask], y[mask], ls="", marker=mk, ms=7, color=color,
-                         mfc=mfc)  # fmt: skip
+    # edges only where a gap exists: the largest spacing of a gapless
+    # spectrum is a shell spacing whose position jumps from chi to chi
+    edges = [np.where(real, [r[key] for r in rows], np.nan) for key in ("lo", "hi")]
+    assert len(edges) == 2 and edges[0].shape == chi.shape, "one value per chi"
+    axes[1].fill_between(chi, edges[0], edges[1], color=color, alpha=0.15, lw=0)
+    for y, ls, mk in ((edges[0], "-", "o"), (edges[1], "--", "s")):
+        axes[1].plot(chi, y, color=color, lw=2.0, ls=ls, marker=mk, ms=7)
 
 
 def panel_loops(ax: plt.Axes, data: Dict[str, Dict], color: str) -> None:
@@ -251,7 +253,7 @@ def figure(starts: List[Dict], out: Path, dpi: int) -> None:
                Patch(color=BAND)]  # fmt: skip
     names = [r"solid: lower edge (b), $n = 4$ (c), ground states (f)",
              r"dashed: upper edge (b), $n = 12$ (c), starts (f)",
-             r"open: no gap, width $\leq$ 2 shell spacings (a, b)",
+             r"open: no gap, width $\leq$ 2 shell spacings (a)",
              "random-phase and Gaussian models, mean $\\pm$ 2 SE (d, e)"]  # fmt: skip
     fig.legend(handles, names, loc="upper center", ncol=2, bbox_to_anchor=(0.5, -0.04),
                frameon=False)  # fmt: skip
@@ -262,7 +264,7 @@ def style(axes: np.ndarray) -> None:
     """Labels and titles."""
     titles = (("(a) relative width of the largest $\\omega$ spacing",
                r"Relative Width, $\Delta\omega/\omega_{\rm mid}$"),
-              ("(b) its edges (median over ground states)", r"Frequency, $\omega/K$"),
+              ("(b) gap edges (median over ground states)", r"Frequency, $\omega/K$"),
               ("(c) loops beyond $S(k)$: irreducible share",
                r"Irreducible Share, $I_n / P_n$"),
               ("(d) four-wave loop-phase bias, ground states",
