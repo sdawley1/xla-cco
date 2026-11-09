@@ -24,6 +24,8 @@ needed for parity, reproduce the behaviour.
 | D-015 | fixed | `cli/relax.py` (`load_input`) | The CLI rejected its own output packs (basis scaled by N^(1/d)) as input. |
 | D-016 | fixed | `_device.py` (`classify_failure`) | GPU guard blamed `--gres=gpu` when `JAX_PLATFORMS=cpu` hid the GPU, and its fix hint synced CUDA JAX into the CPU env. |
 | D-017 | fixed | `tests/property/test_energy_tables_props.py` | Table-path gradient tolerance blind to pre-cancellation magnitude (sibling of D-011). |
+| D-018 | fixed | `experiments/scripts/batten2008_mp_plot.py` (`stats`, `ks_eff`) | Coupling statistics asserted a positive spectrum; HIP starts have round-off zero modes in C and Var λ > c. |
+| D-019 | fixed | `experiments/scripts/batten2008_mp_shoulder_plot.py` (`min_density`) | Dip window empty for the narrow saturated-RSA spectrum at χ = 0.1; asserted instead of giving NaN. |
 
 ## D-006 — `unit_ball_volume` is not bit-equal to the C++ hard-coded constants
 - **Found:** 2026-11-05, by the T4 auditor's preview parity
