@@ -1032,6 +1032,37 @@ What each panel shows:
 - **Interpretation.** The ground states carry a weak, systematic loop-phase bias of order 1/2M per loop: positive for triads, negative for quadrilaterals. Summed over the roughly 2M times more irreducible loops than paired ones, it becomes the 25% reduction of the fourth moment.
 - **Triads are coherent too,** but they enter only odd moments, which barely move the spectrum (m₃ changes by 1–2%). This is why the scorecard (f) shows a small triad effect.
 
+#### The coupling and loop analyses for every start
+
+The coupling and loop figures above (`coupling_mp_compare`, `coupling_mp_shoulder`, `coupling_phonon_gap`, `coupling_phonon_dispersion`, `loop_moments`, `loop_statistics`) run for every 2D start: Gaussian, URL, saturated RSA and HIP besides Poisson. With `--prefix <start>` (gau2d, url2d, rsa2d, hip2d) the figures are named `<start>_<figure>` and carry the start as a title; without it the names and the Poisson figures are unchanged (re-rendered pixel-identical). Every script takes the χ tags present in its root unless `--tags` is given.
+- **Rectangular cells.** URL starts live in a 34.39 × 29.78 cell. The wave lattice is k = 2π(n_x/L_x, n_y/L_y), V = L_x L_y, with the integer reach ⌈K L_i/2π⌉ per axis (`batten2008_lattice.py`, NumPy only; sheared cells are rejected). Checks on URL ground states: ρ on the lattice matches the direct sum Σ_j exp(ik·r_j) to 6·10⁻¹³; S(k) ≤ 4·10⁻²³ for every lattice point inside K; the complex and Re/Im coupling spectra agree to 4·10⁻¹⁵ (relative); diag H = |k|²N/V to 10⁻¹⁵; C from ρ matches C from the gradients J to 2·10⁻¹⁴.
+- **Square cells are unchanged.** Recomputing every Poisson χ = 0.1 cache (`mp`, `mp_shoulder`, `phonon`, `loops`, `loopstats`, `loopphase`) reproduces the stored values bitwise, or to ≤ 1.3·10⁻¹⁴ where LAPACK threading enters.
+- **One SLURM CPU job per start** (`slurm/coupling_loops_cpu.slurm`) computes all caches and draws the six figures with the Poisson settings (20 flows for `mp`, 3 states for the shoulder, 6 for the phonon gap and the loop moments with 8 surrogates each, 4 for the loop statistics). With χ = 0.1 and 0.4 it takes 6–7 min on 16 cores, of which `mp` (20 starts and ends) takes 3 min and `loop_moments` about 2 min.
+
+`batten2008_starts_compare_plot.py` writes `figures/coupling_starts_compare` from these caches, one color per start (as in `hessian_sign_starts`):
+- (a) the relative width of the largest ω spacing in 0.3–1 K (median and 16–84% band over ground states; filled where it exceeds two uncoupled shell spacings);
+- (b) its edges;
+- (c) the irreducible share I_n/P_n at n = 4 and 12;
+- (d, e) the four-wave and triad loop-phase bias 2M·c₁ of the ground states, against the envelope of the random-phase and Gaussian models of every start;
+- (f) the Kolmogorov distance of λ(C) from MP with the measured variance, ground states and starts.
+
+**First results (χ = 0.1 and 0.4).**
+- **The loop share is universal.** I₄/P₄ = −0.009 to −0.052 at χ = 0.1 and −0.20 to −0.25 at χ = 0.4 for every start (Poisson −0.20); I₁₂/P₁₂ = −0.79 to −0.87 at χ = 0.4.
+- **URL and saturated RSA open a frequency gap already at χ = 0.4.** The largest spacing is 0.732–0.790 (URL, Δω/ω = 0.072) and 0.740–0.781 (RSA, 0.056): median widths of 5.2 and 2.6 uncoupled shell spacings (0.011 and 0.016; per state 0.034–0.074 and 0.028–0.058); Poisson, Gaussian and HIP have none at χ = 0.4 (0.009–0.011). In the URL ground states the density in that window is 0.012, against 0.36 for the random-phase surrogates and 0.43 for the SCBA.
+- **The four-wave bias tracks the gap.** 2M·c₁ (quadrilaterals) at χ = 0.4 is −6.5 (URL), −4.0 (RSA) and −3.1 to −3.3 (Poisson, Gaussian, HIP); the random models stay within ±0.25. The triad bias changes sign with the start: +24 to +28 (Poisson, Gaussian, HIP), −13 (RSA) and −43 (URL). URL keeps its Bragg-like S(k) peak at |k| ≈ 1.5 K, so its amplitudes are not Gaussian there (⟨I²⟩ = 2.48 against 2).
+- **The starts differ, the ground states less.** At χ = 0.1 the λ(C) spectrum of saturated-RSA ground states lies within 0.85–1.15 (5–95%), so its dip window near 0.5 is empty and the peak ratio at 1 is meaningless. HIP starts are not random gradients: at χ = 0.4 their C has 42–134 zero modes and Var λ = 2.96 c, so MP(c_eff) is undefined there (D-018, D-019).
+
+```bash
+# per start (16 CPUs; SCRIPTS points at the checkout whose scripts to run; TAGS optional)
+env -u JAX_PLATFORMS sbatch --export=ALL,ROOT=experiments/trajectories/hip2d/N1000,PREFIX=hip2d \
+    experiments/slurm/coupling_loops_cpu.slurm      # likewise gau2d/N1000, url2d/N1024, rsa2d/N999
+/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_starts_compare_plot.py   # coupling_starts_compare
+```
+
+**Data.** `trajectories/{gau2d/N1000,url2d/N1024,rsa2d/N999,hip2d/N1000}/{mp,mp_shoulder,phonon,loops,loopstats,loopphase}_chi<tag>.npz`.
+
+**Figures.** `figures/{gau2d,url2d,rsa2d,hip2d}_{coupling_mp_compare,coupling_mp_shoulder,coupling_phonon_gap,coupling_phonon_dispersion,loop_moments,loop_statistics}` and `figures/coupling_starts_compare`.
+
 #### All four χ for 2D Poisson
 
 `hessian_sign_mechanism`, `hessian_negative_compare` and `hessian_plateau_mechanism` now include 2D Poisson flows at χ = 0.25 (tag 1-4) and χ = 0.45 (tag 9-20), with 100 flows each. Pass the extra tags with `--extra-chi 1-4 9-20`; the other starts have χ = 0.1 and 0.4 only.
@@ -1277,7 +1308,7 @@ uv run --no-sync python -I experiments/scripts/batten2008_windcv_plot.py --total
 
 **Data.** `trajectories/{gau2d/N1000,url2d/N1024,rsa2d/N999,hip2d/N1000}/` with the same files as `flows2d/N1024`, plus `winding_chi<tag>.npz`, `plateau_chi<tag>.npz` and `landscape_chi<tag>.npz` everywhere. The 20-flow runs are kept in `trajectories/<start>/N<N>_n20/`. The tolerance checks are in `trajectories/{batten2008_tight/N1000,flows2d_tight/N1024}/` (flow 0, atol 10⁻¹¹, rtol 10⁻³).
 
-**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `hessian_sign_compare`, `hessian_sign_mechanism`, `hessian_sign_starts`, `hessian_sign_universal`, `coupling_mp_compare`, `coupling_mp_shoulder`, `coupling_phonon_gap`, `coupling_phonon_dispersion`, `coupling_mp_finite_size`, `loop_moments`, `loop_statistics`, `winding_cv_explained`, `exclusion_mode_control`, `exclusion_mode_spectra`, `exclusion_drive`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
+**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `hessian_sign_compare`, `hessian_sign_mechanism`, `hessian_sign_starts`, `hessian_sign_universal`, `coupling_mp_compare`, `coupling_mp_shoulder`, `coupling_phonon_gap`, `coupling_phonon_dispersion`, `coupling_mp_finite_size`, `coupling_starts_compare`, `loop_moments`, `loop_statistics`, `winding_cv_explained`, `exclusion_mode_control`, `exclusion_mode_spectra`, `exclusion_drive`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
 
 ### The 1D landscape against χ, in 3D
 
