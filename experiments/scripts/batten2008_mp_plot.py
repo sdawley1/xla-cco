@@ -78,6 +78,7 @@ MP_COLOR = "#b9770e"
 GUIDE = "0.6"
 GRID = np.geomspace(1e-4, 5.0, 2000)  # lambda grid of the cumulative curves
 PAIR_STATES = 3  # ground states per chi for the pair prediction (M^2 N cost)
+ZERO_MODE = 1e-13  # lambda_min / lambda_max below this is a round-off zero of C
 
 # ============================================================
 # HELPERS
@@ -228,15 +229,22 @@ def ks_distance(ev: np.ndarray, c: float) -> float:
 
 
 def stats(ev: np.ndarray, c: float) -> Dict[str, float]:
-    """Variance, edges, mean inverse and Kolmogorov distance against MP."""
+    """Variance, edges, mean inverse and Kolmogorov distance against MP.
+
+    <1/lambda> is NaN when the spectrum has zero modes (lambda_min at
+    round-off, e.g. HIP starts at chi = 0.4: the wave gradients are
+    linearly dependent; D-018).
+    """
     s = np.sort(ev.ravel())
     f_emp = np.arange(1, s.shape[0] + 1) / s.shape[0]
     ks = float(np.max(np.abs(f_emp - mp_cdf(c, s))))
+    positive = float(s[0]) > ZERO_MODE * float(s[-1])
+    inv = float(np.mean(1.0 / ev)) * (1.0 - c) if positive else float("nan")
     out = {"var": float(np.mean(ev.var(axis=1))) / c,
            "lo": float(np.median(ev[:, 0])) / (1.0 - np.sqrt(c)) ** 2,
            "hi": float(np.median(ev[:, -1])) / (1.0 + np.sqrt(c)) ** 2,
-           "inv": float(np.mean(1.0 / ev)) * (1.0 - c), "ks": ks}  # fmt: skip
-    assert out["var"] > 0.0 and out["inv"] > 0.0, "positive spectrum"
+           "inv": inv, "ks": ks}  # fmt: skip
+    assert out["var"] > 0.0 and not inv <= 0.0, "positive spectrum"
     return out
 
 
