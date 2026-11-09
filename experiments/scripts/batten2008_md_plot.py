@@ -351,7 +351,7 @@ def figure_net_msd(data: Dict[str, object], out: Path, dpi: int, t_idx: int) -> 
         ref = (
             np.nanmedian(main[(starts[0], tag)]["msd_c"][:, t_idx, -1]) * lag / lag[-1]
         )
-        ax.plot(lag, ref, color="0.6", lw=0.8, ls="--")
+        ax.plot(lag, ref, color="0.6", lw=0.8, ls="--", label=r"$\propto t$ (slope 1)")
         ax.set_xscale("log")
         ax.set_yscale("log")
         ax.set_xlabel(r"Time Since Segment Start, $t$")
@@ -453,7 +453,7 @@ def figure_temperature(data: Dict[str, object], out: Path, dpi: int) -> None:
                             color=START_COLORS.get(s, "0.5"), lw=2.0, capsize=3,
                             label=START_LABELS.get(s, s))  # fmt: skip
             ax.set_xscale("log")
-            if key != "nu_c":
+            if key == "net_rms_u":  # spans decades; nu and D_theta do not
                 ax.set_yscale("log")
             if key == "net_rms_u":
                 z = main[(starts_of(main, tag)[0], tag)]
@@ -466,6 +466,8 @@ def figure_temperature(data: Dict[str, object], out: Path, dpi: int) -> None:
             if r == len(tags) - 1:
                 ax.set_xlabel(r"Temperature, $k_B T$")
     handles, labels = axes[0, 1].get_legend_handles_labels()
+    handles.append(Line2D([], [], color="0.4", marker="o", lw=0.0))
+    labels.append("median; bars: 25-75 % over ground states")
     fig.legend(handles, labels, loc="upper center", ncol=len(labels),
                bbox_to_anchor=(0.5, 0.0), frameon=False)  # fmt: skip
     fig.tight_layout()
@@ -672,7 +674,8 @@ def figure_spectra(data: Dict[str, object], out: Path, dpi: int) -> None:
         plt.Rectangle((0, 0), 1, 1, color="#c0392b", alpha=0.35),
     ]
     fig.legend(handles, [r"$\rho_k$ power (ground state 0)",
-                         r"$\sqrt{\mathrm{eig}\,K}$ density"], loc="upper center",
+                         r"$\sqrt{\mathrm{eig}\,K}$ density (KDE, peak scaled to "
+                         "panel height)"], loc="upper center",
                ncol=2, bbox_to_anchor=(0.5, 0.0), frameon=False)  # fmt: skip
     fig.tight_layout()
     assert starts, "spectra files have systems"
