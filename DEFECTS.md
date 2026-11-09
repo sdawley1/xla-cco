@@ -452,3 +452,13 @@ Statuses:
 - **Impact:** before A1, H5 could only be PASS or INCONCLUSIVE on data with no start dependence (no false FAIL: FAIL needs a >= 10 % median difference); no production data existed
 - **Regression test:** tests/unit/test_batten2008_md.py::test_regression_D047_h5_null_set_pass_rate (>= 18 of 20 start-independent sets pass the A2 mean-eta^2_H part; 197 of 200 measured), plus test_h5_cell_null_pass_rate (per cell 0.835) and the property test_h5_identical_starts_pass_property
 - **Fix:** A1.1: `kruskal_eta2` returns the bias-corrected eta^2_H = (H - k + 1)/(n - k) (null mean 0). A1 alone still left a start-independent set passing all 6 cells with probability 0.85^6 = 0.37 (measured 6/20 full synthetic sets), so A2 (2cc30a2) evaluates H5 part 1 on the mean of eta^2_H over the harmonic cells (`h5_mean_eta2`; per-cell values descriptive): 20/20 full synthetic null sets pass (largest mean 0.053)
+
+## D-088 — E1b power spectrum mixes the thermostatted phases into the NVE spectrum
+- **Found:** 2026-11-09, while writing the E1 run script (batten2008_md_run.py, E1b assembly)
+- **Status:** open
+- **Where:** experiments/scripts/batten2008_md_analysis.py:695 (`_trace_spectra`)
+- **Symptom:** the rho trace of cli.md is global (one row every `record_rho_every` steps from step 0, across all phases), so for E1b (trace every 5 steps; 2e5 Andersen equilibration + 1e5 Andersen + 5000 or 10000 NVE steps) the "leading uniform run" that `_trace_spectra` transforms is the whole run: about 98 % of its samples are Andersen-thermostatted and only the last 1-2 % are the t = 200 NVE segment that F10 compares with sqrt(eig K). `trace_inverse_modulus` already restricts to the production segments (`segments(meta)`); `_trace_spectra` does not.
+- **Repro:** an E1b output (`batten2008_md_run.py --step spectra`) has trace_count = (n_equil + n_andersen + n_nve) / 5 uniform rows; `_trace_spectra` uses all of them (no gap), not the last n_nve / 5
+- **Impact:** F10 spectra would be broadened by the Andersen collisions and dominated by the equilibration; H-tests unaffected (F10 is descriptive). E1 files also get a `spec_power` from their 2000-step trace (Nyquist 0.04 << omega_min 0.17), which is aliased and should not be plotted.
+- **Regression test:** none yet (open; fix belongs to E2: restrict the spectrum to the trace rows inside each production segment, as `trace_inverse_modulus` does)
+- **Fix:** —
