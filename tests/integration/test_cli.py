@@ -20,6 +20,8 @@ from pathlib import Path
 from typing import Any, List
 
 # ----- numerics -----
+import jax
+import jax.numpy as jnp
 import numpy as np
 import pytest
 from hypothesis import given
@@ -374,6 +376,75 @@ def test_cli_help() -> None:
     )
     assert proc.returncode == 0
     assert "adaptive bins" in proc.stdout and "9.99999968e-21" in proc.stdout
+
+
+# ============================================================
+# DEVICE SELECTION
+# ============================================================
+
+
+class _FakeGpu:
+    """Stands in for a GPU device listed first by an initialized backend."""
+
+    platform = "gpu"
+
+
+@pytest.mark.critical
+def test_regression_D085_select_device_cpu_after_backend_init(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-085: select_device("cpu") works after the backend started on a GPU.
+
+    jax_platforms is ignored once the backend is initialized, so the old
+    check saw the GPU first in jax.devices() and raised. The fake GPU listed
+    first reproduces that on CPU-only hosts; computations must land on cpu.
+    """
+    real = jax.devices
+    cpu = real("cpu")[0]
+    assert real(), "backend initialized before the device is selected"
+
+    def devices(backend: Any = None) -> List[Any]:
+        return [_FakeGpu(), *real()] if backend is None else list(real(backend))
+
+    monkeypatch.setattr(jax, "devices", devices)
+    assert cli.select_device("cpu") == "cpu"
+    assert jax.config.jax_default_device == cpu
+    out = jax.jit(lambda x: 2.0 * x)(jnp.ones(3))
+    assert out.devices() == {cpu}
+
+
+@pytest.mark.high
+def test_default_device_leaks_out_of_this_test() -> None:
+    """First half of a pair: set the default device and do not undo it.
+
+    The conftest fixture ``_restore_default_device`` must reset it before the
+    next test (``test_default_device_was_restored``, which runs right after
+    this one in file order). Without the reset, in-process CLI tests on the
+    GPU suite would move every later test to the CPU (AUDIT-V4-fixes F1).
+    """
+    cpu = jax.devices("cpu")[0]
+    jax.config.update("jax_default_device", cpu)
+    assert jax.config.jax_default_device == cpu, "set for this test only"
+    assert jnp.ones(2).devices() == {cpu}, "computations follow it"
+
+
+@pytest.mark.high
+def test_default_device_was_restored() -> None:
+    """Second half: the leaked default device of the previous test is gone."""
+    assert jax.config.jax_default_device is None, "conftest restores it"
+    platform = jnp.zeros(()).devices().pop().platform
+    assert platform == jax.devices()[0].platform, "back on the default backend"
+
+
+@pytest.mark.high
+def test_select_device_gpu_never_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With the GPU guard bypassed and no GPU device, "gpu" still raises."""
+    if any(d.platform in ("gpu", "cuda") for d in jax.devices()):
+        pytest.skip("a GPU is present: the no-GPU path cannot be exercised")
+    monkeypatch.setattr(cli, "require_gpu", lambda: None)
+    with pytest.raises(RuntimeError, match="--device gpu"):
+        cli.select_device("gpu")
+    assert cli.select_device("cpu") == "cpu"
 
 
 # ============================================================
