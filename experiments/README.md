@@ -853,6 +853,50 @@ The gap is therefore enforced by the constraint that the ρ(k) come from N point
 - finite size (`batten2008_mp_finite_size_plot.py` with the N = 4096 flows);
 - composites with finite inclusions and all plane waves.
 
+#### What the gap needs: phases, winding and the transparency interval
+
+These checks were run ad hoc, not by a committed script.
+
+**(a) Partial phase randomization** (χ = 0.491, one ground state). Each phase θ_k is shifted by ε·φ_k, with φ_k uniform in [−π, π]; every |ρ(k)| is kept.
+
+| ε | 0 | 0.05 | 0.1 | 0.2 | 0.3 | 0.5 | 1 |
+|---|---|---|---|---|---|---|---|
+| gap width (ω/K) | 0.092 | 0.089 | 0.075 | 0.038 | 0.006 | 0.003 | 0.002 |
+| density in the ground-state gap | 0 | 0 | 0 | 0.15 | 0.40 | 0.61 | 0.67 |
+| negative ω² | 0 | 0.062 | 0.081 | 0.099 | 0.109 | 0.110 | 0.106 |
+| Var λ(C) | 0.5735 at every ε | | | | | | |
+
+- Realizability is lost at the smallest noise (6% negative at ε = 0.05), while the gap survives to ε ≈ 0.1 and closes by 0.3. The gap is therefore a property of the phase arrangement, robust to phase errors of about ±0.1π, and not simply of positivity.
+- Var λ(C) depends only on |ρ| (an exact identity), so it is unchanged at every ε.
+
+**(b) Moments.** The third moment ⟨(λ − 1)³⟩ of λ(C) is a sum over closed triangles of pair vectors, ρ(a − b) ρ(b − c) ρ(c − a), so it carries the triad phases.
+- At χ = 0.455 it is −0.0005 ± 0.0010 in the ground states, indistinguishable from the phase-randomized value of +0.0001.
+- At χ = 0.491 it is −0.0053, against −0.0011 at ε = 1.
+- The gap therefore needs loops of four or more pair vectors, i.e. higher-order phase correlations.
+
+**(c) Winding does not set the gap.** Over 40 flows at χ = 0.455:
+- the gap width is 0.071 ± 0.011 (coefficient of variation 0.16) and the total winding is 1888 ± 119 (0.06);
+- Spearman correlation with total winding is −0.07 (p = 0.66); with winding of waves above 0.5K, −0.08; with path length, −0.10; with flow time, −0.01;
+- the third moment against winding gives +0.02.
+
+**(d) Leakage out of the transparent sector.** For each long wave (|q| < K/2) the leakage is r_q = Σ_p C²_qp over outer waves p (|p| ≥ K/2). Medians by |q|/K:
+
+| χ | 0–0.1 | 0.1–0.2 | 0.2–0.3 | 0.3–0.4 | 0.4–0.5 | r_q/(\|q\|/K) |
+|---|---|---|---|---|---|---|
+| 0.10 | 0.014 | 0.027 | 0.040 | 0.054 | 0.068 | 0.15 |
+| 0.25 | 0.030 | 0.067 | 0.108 | 0.143 | 0.175 | 0.40 |
+| 0.35 | 0.040 | 0.095 | 0.148 | 0.193 | 0.233 | 0.55 |
+| 0.40 | 0.057 | 0.107 | 0.158 | 0.216 | 0.288 | 0.62 |
+| 0.455 | 0.052 | 0.109 | 0.195 | 0.292 | 0.404 | 0.79 |
+| 0.491 | 0.056 | 0.132 | 0.238 | 0.378 | 0.518 | 1.03 |
+
+The leakage is close to linear in |q|: only partners with |p| > K − |q| couple, a rim of area ∝ 2πK|q|. Its slope grows sevenfold from χ = 0.1 to 0.49.
+
+**Effective dispersion** (`figures/coupling_phonon_dispersion`): one panel per χ, showing the median ω/K per bin of eigenvector mean |q|/K, with 16–84% and 2.5–97.5% bands. Bins with fewer than 10 modes are left out.
+- At every χ the curve crosses the uncoupled line ω = |q| near |q|/K ≈ 0.7–0.8: modes below the crossing are softened and modes above it stiffened.
+- At χ ≥ 0.45 the gap opens at this crossing.
+- At χ ≥ 0.40 no frequency mode has eigenvector mean |q|/K below about 0.3–0.45. The long waves are not normal modes in frequency: they hybridize with the soft outer modes. In λ(C) they still form a near-identity block.
+
 #### All four χ for 2D Poisson
 
 `hessian_sign_mechanism`, `hessian_negative_compare` and `hessian_plateau_mechanism` now include 2D Poisson flows at χ = 0.25 (tag 1-4) and χ = 0.45 (tag 9-20), with 100 flows each. Pass the extra tags with `--extra-chi 1-4 9-20`; the other starts have χ = 0.1 and 0.4 only.
@@ -1096,7 +1140,7 @@ uv run --no-sync python -I experiments/scripts/batten2008_windcv_plot.py --total
 
 **Data.** `trajectories/{gau2d/N1000,url2d/N1024,rsa2d/N999,hip2d/N1000}/` with the same files as `flows2d/N1024`, plus `winding_chi<tag>.npz`, `plateau_chi<tag>.npz` and `landscape_chi<tag>.npz` everywhere. The 20-flow runs are kept in `trajectories/<start>/N<N>_n20/`. The tolerance checks are in `trajectories/{batten2008_tight/N1000,flows2d_tight/N1024}/` (flow 0, atol 10⁻¹¹, rtol 10⁻³).
 
-**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `hessian_sign_compare`, `hessian_sign_mechanism`, `hessian_sign_starts`, `hessian_sign_universal`, `coupling_mp_compare`, `coupling_mp_shoulder`, `coupling_phonon_gap`, `winding_cv_explained`, `exclusion_mode_control`, `exclusion_mode_spectra`, `exclusion_drive`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
+**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `hessian_sign_compare`, `hessian_sign_mechanism`, `hessian_sign_starts`, `hessian_sign_universal`, `coupling_mp_compare`, `coupling_mp_shoulder`, `coupling_phonon_gap`, `coupling_phonon_dispersion`, `winding_cv_explained`, `exclusion_mode_control`, `exclusion_mode_spectra`, `exclusion_drive`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
 
 ### The 1D landscape against χ, in 3D
 
