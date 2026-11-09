@@ -1155,3 +1155,22 @@ def test_regression_D089_out_dir_property(systems: List[str], tag: str) -> None:
     dests = [ana.output_path(p, out) for p in paths]
     assert len(set(dests)) == len(systems)
     assert all(d.parent.parent.name == s for d, s in zip(dests, systems, strict=True))
+
+
+@pytest.mark.high
+@given(
+    rest=st.sampled_from(["", "_langevin_g0.03", "_spectra"]),
+    tag=st.sampled_from(["1-10", "2-5", "7-20"]),
+)
+@example(rest="", tag="1-10")
+def test_regression_D090_analysis_output_is_not_an_input(rest: str, tag: str) -> None:
+    """D-090: an md_analysis*_chi<tag>.npz is rejected as an MD input by name.
+
+    The README glob ``md_*chi*.npz`` matched a stray analysis file, which then
+    failed in load_md with a missing-arrays error; the name check fails first,
+    with a message naming the cause. Genuine MD outputs keep their names.
+    """
+    with pytest.raises(ValueError, match="analysis output"):
+        ana.output_name(Path(f"/d/flows2d/N1024/md_analysis{rest}_chi{tag}.npz"))
+    good = ana.output_name(Path(f"/d/flows2d/N1024/md{rest}_chi{tag}.npz"))
+    assert good == f"md_analysis{rest}_chi{tag}.npz"

@@ -63,6 +63,7 @@ Statuses:
 | D-087 | fixed | `tests/property/test_energy_props.py` (D-011 regression) | The D-011 demonstration (the old tolerance fails on the pinned input) depends on CPU rounding; on the GPU the old tolerance passes. |
 | D-088 | fixed | `batten2008_md_analysis.py` (`_trace_spectra`) | E1b power spectrum mixed the thermostatted phases into the NVE spectrum (table row added with D-089; section below). |
 | D-089 | fixed | `batten2008_md_analysis.py` (`__main__`, `output_path`) | A shared `--out-dir` wrote every start's `md_analysis_chi<tag>.npz` to the same file, so the starts overwrote one another silently. |
+| D-090 | fixed | `experiments/README.md` (E2 step-by-step command); `batten2008_md_analysis.py` (`output_name`) | The README glob `md_*chi*.npz` also matched an analysis output (`md_analysis_chi1-10.npz`), which `load_md` then rejected with a missing-arrays error that aborted the loop. |
 
 ## D-006 — `unit_ball_volume` is not bit-equal to the C++ hard-coded constants
 - **Found:** 2026-11-05, by the T4 auditor's preview parity
@@ -474,3 +475,13 @@ Statuses:
 - **Impact:** none on the results: the production run (job 17171421) passed a per-start `--out-dir R/<system>/N<N>` from the SLURM script, so all 28 analyses are distinct (`collect` finds 10 production, 8 Langevin and 10 spectra files); the hazard was for any later rerun with one --out-dir
 - **Regression test:** tests/unit/test_batten2008_md.py::test_regression_D089_out_dir_keeps_starts_apart, ::test_regression_D089_out_dir_property (Hypothesis; repro pinned by `@example`); both failed before the fix
 - **Fix:** `output_path(path, out_dir)` mirrors the input's `<system>/N<N>` directories under `--out-dir` (unchanged without it); experiments/slurm/batten2008_md_analysis_cpu.slurm passes one `--out-dir`, which yields the same layout as job 17171421
+
+## D-090 — The README step-by-step analysis command picks up an analysis output
+- **Found:** 2026-11-09, by the A-E5 audit (AUDIT-E5 F3)
+- **Status:** fixed
+- **Where:** experiments/README.md (E2 step-by-step: `--md $(ls experiments/trajectories/*/N*/md_*chi*.npz | grep -v ckpt)`); experiments/scripts/batten2008_md_analysis.py (`output_name`, `__main__`)
+- **Symptom:** the glob also matches `md_analysis*_chi<tag>.npz` written beside the inputs (the pilot left `flows2d/N1024/md_analysis_chi1-10.npz`), so the loop reaches it, `load_md` raises `ValueError: ... lacks arrays [...]` and the remaining files are not analysed
+- **Repro:** run the README command in the main checkout: 29 files are passed, one of them `flows2d/N1024/md_analysis_chi1-10.npz`
+- **Impact:** none on the results; the SLURM script (`find ... ! -name 'md_analysis*'`) was used for production (job 17171421)
+- **Regression test:** tests/unit/test_batten2008_md.py::test_regression_D090_analysis_output_is_not_an_input (Hypothesis; repro pinned by `@example`); failed before the fix
+- **Fix:** the README command also filters `md_analysis` (`grep -v -e ckpt -e md_analysis`; 28 files); `output_name` raises `ValueError("... is an analysis output, not an MD output")` for an `md_analysis*` stem, and `__main__` resolves the destination before analysing, so a bad name fails at once with that message

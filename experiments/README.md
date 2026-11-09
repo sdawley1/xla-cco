@@ -827,7 +827,7 @@ mkdir -p experiments/trajectories
 env -u JAX_PLATFORMS sbatch --export=ALL,PAR=4 experiments/slurm/batten2008_md_analysis_cpu.slurm
 # or step by step
 uv run --no-sync python experiments/scripts/batten2008_md_analysis.py \
-    --md $(ls experiments/trajectories/*/N*/md_*chi*.npz | grep -v ckpt) \
+    --md $(ls experiments/trajectories/*/N*/md_*chi*.npz | grep -v -e ckpt -e md_analysis) \
     --out-dir experiments/trajectories/md_results          # -> md_results/<start>/N<N>/md_analysis*_chi<tag>.npz
 uv run --no-sync python experiments/scripts/batten2008_md_stats.py --analysis experiments/trajectories/md_results \
     --out-json experiments/trajectories/md_results/verdicts.json
