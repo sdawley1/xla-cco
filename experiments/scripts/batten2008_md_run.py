@@ -25,13 +25,16 @@ annotates the CLI's JSON with provenance and the SLURM cost. Steps:
   sacct (the job's final ElapsedRaw; no JAX import).
 
 dt, wind_every and drift_tol per chi come from bench.json; the trace
-cadence is n_nve // 500 and its capacity covers the extended protocol, as
-V3 sized it. Every cell checkpoints to ``<output>.ckpt.npz`` (every 30 min
-and after each phase) and resumes when rerun with the same arguments. The
-SLURM jobs that worked on a cell are listed in ``<output>.jobs.json``; the
-cost is GPU-h = ElapsedRaw x n_gpu / 3600 summed over them (sacct). Any
-protocol option changed from the plan default is recorded under
-``run_script.plan_deviations``.
+cadence is n_nve // 500 (a multiple of wind_every, else ValueError) and its
+capacity covers the extended protocol, as V3 sized it. E4 requires gamma <
+omega_min (bench.json "chosen", when recorded). Every cell checkpoints to
+``<output>.ckpt.npz`` (every 30 min and after each phase) and resumes when
+rerun with the same arguments. The SLURM jobs that worked on a cell are
+listed in ``<output>.jobs.json``; the cost is GPU-h = ElapsedRaw x n_gpu /
+3600 summed over them (sacct). Any protocol option changed from the plan default is recorded under
+``run_script.plan_deviations``; the provenance also records the git HEAD and
+whether tracked files had uncommitted changes (``git_dirty``,
+``git_changed``).
 
 Usage (from the repository root; SLURM: batten2008_md_gpu.slurm STEP=run):
   python batten2008_md_run.py --step run --system flows2d --chi 1-10 \
@@ -89,6 +92,8 @@ ANDERSEN_P: float = 0.01
 CHOSEN_KEYS: Tuple[str, ...] = ("dt", "wind_every", "drift_tol", "k_chunk")
 SACCT_FORMAT: str = "JobID,JobName,ElapsedRaw,AllocTRES,State"
 MAX_JOBS: int = 1000  # bound of the per-cell job list
+MAX_CHANGED: int = 200  # bound of the uncommitted-file list in the provenance
+OMEGA_MIN_KEY: str = "omega_min_all_starts"  # V3: lowest sqrt(eig K) over starts
 
 # ============================================================
 # CELL LAYOUT AND SETTINGS
@@ -160,6 +165,45 @@ def trace_records(
     return max(1, total // every)
 
 
+def trace_every(step: str, n_nve: int, wind_every: int) -> int:
+    """Rho-trace cadence (steps): 5 for E1b, else n_nve // 500 (Amendment A4).
+
+    The trace stores the latest rho, whose unconstrained rows are refreshed
+    only on ``wind_every`` steps; a cadence that is not a multiple of the
+    CLI's ``wind_every`` would trace stale rows (H6b), so it is a ValueError
+    (only reachable through an --n-nve override; the plan's 2000 is a
+    multiple of 5 and 2).
+    """
+    assert step in STEPS and n_nve >= 1, "known step, positive n_nve"
+    assert wind_every >= 1, "wind_every >= 1"
+    out = SPECTRA_EVERY if step == "spectra" else max(1, n_nve // TRACE_SAMPLES)
+    if out % wind_every != 0:
+        raise ValueError(
+            f"trace cadence {out} (n_nve {n_nve} // {TRACE_SAMPLES}) is not a "
+            f"multiple of wind_every {wind_every}: unconstrained rows would be stale"
+        )
+    return out
+
+
+def check_gamma(gamma: float, chosen: Dict[str, Any]) -> Optional[float]:
+    """omega_min of the bench if gamma < omega_min (ValueError if not), else None.
+
+    The plan requires E4's friction to stay below the lowest harmonic
+    frequency (V3: omega_min = min sqrt(eig K) over the starts). A bench
+    without ``omega_min_all_starts`` (written before V3 recorded it, e.g. a
+    test bench) cannot be checked; None is returned and recorded in the
+    provenance, so the run is visibly unchecked.
+    """
+    assert gamma > 0.0, "positive friction"
+    assert isinstance(chosen, dict), "bench.json chosen settings"
+    if chosen.get(OMEGA_MIN_KEY) is None:
+        return None
+    omega_min = float(chosen[OMEGA_MIN_KEY])
+    if not gamma < omega_min:
+        raise ValueError(f"gamma {gamma} is not below omega_min {omega_min} (V3)")
+    return omega_min
+
+
 def protocol(args: argparse.Namespace) -> Dict[str, Any]:
     """Protocol of the step: plan defaults, each overridable by an option."""
     step = args.step
@@ -202,7 +246,8 @@ def cli_argv(args: argparse.Namespace, prefix: Path, k_outer: float) -> List[str
     """
     ch, pr, step = args.chosen, args.proto, args.step
     baoab = step == "langevin"
-    every = SPECTRA_EVERY if step == "spectra" else max(1, pr["n_nve"] // TRACE_SAMPLES)
+    wind = 1 if step == "spectra" else int(ch["wind_every"])
+    every = trace_every(step, pr["n_nve"], wind)
     cap = trace_records(pr["n_equil"], pr["n_andersen"], pr["n_nve"], pr["cycles"],
                         every, baoab)  # fmt: skip
     argv = [
@@ -213,7 +258,7 @@ def cli_argv(args: argparse.Namespace, prefix: Path, k_outer: float) -> List[str
         "--n-andersen", str(pr["n_andersen"]), "--n-nve", str(pr["n_nve"]),
         "--cycles", str(pr["cycles"]), "--andersen-p", repr(ANDERSEN_P),
         "--andersen-mode", "count",
-        "--wind-every", "1" if step == "spectra" else str(int(ch["wind_every"])),
+        "--wind-every", str(wind),
         "--n-snapshots", str(pr["n_snapshots"]),
         "--record-rho-every", str(every), "--max-rho-records", str(cap),
         "--drift-tol", repr(float(ch["drift_tol"])),
@@ -222,6 +267,7 @@ def cli_argv(args: argparse.Namespace, prefix: Path, k_outer: float) -> List[str
         "--device", args.device,
     ]  # fmt: skip
     if baoab:
+        check_gamma(float(args.gamma), ch)
         argv += ["--scheme", "baoab", "--gamma", repr(float(args.gamma))]
     if step == "spectra":
         argv += ["--k-track", repr(float(k_outer))]
@@ -350,16 +396,35 @@ def file_sha256(path: Path) -> str:
     return out
 
 
-def git_head() -> str:
-    """Commit of the checkout this script runs from ('' if git is unavailable)."""
+def git_head(repo: Path = REPO) -> str:
+    """Commit of the checkout ``repo`` ('' if git or the repository is unavailable)."""
     try:
-        done = subprocess.run(["git", "-C", str(REPO), "rev-parse", "HEAD"],
+        done = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
                               capture_output=True, text=True, timeout=30)  # fmt: skip
     except (OSError, subprocess.SubprocessError):
         return ""
     out = done.stdout.strip() if done.returncode == 0 else ""
     assert out == "" or len(out) == 40, "a full commit hash"
     return out
+
+
+def git_changes(repo: Path = REPO) -> Optional[List[str]]:
+    """Tracked files of ``repo`` with uncommitted changes; None if git fails.
+
+    ``git status --porcelain --untracked-files=no``: untracked files (logs,
+    outputs) are not code changes. Paths are those git prints after the
+    two-letter status, at most MAX_CHANGED.
+    """
+    argv = ["git", "-C", str(repo), "status", "--porcelain", "--untracked-files=no"]
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode != 0:
+        return None
+    out = [line[3:] for line in done.stdout.splitlines() if len(line) > 3]
+    assert all(out), "non-empty paths"
+    return out[:MAX_CHANGED]
 
 
 def validate(args: argparse.Namespace) -> None:
@@ -397,13 +462,17 @@ def run_cell(args: argparse.Namespace) -> int:
     code = md.main(argv)
     if code != 0:
         return code
+    changed = git_changes()
+    omega_min = check_gamma(args.gamma, args.chosen) if args.gamma else None
     annotate(Path(str(prefix) + ".json"), {
         "run_script": {
             "step": args.step, "system": args.system, "chi_tag": args.chi,
             "gamma": args.gamma, "bench": str(args.bench),
             "bench_sha256": file_sha256(args.bench), "chosen": args.chosen,
             "cli_argv": argv, "plan_deviations": args.proto["deviations"],
-            "git_head": git_head(), "xla_cco": str(Path(md.__file__).parent),
+            "git_head": git_head(), "git_changed": changed,
+            "git_dirty": None if changed is None else bool(changed),
+            "omega_min": omega_min, "xla_cco": str(Path(md.__file__).parent),
         },
         "jobs": jobs, "cost": sacct_cost(jobs),
     })  # fmt: skip

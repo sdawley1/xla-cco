@@ -16,9 +16,11 @@ Samuel J. Dawley
 
 # ----- standard library -----
 import argparse
+import hashlib
 import itertools
 import json
 import math
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -95,6 +97,23 @@ def _bench() -> Dict[str, Any]:
     return out
 
 
+def _plan_cells() -> List[Any]:
+    """Every (step, system, chi, gamma) cell of the plan (28)."""
+    cells = [(s, y, c, None) for s, y, c in itertools.product(
+        ("run", "spectra"), mdr.SYSTEMS, mdr.CHI_TAGS)]  # fmt: skip
+    cells += [("langevin", y, c, g) for y, c, g in itertools.product(
+        mdr.LANGEVIN_SYSTEMS, mdr.CHI_TAGS, mdr.LANGEVIN_GAMMAS)]  # fmt: skip
+    assert len(cells) == 28, "E1 + E1b (2 x 5 x 2) + E4 (2 x 2 x 2)"
+    return cells
+
+
+def _git(repo: Path, *argv: str) -> None:
+    """Run git in ``repo`` with a throwaway identity (raises on failure)."""
+    ident = ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+    subprocess.run(["git", "-C", str(repo), *ident, *argv], check=True,
+                   capture_output=True, timeout=60)  # fmt: skip
+
+
 # ============================================================
 # INPUT ASSEMBLY
 # ============================================================
@@ -120,6 +139,8 @@ def test_run_argv_follows_plan_and_bench(chi: str) -> None:
         chosen["record_rho_every"], chosen["max_rho_records"])  # fmt: skip
     assert ns.n_nve // ns.record_rho_every >= mdr.TRACE_SAMPLES  # A4 per segment
     assert ns.max_rho_records == _trace_rows_needed(ns)
+    assert ns.record_rho_every % ns.wind_every == 0  # F5: fresh unconstrained rows
+    assert ns.seed == mdr.cell_seed("run", "flows2d", chi, None)  # F1
     assert ns.checkpoint == Path(str(ns.save) + ".ckpt.npz")
     assert ns.save.name == f"md_chi{chi}" and ns.input.name == f"flows_chi{chi}.npz"
 
@@ -135,6 +156,8 @@ def test_spectra_argv_follows_plan(chi: str) -> None:
     assert (ns.n_nve, ns.record_rho_every, ns.max_rho_records) == (
         plan["n_nve"], 5, plan["max_rho_records"])  # fmt: skip
     assert ns.max_rho_records == _trace_rows_needed(ns)
+    assert ns.record_rho_every % ns.wind_every == 0  # F5
+    assert ns.seed == mdr.cell_seed("spectra", "flows2d", chi, None)  # F1
     assert ns.save.name == f"md_spectra_chi{chi}"
 
 
@@ -149,6 +172,9 @@ def test_langevin_argv_follows_plan(gamma: float) -> None:
     assert (ns.dt, ns.wind_every) == (chosen["dt"], chosen["wind_every"])
     assert ns.record_rho_every == chosen["record_rho_every"]
     assert ns.max_rho_records == _trace_rows_needed(ns)
+    assert ns.record_rho_every % ns.wind_every == 0  # F5
+    assert ns.seed == mdr.cell_seed("langevin", "hip2d", "2-5", gamma)  # F1
+    assert gamma < chosen["omega_min_all_starts"]  # F6 (the run script checks it)
     assert ns.save.name == f"md_langevin_g{gamma:g}_chi2-5"
 
 
@@ -170,12 +196,12 @@ def test_off_plan_cells_rejected() -> None:
 @pytest.mark.high
 def test_overrides_recorded_as_plan_deviations() -> None:
     """A changed protocol option is applied and listed; the plan is not."""
-    args = _args("run", n_nve=1000, temperature=[1e-4])
+    args = _args("run", n_nve=2500, temperature=[1e-4])  # every 5 = wind_every
     ns = _cli(_assemble(args))
     dev = args.proto["deviations"]
-    assert ns.n_nve == 1000 and ns.temperature == [1e-4]
+    assert ns.n_nve == 2500 and ns.temperature == [1e-4]
     assert dev == {
-        "n_nve": {"plan": 1_000_000, "used": 1000},
+        "n_nve": {"plan": 1_000_000, "used": 2500},
         "temperature": {"plan": list(mdr.TEMPS_RUN), "used": [1e-4]},
     }
     assert _assemble(_args("run")) and _args("run").n_gs is None
@@ -184,13 +210,69 @@ def test_overrides_recorded_as_plan_deviations() -> None:
 @pytest.mark.high
 def test_seeds_distinct_per_cell() -> None:
     """Every (step, system, chi, gamma) cell of the plan has its own seed."""
-    cells = [(s, y, c, None) for s, y, c in itertools.product(
-        ("run", "spectra"), mdr.SYSTEMS, mdr.CHI_TAGS)]  # fmt: skip
-    cells += [("langevin", y, c, g) for y, c, g in itertools.product(
-        mdr.LANGEVIN_SYSTEMS, mdr.CHI_TAGS, mdr.LANGEVIN_GAMMAS)]  # fmt: skip
+    cells = _plan_cells()
     seeds = [mdr.cell_seed(*cell) for cell in cells]
     assert len(set(seeds)) == len(cells) == 28
     assert min(seeds) >= 1
+
+
+@pytest.mark.critical
+def test_cli_seed_is_cell_seed_for_every_cell() -> None:
+    """AUDIT-E1 F1: the --seed cli.md receives is cell_seed, distinct per cell.
+
+    Checks the assembled argv (not cell_seed alone), so a constant --seed in
+    cli_argv (audit mutation M2b) fails here.
+    """
+    got = {}
+    for step, system, chi, gamma in _plan_cells():
+        ns = _cli(_assemble(_args(step, system=system, chi=chi, gamma=gamma)))
+        assert ns.seed == mdr.cell_seed(step, system, chi, gamma), (step, system)
+        got[(step, system, chi, gamma)] = ns.seed
+    assert len(set(got.values())) == len(got) == 28
+
+
+@pytest.mark.high
+@pytest.mark.parametrize(("chi", "n_nve"), [("1-10", 600), ("1-10", 1500),
+                                             ("2-5", 1500)])  # fmt: skip
+def test_trace_cadence_not_multiple_of_wind_every_rejected(
+    chi: str, n_nve: int
+) -> None:
+    """AUDIT-E1 F5: an override whose trace cadence is not a multiple of
+    wind_every (stale unconstrained rows in the A4 trace) is a ValueError.
+
+    1-10 has wind_every 5: n_nve 600 -> every 1, 1500 -> 3 (both rejected);
+    2-5 has wind_every 2: 1500 -> every 3 (rejected); 1000 -> 2 is accepted.
+    """
+    with pytest.raises(ValueError, match="multiple of wind_every"):
+        _assemble(_args("run", chi=chi, n_nve=n_nve))
+    ns = _cli(_assemble(_args("run", chi="2-5", n_nve=1000)))
+    assert ns.record_rho_every == 2 and ns.wind_every == 2
+    assert mdr.trace_every("run", 1_000_000, 5) == 2000  # plan: n_nve // 500
+    assert mdr.trace_every("spectra", 5000, 1) == mdr.SPECTRA_EVERY  # wound each step
+
+
+@pytest.mark.high
+def test_langevin_gamma_below_omega_min(tmp_path: Path) -> None:
+    """AUDIT-E1 F6: E4 needs gamma < omega_min (V3) whenever bench.json has it.
+
+    A bench whose omega_min_all_starts lies between the two gammas rejects
+    gamma = 0.03 and accepts 0.003; a bench without the key (written before
+    V3 recorded omega_min, e.g. the tiny end-to-end bench) is not checked,
+    and omega_min is None in the returned value (recorded in provenance).
+    """
+    chosen = dict(_bench()["chosen"]["2-5"])
+    assert mdr.check_gamma(0.03, chosen) == chosen["omega_min_all_starts"]
+    low = dict(chosen, omega_min_all_starts=0.02)
+    bench = tmp_path / "bench.json"
+    bench.write_text(json.dumps({"chosen": {"2-5": low}}))
+    with pytest.raises(ValueError, match="omega_min"):
+        _assemble(_args("langevin", system="hip2d", chi="2-5", gamma=0.03, bench=bench))
+    assert _assemble(_args("langevin", system="hip2d", chi="2-5", gamma=0.003,
+                           bench=bench))  # fmt: skip
+    del low["omega_min_all_starts"]
+    assert mdr.check_gamma(0.03, low) is None
+    with pytest.raises(ValueError, match="omega_min"):
+        mdr.check_gamma(0.03, dict(chosen, omega_min_all_starts=0.03))  # gamma = w
 
 
 @pytest.mark.high
@@ -224,6 +306,23 @@ def test_trace_capacity_covers_extended_protocol(
     assert cap == max(1, _trace_rows_needed(ns))
     total = sum(ph.n_steps for ph in md.protocol_phases(ns, extended=True))
     assert cap * every <= total or cap == 1
+
+
+@pytest.mark.high
+def test_git_changes_reports_dirty_worktree(tmp_path: Path) -> None:
+    """AUDIT-E1 F3: tracked uncommitted changes listed; clean -> []; no repo -> None."""
+    assert mdr.git_changes(tmp_path) is None  # not a repository
+    _git(tmp_path, "init", "-q")
+    (tmp_path / "a.py").write_text("x = 1\n")
+    _git(tmp_path, "add", "a.py")
+    _git(tmp_path, "commit", "-q", "-m", "init")
+    assert mdr.git_changes(tmp_path) == []
+    (tmp_path / "untracked.log").write_text("log\n")
+    assert mdr.git_changes(tmp_path) == []  # untracked files are not code changes
+    (tmp_path / "a.py").write_text("x = 2\n")
+    assert mdr.git_changes(tmp_path) == ["a.py"]
+    head = mdr.git_head(tmp_path)
+    assert len(head) == 40 and mdr.git_head(tmp_path / "nowhere") == ""
 
 
 @pytest.mark.medium
@@ -315,14 +414,16 @@ def test_run_cell_end_to_end_tiny(
     """A tiny E1 cell writes md_chi1-10.{npz,json} that the E2 analysis reads.
 
     The JSON carries the run-script provenance (argv, deviations, bench
-    hash) and a cost entry; rerunning resumes the final checkpoint and
-    rewrites identical arrays without integrating again.
+    hash, git state) and a cost entry; rerunning resumes the final
+    checkpoint and rewrites identical arrays without integrating again
+    (AUDIT-E1 F2: ``resumed`` is True and the phase timings are those of
+    the first run, so a silent restart from scratch fails).
     """
     bench = _tiny_cell(tmp_path)
     monkeypatch.setitem(mdr.SYSTEMS, "flows2d", f"N{TINY_N}")
     monkeypatch.delenv("SLURM_JOB_ID", raising=False)
     over = {"n_gs": 2, "temperature": [1e-4, 1e-3], "n_equil": 40, "n_andersen": 20,
-            "n_nve": 600, "n_snapshots": 30}  # fmt: skip
+            "n_nve": 1000, "n_snapshots": 30}  # fmt: skip
     args = _args("run", data_root=tmp_path, bench=bench, device="cpu", **over)
     assert mdr.run_cell(args) == 0
     out = tmp_path / "flows2d" / f"N{TINY_N}" / "md_chi1-10"
@@ -330,6 +431,13 @@ def test_run_cell_end_to_end_tiny(
     rs = meta["run_script"]
     assert rs["step"] == "run" and rs["chosen"]["dt"] == 0.01
     assert set(rs["plan_deviations"]) == set(over)
+    assert rs["bench_sha256"] == hashlib.sha256(bench.read_bytes()).hexdigest()  # F3
+    assert rs["cli_argv"][rs["cli_argv"].index("--seed") + 1] == str(
+        mdr.cell_seed("run", "flows2d", "1-10", None))  # fmt: skip
+    assert len(rs["git_head"]) in (0, 40) and rs["omega_min"] is None
+    assert rs["git_dirty"] is (None if rs["git_changed"] is None
+                               else bool(rs["git_changed"]))  # fmt: skip
+    assert meta["resumed"] is False and len(meta["phase_seconds"]) >= 6
     assert meta["cost"]["available"] is False and meta["jobs"] == []
     assert meta["status_counts"] == {"STATUS_RUNNING": 4}
     with np.load(str(out) + ".npz") as z:
@@ -338,8 +446,11 @@ def test_run_cell_end_to_end_tiny(
     assert int(first["trace_count"].min()) == first["trace_rho"].shape[1]
     res = ana.analyze_file(Path(str(out) + ".npz"), out.parent / "flows_chi1-10.npz")
     assert res["nu_c"].shape == (2, 2) and np.all(np.isfinite(res["nu_c"]))
-    assert np.all(np.isfinite(res["inv_rho"]))  # A4 trace: 600 rows per segment
+    assert np.all(np.isfinite(res["inv_rho"]))  # A4 trace: 500 rows per segment
     assert mdr.run_cell(args) == 0  # resume at the end: outputs rewritten as-is
     with np.load(str(out) + ".npz") as z:
         for k in first:
             assert z[k].tobytes() == first[k].tobytes(), k
+    again = json.loads(Path(str(out) + ".json").read_text())
+    assert again["resumed"] is True  # F2: resumed, not restarted
+    assert again["phase_seconds"] == meta["phase_seconds"]  # no phase ran again
