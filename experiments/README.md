@@ -808,7 +808,7 @@ The hypotheses H1–H8 were pre-registered in `md_winding/HYPOTHESES.md` (Amendm
 - **Winding persists.** A constrained wave (|k| < K) winds at the Rice rate |k|/2π turns per unit time, whatever T, χ and the start. The normalized rate has per-start medians 0.997–1.0025, i.e. about 9.6 × 10³ turns per NVE segment. The rate over [t/2, t] matches the rate over [t/4, t/2] within 0.44%.
 - **No start dependence.** The unsigned rate does not depend on the start (mean η²_H = −0.010, medians within 0.53%).
 - **Unconstrained waves** (K < |k| < 2K) wind at |k|√(T/S)/2π, the circular-Gaussian Rice rate. Drift along the ground-state manifold randomizes their ρ_k. The drift is diffusive with MSD ∝ √T t, so their net-winding rate scales as T^{1/4}.
-- **Net winding** has zero mean. Its RMS is 0.9% (χ = 0.4) to 3.5% (χ = 0.1) of the unsigned winding. It is diffusive at χ = 0.4, but superdiffusive under NVE at χ = 0.1 (α = 1.18–1.28), and weak Langevin friction removes that (α = 1.02 at γ = 0.03).
+- **Net winding** has zero mean. Its RMS is 0.9% (χ = 0.4) to 3.5% (χ = 0.1) of the unsigned winding. It is diffusive at χ = 0.4, but superdiffusive under NVE at χ = 0.1 (α = 1.18–1.28), and weak Langevin friction removes that (α = 1.01–1.02 at γ = 0.03).
 - **Registered verdicts:**
   - PASS: H5, H6b.
   - INCONCLUSIVE: H3, H7 (|z| > 3 at deviations ≤ 0.44%).

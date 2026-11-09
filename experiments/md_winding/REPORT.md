@@ -15,7 +15,7 @@ Plan stages E2 (analysis), E3 (figures) and E5 (write-up), on the complete produ
 - **Q1 (does arg ρ_k keep winding at fixed T?):** yes. In every cell a constrained wave winds at the Rice rate |k|/2π turns per unit time. The normalized rate ν (rate over |k|/2π, averaged over the constrained waves) has per-start medians 0.9970–1.0025 at harmonic T [A]. That is 9.49–9.69 × 10³ unsigned turns per NVE segment, at every T [D]. The rate over [t/2, t] equals the rate over [t/4, t/2] to within 0.44% in all 60 harmonic segments [V]. Winding never becomes stationary.
 - **Q2 (does the rate depend on the start?):** no for the unsigned rate. The mean bias-corrected Kruskal–Wallis effect size is η²_H = −0.010 over the 6 harmonic cells, and the largest pairwise difference of start medians is ≤ 0.53% (H5 PASS) [V]. The net-winding diffusion constant D_θ is start-independent at χ = 0.4. At χ = 0.1 and T ≤ 1e-5 it is 15–30% higher for URL than for the other starts [V].
 - **Registered verdicts:** H5 and H6b PASS; H3 and H7 INCONCLUSIVE; H1, H2, H4, H6 and H8 FAIL (Sec. 3). The FAILs fall into three groups:
-  - H1, H2, and through H2 part 1 of H8, fail only in |k|/K bins holding 2–8 waves (median 2), where 10 ground states cannot resolve 10% [D].
+  - H1, H2, and through H2 part 1 of H8, fail only in |k|/K bins holding 2–8 waves (median 2), where 10 ground states resolve a 10% miss only marginally (Sec. 4) [D].
   - H4 fails because net winding is superdiffusive at χ = 0.1 (α = 1.18–1.28) under Andersen + NVE. The diagnostics show this comes from the near-integrable NVE dynamics, since weak Langevin friction removes it (α = 1.01–1.02 at γ = 0.03) [D].
   - H6 fails because drift along the ground-state manifold is diffusive (MSD ∝ √T t), not ballistic. Each H6 part misses its prediction by a definite factor: the unsigned rate is √π times the fixed-ρ prediction, and β = 1/4 instead of 1/2 [V, D].
 
@@ -55,11 +55,11 @@ The unit is a ground state (n = 10; n = 5 for E4). "Value" is the median over gr
 
 | ID | Hypothesis | Verdict | Parts P / I / F | Key numbers |
 |---|---|---|---|---|
-| H1 | Equipartition | **FAIL** | 532 / 40 / 34 | ⟨Φ⟩/(MT): 28 of 30 cells in [0.98, 1.02], range 0.971–1.034. ⟨S⟩/T per bin: 504 of 576 parts PASS, median 1.001, range 0.735–1.372 (worst: gau2d χ = 0.4, T = 1e-6, bin 0, value 1.371, z 1.73) |
+| H1 | Equipartition | **FAIL** | 532 / 40 / 34 | ⟨Φ⟩/(MT): 28 of 30 cells in [0.98, 1.02], range 0.971–1.034. ⟨S⟩/T per bin: 504 of 576 parts PASS, median 1.001, range 0.735–1.371 (worst: gau2d χ = 0.4, T = 1e-6, bin 0, value 1.371, z 1.73) |
 | H2 | Rice rate, constrained | **FAIL** | 737 / 24 / 7 | rate / Rice per bin: 545 of 576 PASS, median 1.0006, range 0.856–1.140 (worst: gau2d χ = 0.1, T = 1e-6, bin 2, value 0.856, z −3.75). Rate ratio T = 1e-6 : 1e-4: 192 of 192 PASS, range 0.984–1.008 |
 | H3 | Winding persists (Q1) | **INCONCLUSIVE** | 57 / 3 / 0 | window ratio [t/2, t] / [t/4, t/2], range 0.9956–1.0042 over the 60 segments. The 3 misses are all at T = 1e-5, from \|z\| > 3 at deviations ≤ 0.44%: flows2d χ = 0.4 segment 0 (0.9956, z −8.0), url2d χ = 0.4 segment 0 (0.9964, z −3.95), flows2d χ = 0.1 segment 1 (0.9972, z −3.71) |
 | H4 | Net winding is a random walk | **FAIL** | 45 / 0 / 15 | mean net rate consistent with 0 in 30 of 30 cells (max \|z\| 2.72). MSD exponent α: χ = 0.4 0.990–1.008 (15 PASS); χ = 0.1 1.176–1.277 (15 FAIL, z 27–49) |
-| H5 | Start independence (Q2) | **PASS** | 7 / 0 / 0 | mean η²_H = −0.0102 over 6 cells (per cell −0.067 to 0.151). Largest pairwise median difference of ν per cell 0.07–0.53% |
+| H5 | Start independence (Q2) | **PASS** | 7 / 0 / 0 | mean η²_H = −0.0102 over 6 cells (per cell −0.066 to 0.151). Largest pairwise median difference of ν per cell 0.07–0.53% |
 | H6 | Unconstrained waves | **FAIL** | 5 / 0 / 615 | rate / \|k\|√(T/(πS))/2π: 1.734–1.799 in all 600 bins (median 1.768). β = 0.247–0.254 in all 10 cells (band [0.4, 0.6]). t√T collapse spread: χ = 0.1 0.143–0.169 (5 PASS); χ = 0.4 0.936–1.031 (5 FAIL) |
 | H6b | Conditional Rice, unconstrained (A3, A4) | **PASS** | 600 / 0 / 0 | rate / (\|k\|√(NT/π)⟨1/\|ρ_k\|⟩_t/2π), range 0.9845–1.0201 |
 | H7 | Thermostat independence | **INCONCLUSIVE** | 23 / 1 / 0 | BAOAB / NVE ν: 16 of 16 PASS, range 0.9985–1.0061. γ = 0.003 / 0.03: 8 parts, range 0.9998–1.0010; 7 PASS and 1 INCONCLUSIVE (flows2d χ = 0.1 T = 1e-4: 1.0007, z 3.41) |
@@ -78,7 +78,7 @@ The unit is a ground state (n = 10; n = 5 for E4). "Value" is the median over gr
 | H3 | 20 / 0 | window ratio 0.9994–1.0007 |
 | H4 | 15 / 5 | α 1.181–1.193 at χ = 0.1; 1.000–1.007 at χ = 0.4 |
 | H6b | 200 / 0 | |
-| H6 | 5 / 215 | β 0.250–0.259 |
+| H6 | 5 / 215 | β 0.250–0.260 (fitted over all four T, A1.4 descriptive) |
 
 ν at T = 1e-3 has per-start medians 1.0002–1.0009 [A]. At this anharmonic edge, the winding statistics are indistinguishable from the harmonic ones.
 
@@ -86,9 +86,9 @@ The unit is a ground state (n = 10; n = 5 for E4). "Value" is the median over gr
 
 ### H1, H2 (and H8 part 1): few-wave bins
 
-The bins behind the FAIL parts hold a median of 2 constrained waves (H1: 2–8; H2: 2–4). The PASS parts sit in bins with a median of 16–20 waves [D]. The per-wave scatter across ground states, measured on the pilot, is σ_w = 0.358 for S/T and 0.166 for rate / Rice [V, `exploratory.sigma_w`]. With 10 ground states, the standard error of a 2-wave bin is therefore ≈ 0.08 for S/T and ≈ 0.04 for rate / Rice.
+The bins behind the FAIL parts hold a median of 2 constrained waves (H1: 2–8; H2: 2–4). The PASS parts sit in bins with a median of 16–20 waves [D]. The per-wave scatter across ground states, measured on the pilot, is σ_w = 0.358 for S/T and 0.166 for rate / Rice [V, `exploratory.sigma_w`]. With 10 ground states, the standard error of a 2-wave bin is therefore ≈ 0.08 for S/T and ≈ 0.04 for rate / Rice, so a 10% miss is ≈ 1.2 SE for S/T and ≈ 2.5 SE for rate / Rice.
 
-This scatter is the canonical mode-energy fluctuation that near-integrable NVE preserves (`NOTES.md` §1); it is not a bias. The median of ⟨Φ⟩/(MT) over the 30 harmonic cells is 1.001, and the medians of all 576 per-bin values are 1.001 for S/T and 1.0006 for the rate [V].
+In most bins the FAIL parts are consistent with sampling scatter from the canonical mode-energy fluctuation that near-integrable NVE preserves (`NOTES.md` §1): the median of ⟨Φ⟩/(MT) over the 30 harmonic cells is 1.001, and the medians of all 576 per-bin values are 1.001 for S/T and 1.0006 for the rate [V]. One deficit is not explained by this scatter. The post hoc pooled H1 group url2d χ = 0.1, T = 1e-5, |k|/K ∈ (0.30, 0.45] (bins 6–8, 25 waves) has a median ⟨S⟩/T of 0.915 with SE 0.008 (z = −9.9), an 8.5% deficit that the ground-state sample resolves [V, `exploratory.rows`; Sec. 5]. We have no explanation for it.
 
 ### H4: superdiffusive net winding is an NVE effect
 
@@ -112,7 +112,7 @@ At χ = 0.4, α = 0.992–1.005 and D_θ = 0.177–0.191 under every thermostat 
 
 ### E1b spectra (F10)
 
-97.6–99.9% of the ρ_k power of the constrained waves lies at ω ≤ 1.05 max √eig K, for every start and both χ [D]. At χ = 0.4 the power has a dip at ω ≈ 3.4, where the √eig K density has its gap (F10).
+97.6–99.9% of the ρ_k power of the constrained waves lies at ω ≤ 1.05 max √eig K, for every start and both χ [D]. At χ = 0.4 the power has a dip at ω ≈ 3.4, where the √eig K density has its gap (location read off F10; no stored number).
 
 ## 5. Exploratory pooled low-|k| bins (post hoc, NOT pre-registered)
 
@@ -136,7 +136,7 @@ Figures: `md_X1_pooled_posthoc_chi1-10.png`, `md_X1_pooled_posthoc_chi2-5.png`.
 It keeps winding. A constrained wave accumulates unsigned phase at |k|/2π turns per unit time, independent of T, χ and the start (ν medians 0.997–1.0025 at harmonic T, 1.0002–1.0009 at T = 1e-3) [A]. That is 9.49–9.69 × 10³ turns per segment in every cell [D]. The windowed rates agree to ≤ 0.44% (H3 is INCONCLUSIVE only through |z| on sub-percent deviations) [V]. The winding is the Rice rate of a Gaussian field whose phase velocity is set by the Maxwell–Boltzmann velocities, ⟨|ρ̇_k|²⟩ = N|k|²T. Since ⟨S_k⟩ = T, the T dependence cancels.
 
 **Q2: does the rate depend on which start the ground state came from?**
-No for the unsigned rate (H5 PASS: mean η²_H = −0.010; start medians differ by ≤ 0.53%) [V]. The net-winding diffusion constant D_θ is also start-independent at χ = 0.4 (no Holm-significant pair at any T). At χ = 0.1, URL ground states have a higher D_θ at T = 1e-6 (0.849 against 0.691–0.740) and at T = 1e-5 (1.283 against 0.986–1.065), with Holm p = 0.003–0.020 and |Cliff's δ| = 0.80–0.96 against 4 and 3 of the other starts; no pair differs at T = 1e-4 [V, `reports.H5_harmonic`]. Spearman correlations of D_θ with moments of the K spectrum reach |ρ| ≤ 0.48 in single cells and do not recur across temperatures (e.g. k_cv: 0.48 at χ = 0.4, T = 1e-6; 0.06 and 0.09 at 1e-5 and 1e-4) [V].
+No for the unsigned rate (H5 PASS: mean η²_H = −0.010; start medians differ by ≤ 0.53%) [V]. The net-winding diffusion constant D_θ is also start-independent at χ = 0.4 (no Holm-significant pair at any T). At χ = 0.1, URL ground states have a higher D_θ at T = 1e-6 (0.849 against 0.691–0.740) and at T = 1e-5 (1.283 against 0.986–1.065), with Holm p = 0.003–0.020 and |Cliff's δ| = 0.80–0.96 against 4 and 3 of the other starts; no pair differs at T = 1e-4 [V, `reports.H5_harmonic`]. Spearman correlations of D_θ with moments of the K spectrum reach |ρ| ≤ 0.48 in every cell [V, `reports.H5_harmonic.*.spearman_d_theta`]. At χ = 0.4 they do not recur across temperatures (e.g. k_cv: 0.48 at T = 1e-6; 0.06 and 0.09 at 1e-5 and 1e-4). At χ = 0.1 two moments recur with the same sign at T = 1e-6 and 1e-5 and vanish at 1e-4: k_q10_rel (ρ = 0.30, p = 0.032; ρ = 0.42, p = 0.0023; ρ = 0.04 at 1e-4) and k_min_rel (ρ = −0.47, p = 5.5 × 10⁻⁴; ρ = −0.29, p = 0.044; ρ = −0.001 at 1e-4). These are the two temperatures at which URL has the higher D_θ, so the correlations likely track the URL offset (a start effect) and not a spectral dependence within a start; we have not tested this (e.g. by excluding URL).
 
 **Temperature.**
 - The constrained unsigned rate does not depend on T: the 1e-6 : 1e-4 rate ratio is 0.984–1.008 in all 192 bins [V].
@@ -147,7 +147,7 @@ No for the unsigned rate (H5 PASS: mean η²_H = −0.010; start medians differ 
 
 **|k|: constrained (|k| < K) against unconstrained (K < |k| < 2K).**
 - Constrained waves wind at |k|/2π: S_k = T, so the rate does not depend on T.
-- Unconstrained waves wind at |k|√(T/S_k)/2π. With S_k = O(1), this is 1e-3 (T = 1e-6) to 3e-2 (T = 1e-3) of |k|/2π (F2).
+- Unconstrained waves wind at |k|√(T/S_k)/2π. With S_k = O(1), this is 1e-3 (T = 1e-6) to 3e-2 (T = 1e-3) of |k|/2π (derived from √(T/S_k); consistent with F2, not a stored number).
 - Both are the same circular-Gaussian Rice law evaluated at the respective S_k [D].
 
 **χ.**
@@ -156,7 +156,7 @@ No for the unsigned rate (H5 PASS: mean η²_H = −0.010; start medians differ 
 
 **Signed against unsigned.**
 - Net winding has zero mean (30 of 30 cells, |z| ≤ 2.72) [V].
-- Its RMS after one segment is 2.4–3.5% of the unsigned winding at χ = 0.1 (232–340 turns out of 9.5–9.7 × 10³) and 0.89–0.92% at χ = 0.4 (84–88 turns) [D].
+- Its RMS after one segment is 2.4–3.5% of the unsigned winding at χ = 0.1 (231–340 turns out of 9.5–9.7 × 10³) and 0.89–0.92% at χ = 0.4 (84–88 turns) [D].
 - It is diffusive at χ = 0.4 (α = 0.99–1.01) and superdiffusive under NVE at χ = 0.1 (α = 1.18–1.28) [V].
 
 **Drift along the ground-state manifold.**

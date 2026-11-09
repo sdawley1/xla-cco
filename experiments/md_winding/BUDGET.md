@@ -28,7 +28,7 @@ with GPU-h = ElapsedRaw × n_gpu / 3600. A job is not submitted if its projected
 | 2026-11-08 | 17121008 | mdw_bench (V3) | Verification | 512 | 1 | 0.14 |
 | 2026-11-08 | 17121010 | mdw_bench (V3) | Verification | 965 | 1 | 0.27 |
 | 2026-11-08 | 17137898 | xla-cco-test-gpu (V4, 83 failed) | Verification | 1454 | 1 | 0.40 |
-| 2026-11-09 | 17148922 | mdw_pilot (E1 pilot: flows2d chi=1-10, 40 lanes, full protocol, equilibration extended) | Pilot | 2033 | 0.56 | 0.56 |
+| 2026-11-09 | 17148922 | mdw_pilot (E1 pilot: flows2d chi=1-10, 40 lanes, full protocol, equilibration extended) | Pilot | 2033 | 1 | 0.56 |
 | 2026-11-09 | 17143149 | xla-cco-test-gpu (V4 fixes, 780 passed) | Verification | 1495 | 1 | 0.42 |
 | 2026-11-09 | 17163785 | mdw_e1_flows2d_2-5 | Production | 7884 | 1 | 2.19 |
 | 2026-11-09 | 17163786 | mdw_e1_gau2d_1-10 | Production | 1995 | 1 | 0.55 |
