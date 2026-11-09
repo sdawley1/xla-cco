@@ -15,6 +15,7 @@ Samuel J. Dawley
 # ----- standard library -----
 import json
 import math
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -737,6 +738,46 @@ def test_clean_json_and_markdown(null_set: Path) -> None:
     assert all(f"| {h} |" in table for h in mds.HYPOTHESES)
     assert res["exploratory"]["label"] == mds.EXPL_LABEL  # post hoc, separate
     assert table.index("Exploratory (post hoc") > table.index("| H8 |")
+
+
+@pytest.mark.slow
+@pytest.mark.critical
+def test_exploratory_rows_never_enter_registered_parts(null_set: Path) -> None:
+    """H1 / H2 verdict parts are the registered per-bin parts only (AUDIT-E5 F1).
+
+    The post hoc pooled groups must never be appended to, or replace, the
+    registered parts, so H1 holds exactly h1_parts and H2 exactly h2_parts
+    (mutants M6a and M6c of the audit).
+    """
+    main, lang, _ = mds.collect([null_set])
+    res = mds.evaluate(main, lang)
+    patterns = {"H1": r"^(phi|S bin \d+)$", "H2": r"^(Rice bin|T ratio bin) \d+$"}
+    registered = {"H1": mds.h1_parts(main, True), "H2": mds.h2_parts(main, True)}
+    for h, rx in patterns.items():
+        parts = res["hypotheses"][h]["parts"]
+        bad = [p["part"] for p in parts if not re.match(rx, p["part"])]
+        assert not bad, (h, bad[:3])
+        assert [(p["part"], p["cell"]) for p in parts] == [
+            (p["part"], p["cell"]) for p in registered[h]
+        ], h
+    assert res["exploratory"]["rows"], "the null set has pooled rows to leak"
+
+
+@pytest.mark.slow
+@pytest.mark.critical
+@pytest.mark.parametrize("w_min", [1, 50])
+def test_verdicts_independent_of_exploratory_w_min(
+    null_set: Path, monkeypatch: pytest.MonkeyPatch, w_min: int
+) -> None:
+    """Changing the post hoc W_min changes the pooled rows, never a verdict (F1)."""
+    main, lang, _ = mds.collect([null_set])
+    base = mds.evaluate(main, lang)
+    monkeypatch.setattr(mds, "EXPL_W_MIN", {"S/T": w_min, "Rice": w_min})
+    other = mds.evaluate(main, lang)
+    assert len(other["exploratory"]["rows"]) != len(base["exploratory"]["rows"])
+    for h in mds.HYPOTHESES:
+        a, b = base["hypotheses"][h], other["hypotheses"][h]
+        assert (a["verdict"], a["counts"]) == (b["verdict"], b["counts"]), h
 
 
 def _cell_data(net: np.ndarray, alpha: np.ndarray, d_theta: np.ndarray, tag: str,
