@@ -949,6 +949,42 @@ Mapped onto the partial-randomization curve, where uniform noise of half-width �
 - At χ = 0.455 the linear estimate and the sampling agree, and the harmonic picture holds to T ≈ 10⁻³.
 - At χ = 0.491 Φ/(MT) departs from 1 already at T ≥ 10⁻⁴, so harmonic theory fails there and MD is needed.
 
+#### Isolating the loop (beyond-S(k)) contribution
+
+`batten2008_loop_moments.py` computes and caches `loops_chi<tag>.npz`; `batten2008_loop_moments_plot.py` writes `figures/loop_moments`. Data:
+- six χ at N = 1024 (6 ground states, 8 random-phase surrogates each);
+- χ = 0.45 and 0.49 at N = 4096 (4 states, 2 surrogates each).
+
+**Method.**
+- In the complex basis {±q}, H = D + W with H_ab = (Q_a·Q_b) ρ(Q_a − Q_b)/V. Its spectrum equals that of K: the Re/Im basis agrees to ≤ 10⁻¹².
+- w_n = (1/2M) tr (W/K²)ⁿ splits exactly into three parts:
+  - **non-crossing pairings:** the SCBA recursion with variance profile s_ab = |W_ab/K²|²;
+  - **crossing pairings:** surrogate mean minus SCBA;
+  - **irreducible loops:** ground state minus surrogate mean. Odd n are entirely irreducible.
+- The S(k)-only theory is the SCBA vector Dyson equation, G_a = 1/(z − D_a − Σ_b s_ab G_b).
+- **Checks:** a flat profile gives the Catalan numbers; a sampled Wigner matrix with a variance profile gives m₄ = 1.99 and m₆ = 4.94, against 2.00 and 5.01 non-crossing; the semicircle density at 0 is 0.318 (1/π).
+
+**Results:**
+- **The SCBA is the S(k)-only theory.** Crossing pairings are ≤ 1% of w₄ at every χ, so the SCBA reproduces the surrogates' paired part. Crossings grow at high order (36% of the non-crossing moment at n = 12, χ = 0.49).
+- **Irreducible share of the S(k)-only moment, I_n/P_n** (N = 4096 in brackets):
+
+  | χ | n = 4 | n = 6 | n = 8 | n = 12 |
+  |---|---|---|---|---|
+  | 0.10 | −0.03 | −0.07 | −0.11 | −0.19 |
+  | 0.40 | −0.20 | −0.41 | −0.57 | −0.79 |
+  | 0.455 | −0.236 (−0.235) | −0.452 (−0.452) | −0.618 (−0.620) | −0.826 (−0.832) |
+  | 0.491 | −0.246 (−0.248) | −0.466 (−0.471) | −0.633 (−0.640) | −0.838 (−0.844) |
+
+  The loops always reduce the moments relative to S(k) alone: the true spectrum has lighter tails. The effect grows with order and with χ, and is the same at N = 1024 and 4096, so it is not a finite-size effect.
+- **Triads are small.** The standardized third moment I₃/w₂^1.5 is 0.004–0.026.
+- **S(k) alone gives no gap.** In the ground-state gap window the density is 0.001–0.004 in the ground states, against 0.54–0.57 for the surrogates and 0.56–0.59 for the SCBA. The SCBA also puts weight at negative x, which a Gram matrix cannot have.
+- **How much S(k) misses.** The total-variation distance between the ground-state spectrum and the S(k)-only spectra rises from 0.03–0.05 (χ = 0.10) to 0.23–0.25 (χ = 0.49).
+- **Panel (e) shows where the loops act:**
+  - they remove weight from the soft shoulder below the gap (x ≈ 0.25–0.5) and from negative x;
+  - they move it into the soft-mode peak at x ≈ 0 and to just above the gap (x ≈ 0.6–0.9).
+
+**Cost:** SCBA 11–241 s per χ at N = 1024 and about 15 min at N = 4096, on CPU.
+
 #### All four χ for 2D Poisson
 
 `hessian_sign_mechanism`, `hessian_negative_compare` and `hessian_plateau_mechanism` now include 2D Poisson flows at χ = 0.25 (tag 1-4) and χ = 0.45 (tag 9-20), with 100 flows each. Pass the extra tags with `--extra-chi 1-4 9-20`; the other starts have χ = 0.1 and 0.4 only.
@@ -1177,6 +1213,8 @@ uv run --no-sync python -I experiments/scripts/batten2008_planes_mean_plot.py --
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_mp_plot.py   # coupling_mp_compare (computes and caches mp_chi<tag>.npz; ~10 CPU-min, use a SLURM CPU job)
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_mp_shoulder_plot.py   # coupling_mp_shoulder (caches mp_shoulder_chi<tag>.npz; ~2 CPU-min)
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_phonon_gap_plot.py   # coupling_phonon_gap (caches phonon_chi<tag>.npz)
+sbatch --cpus-per-task=16 --mem=48G --wrap ".../python -I experiments/scripts/batten2008_loop_moments.py --roots experiments/trajectories/flows2d/N1024 --tags 1-10 1-4 7-20 2-5 9-20 49-100 --states 6 --surrogates 8"   # and N4096: --tags 9-20 49-100 --states 4 --surrogates 2 (32 CPUs, 96G)
+/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_loop_moments_plot.py --roots experiments/trajectories/flows2d/N1024 experiments/trajectories/flows2d/N4096   # loop_moments
 # new chi for 2D Poisson (flows, tail, hessian, plateau, landscape, modes, winding, offplane): pass --chi 0.25 0.45 to each step; plots take --extra-chi 1-4 9-20
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_windcv_explain_plot.py --roots ... --labels ...   # winding_cv_explained (needs landscape_chi*.npz)
 uv run --no-sync python -I experiments/scripts/batten2008_exclusion.py --roots experiments/trajectories/{flows2d/N1024,...} --flows 5   # exclusion_chi*.npz
@@ -1192,7 +1230,7 @@ uv run --no-sync python -I experiments/scripts/batten2008_windcv_plot.py --total
 
 **Data.** `trajectories/{gau2d/N1000,url2d/N1024,rsa2d/N999,hip2d/N1000}/` with the same files as `flows2d/N1024`, plus `winding_chi<tag>.npz`, `plateau_chi<tag>.npz` and `landscape_chi<tag>.npz` everywhere. The 20-flow runs are kept in `trajectories/<start>/N<N>_n20/`. The tolerance checks are in `trajectories/{batten2008_tight/N1000,flows2d_tight/N1024}/` (flow 0, atol 10⁻¹¹, rtol 10⁻³).
 
-**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `hessian_sign_compare`, `hessian_sign_mechanism`, `hessian_sign_starts`, `hessian_sign_universal`, `coupling_mp_compare`, `coupling_mp_shoulder`, `coupling_phonon_gap`, `coupling_phonon_dispersion`, `coupling_mp_finite_size`, `winding_cv_explained`, `exclusion_mode_control`, `exclusion_mode_spectra`, `exclusion_drive`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
+**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `hessian_sign_compare`, `hessian_sign_mechanism`, `hessian_sign_starts`, `hessian_sign_universal`, `coupling_mp_compare`, `coupling_mp_shoulder`, `coupling_phonon_gap`, `coupling_phonon_dispersion`, `coupling_mp_finite_size`, `loop_moments`, `winding_cv_explained`, `exclusion_mode_control`, `exclusion_mode_spectra`, `exclusion_drive`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
 
 ### The 1D landscape against χ, in 3D
 
