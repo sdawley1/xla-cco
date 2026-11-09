@@ -42,6 +42,7 @@ from md_states import (
     fake_maxwell_boltzmann,
 )
 from systems import small_system
+from tolerances import ATOL_MD_CLI_WIND_STEP
 
 # ----- project -----
 from xla_cco.cli import md
@@ -912,7 +913,7 @@ def test_regression_D062_andersen_after_nve_restarts_winding(
     monkeypatch.setattr(md_run, "simulate", spy)
     assert md.main(_argv(tmp_path)) == 0
     assert len(errors) >= 4  # equil halves (x2 if extended), andersen0, andersen1
-    assert max(errors) < 1e-9, errors
+    assert max(errors) < ATOL_MD_CLI_WIND_STEP, errors
 
 
 # ============================================================

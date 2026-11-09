@@ -40,6 +40,10 @@ from systems import stealthy_ground_state
 from tolerances import (
     ATOL_MD_COM,
     ATOL_MD_GALILEAN,
+    ATOL_MD_RESET_ACC,
+    ATOL_MD_WAVE_PER_PARTICLE,
+    ATOL_MD_WIND_STEP_ORACLE,
+    ATOL_VMAP_S,
     RTOL_MD_FORCE,
     RTOL_MD_KE,
     RTOL_MD_KVEC,
@@ -220,7 +224,7 @@ def test_make_waves_extra_rows_property(case: Tuple[np.ndarray, float, float]) -
     assert sorted(map(tuple, np.asarray(waves.n_vectors[:m], np.int64).tolist())) == (
         _brute_half_space(basis, 0.0, k_c)
     )
-    assert np.all(np.diff(k_norm[m:]) >= -1e-12 * max(1.0, k_t))
+    assert np.all(np.diff(k_norm[m:]) >= -RTOL_MD_KVEC * max(1.0, k_t))
     rows = np.asarray(waves.n_vectors).astype(np.int64)
     both = {tuple(x) for x in rows} | {tuple(-x) for x in rows}
     assert len(both) == 2 * rows.shape[0], "duplicates or +-k pairs"
@@ -310,7 +314,8 @@ def test_init_state_fields(scheme: str) -> None:
     if scheme != "verlet":
         rho = rho * np.exp(-1j * (np.asarray(waves.kvec) @ r.mean(0)))
     got = np.asarray(lane.rho_prev)
-    np.testing.assert_allclose(got[:, 0] + 1j * got[:, 1], rho, atol=1e-12 * N)
+    np.testing.assert_allclose(got[:, 0] + 1j * got[:, 1], rho,
+                               atol=ATOL_MD_WAVE_PER_PARTICLE * N)  # fmt: skip
     assert lane.step.dtype == jnp.int64 and int(lane.step) == 0
     assert float(lane.e0) == pytest.approx(float(lane.phi + kinetic_energy(lane.v)))
     assert lane.snap.r.shape == (2, N, D) and np.all(np.asarray(lane.snap.step) == -1)
@@ -397,8 +402,9 @@ def test_regression_D060_begin_segment_recomputes_rho_prev_on_scheme_switch() ->
     rho0 = np.exp(1j * (r0 @ kv.T)).sum(0)
     rho1 = np.exp(1j * (np.asarray(out.r[0]) @ kv.T)).sum(0)
     delta = np.angle(rho1 * np.conj(rho0))
-    np.testing.assert_allclose(np.asarray(out.wind_net[0]), delta, atol=1e-10)
-    np.testing.assert_allclose(np.asarray(out.wind_abs[0]), np.abs(delta), atol=1e-10)
+    tol = ATOL_MD_WIND_STEP_ORACLE
+    np.testing.assert_allclose(np.asarray(out.wind_net[0]), delta, atol=tol)
+    np.testing.assert_allclose(np.asarray(out.wind_abs[0]), np.abs(delta), atol=tol)
     assert np.all(np.asarray(out.n_valid[0]) == 1)
 
 
@@ -596,7 +602,7 @@ def test_wind_every_constrained_always_unconstrained_on_multiples() -> None:
     assert np.all(nv[0, nc:] == 1) and np.all(nv[1, nc:] == 3 + 2)
     assert np.all(nv[:, :nc] == np.array([[5], [15]]))
     np.testing.assert_allclose(np.asarray(c.r[1]), np.asarray(b.r[1]), rtol=0,
-                               atol=1e-13)  # fmt: skip
+                               atol=ATOL_VMAP_S)  # fmt: skip
 
 
 @pytest.mark.critical
@@ -652,7 +658,7 @@ def test_count_mode_reset_acc_carried_across_chunks() -> None:
     split = run.simulate(*system, four, lanes, 3).state
     split = run.simulate(*system, four, split, n_steps - 3).state
     assert leaves_bitwise_equal(got, ref) and leaves_bitwise_equal(split, ref)
-    np.testing.assert_allclose(np.asarray(ref.reset_acc), 0.5, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(ref.reset_acc), 0.5, atol=ATOL_MD_RESET_ACC)
 
 
 @pytest.mark.high
@@ -673,8 +679,8 @@ def test_md_chunk_under_vmap_matches_simulate() -> None:
     assert np.asarray(got.step).tolist() == [3, 3]
     for a, b in zip(jax.tree_util.tree_leaves(got), jax.tree_util.tree_leaves(ref),
                     strict=True):  # fmt: skip
-        np.testing.assert_allclose(np.asarray(a), np.asarray(b), rtol=1e-13,
-                                   atol=1e-13)  # fmt: skip
+        np.testing.assert_allclose(np.asarray(a), np.asarray(b), rtol=0,
+                                   atol=ATOL_VMAP_S)  # fmt: skip
     single = run.md_chunk(energy, waves, basis, st_, _lane(0, lanes), jnp.asarray(9))
     assert int(single.step) == 4  # min(chunk_steps, n_steps)
 
