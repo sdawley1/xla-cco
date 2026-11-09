@@ -73,6 +73,7 @@ from batten2008_md_stats import (  # noqa: E402
 from batten2008_plot import finish, plt  # noqa: E402  (house rcParams)
 from matplotlib.colors import LogNorm  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
+from matplotlib.ticker import MaxNLocator  # noqa: E402
 
 # ============================================================
 # CONSTANTS
@@ -608,6 +609,7 @@ def figure_thermostat(data: Dict[str, object], out: Path, dpi: int) -> None:
         grid = np.array([lo, hi])
         ax.plot(grid, grid, color="0.6", lw=0.8)
         ax.fill_between(grid, grid * 0.97, grid * 1.03, color="0.85", zorder=0)
+        ax.xaxis.set_major_locator(MaxNLocator(4))  # long tick labels overlap
         ax.set_xlabel(r"Andersen + NVE Rate, $\nu_{\rm NVE}$")
         ax.set_ylabel(r"BAOAB Rate, $\nu_{\rm BAOAB}$")
         ax.set_title(chi_label(data, tag), fontsize=12)
