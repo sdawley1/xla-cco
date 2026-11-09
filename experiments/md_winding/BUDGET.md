@@ -9,11 +9,11 @@ with GPU-h = ElapsedRaw × n_gpu / 3600. A job is not submitted if its projected
 | Line | Allocation (GPU-h) | Used (GPU-h) |
 |---|---|---|
 | Verification and benchmarks (V3, GPU tests) | 8 | 3.05 |
-| Pilot | 4 | 0.00 |
+| Pilot | 4 | 0.56 |
 | Production (E1, E1b) | 60 | 0.00 |
 | Langevin subset (E4) | 12 | 0.00 |
 | Reserve | 16 | 0.00 |
-| **Total** | **100** | **3.05** |
+| **Total** | **100** | **3.61** |
 
 ## Jobs
 
@@ -28,3 +28,4 @@ with GPU-h = ElapsedRaw × n_gpu / 3600. A job is not submitted if its projected
 | 2026-11-08 | 17121008 | mdw_bench (V3) | Verification | 512 | 1 | 0.14 |
 | 2026-11-08 | 17121010 | mdw_bench (V3) | Verification | 965 | 1 | 0.27 |
 | 2026-11-08 | 17137898 | xla-cco-test-gpu (V4, 83 failed) | Verification | 1454 | 1 | 0.40 |
+| 2026-11-09 | 17148922 | mdw_pilot (E1 pilot: flows2d chi=1-10, 40 lanes, full protocol, equilibration extended) | Pilot | 2033 | 1 | 0.56 |
