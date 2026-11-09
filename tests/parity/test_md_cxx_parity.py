@@ -239,6 +239,52 @@ def test_andersen_phase_reproduces_cxx_schedule(ref: Dict[str, Any]) -> None:
     assert carried.size == 500 and carried[0] == 100, carried[:4]
 
 
+def _check_settings(ref: Dict[str, Any], meta: Dict[str, Any], proto: Any) -> None:
+    """MDSettings and lane temperatures: the recorded ones when the stored file
+    has them (files written after 26af1b2), else the current settings_pair of
+    the recorded protocol, must be the C++ rule (AUDIT-V2 F2, D-081)."""
+    rec = meta.get("settings", REP.settings_record(proto))
+    proto_ref = ref["protocol"]
+    for name, scheme in (("nve", "verlet"), ("andersen", "andersen")):
+        st = rec[name]
+        assert st["scheme"] == scheme and st["remove_com"] is False, st
+        assert st["dt"] == proto_ref["dt"] and st["record_steps"] == [], st
+    ander = rec["andersen"]
+    assert ander["andersen_mode"] == "count", ander
+    assert ander["andersen_p"] == proto_ref["andersen_p"], ander
+    fac = np.asarray(meta["t_factor"])
+    assert set(fac.tolist()) == {1.0, REP.CONTROL_FACTOR}, "unexpected T factors"
+    if "temperature" in meta:
+        np.testing.assert_allclose(meta["temperature"], fac * ref["T"], rtol=1e-15)
+
+
+@pytest.mark.high
+def test_replica_phase_restarts_andersen_counter(ref: Dict[str, Any]) -> None:
+    """REP.phase sets reset_acc = ANDERSEN_ACC_START before an Andersen phase
+    (AUDIT-V2 B1): from reset_acc = 0.5 one Andersen step redraws exactly one
+    velocity row relative to an NVE step from the same state (the C++ step-1
+    reset) and leaves reset_acc = p (1 + p - 1); without the restart the
+    accumulator would reach 0.5 + p and nothing would fire."""
+    with np.load(CXX_NPZ) as z:
+        r0 = np.asarray(z["s"][:2]) @ np.asarray(z["basis"])
+    system = REP.build_system(ref)
+    proto = REP.protocol_from_reference(ref, 1)
+    st_nve, st_and = REP.settings_pair(proto)
+    v0 = math.sqrt(system.temperature) * np.random.default_rng(7).standard_normal(
+        r0.shape
+    )
+    temps = np.full(r0.shape[0], system.temperature)
+    lanes = REP.init_lanes(system, r0, v0, temps, [11, 12], st_nve)
+    lanes = dataclasses.replace(lanes, reset_acc=jnp.full_like(lanes.reset_acc, 0.5))
+    ander = REP.phase(system, st_and, lanes, 1)
+    nve = REP.phase(system, st_nve, lanes, 1)
+    changed = np.any(np.asarray(ander.v) != np.asarray(nve.v), axis=-1)
+    assert changed.sum(axis=1).tolist() == [1, 1], changed.sum(axis=1)
+    np.testing.assert_allclose(np.asarray(ander.reset_acc), proto.andersen_p,
+                               rtol=0, atol=1e-15)  # fmt: skip
+    assert np.array_equal(np.asarray(ander.r), np.asarray(nve.r)), "same drift"
+
+
 @pytest.mark.high
 def test_stored_replica_ran_the_cxx_protocol(
     ref: Dict[str, Any], replica: Dict[str, Any]
@@ -252,6 +298,7 @@ def test_stored_replica_ran_the_cxx_protocol(
     assert meta["control_factor"] == REP.CONTROL_FACTOR
     assert want.equi_segments == 2 * ref["Nc_equi"] and want.nve_steps == 50_000
     assert len(set(meta["seeds"])) == len(meta["seeds"]), "lane seeds repeat"
+    _check_settings(ref, meta, want)
     n_cxx = sum(r["n_samples"] for r in ref["runs"])
     assert replica["main"]["phi"].size >= n_cxx, "fewer JAX samples than C++"
     assert replica["hot"]["phi"].size >= n_cxx // 2, "control too small"

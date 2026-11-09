@@ -251,9 +251,11 @@ MD_PARITY_KS_PVALUE: float = 1e-3
 # Mean agreement: z = (m_jax - m_cxx) / sqrt(se_jax^2 + se_cxx^2) with both SEs from
 # (nearly) independent groups (JAX lanes, 40; C++ batch means, 60 pooled / 20 per
 # seed). Under the null |z| > 4 has probability 6e-5 (normal) to 1e-3 (Student t
-# with 19 dof, the per-seed control), so the ~10 comparisons of the file keep a
-# family false-alarm rate <~ 5e-3. Resolution (pooled): 4 sqrt(0.0057^2 + 0.0050^2)
-# ~ 3 % in <Phi>/(M T) and ~ 1.6 % in <KE>/(N d T/2).
+# with 19 dof, the per-seed control), so the ~10 z comparisons of the file keep a
+# family false-alarm rate <~ 5e-3; the ~10 KS tests at MD_PARITY_KS_PVALUE add
+# ~1e-2 (no Bonferroni correction; all inputs are seeded, so nothing is flaky).
+# Resolution (pooled): 4 sqrt(0.0057^2 + 0.0050^2) ~ 3 % in <Phi>/(M T) and
+# ~ 1.6 % in <KE>/(N d T/2).
 MD_PARITY_Z: float = 4.0
 # Negative control: JAX run at 1.1 T against C++ must fail the KS test with p below
 # this. Expected: a 10 % shift is 0.7 sd of Phi/(M T) (sd = 1/sqrt(M) = 0.14) and

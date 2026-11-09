@@ -21,9 +21,10 @@ call, D-050). The library count mode fires when ``reset_acc + p >= 1`` and
 carries the accumulator across calls; starting every Andersen phase at
 ``reset_acc = ANDERSEN_ACC_START = 1.0`` (the C++ counter plus one) reproduces
 the C++ steps exactly (checked in tests/parity/test_md_cxx_parity.py against
-``md_reference.andersen_reset_steps``). D-051 (the C++ first half-kick with a
-zero acceleration) is not replicated: it is one kick from a relaxed start
-2.2e7 steps before the first sample.
+``md_reference.andersen_reset_steps``; ``phase`` applying it is checked
+too). D-051 (the C++ first half-kick with a zero acceleration) is not
+replicated: it is one kick from a relaxed start 2.1e6 steps (2e6
+equilibration + one 1e5-step sample cycle) before the first sample.
 
 Subcommands
 -----------
@@ -158,6 +159,17 @@ def settings_pair(proto: Protocol) -> Tuple[MDSettings, MDSettings]:
     assert nve.record_steps == ander.record_steps == (), "no snapshots"
     assert not (nve.remove_com or ander.remove_com), "C++ never removes the COM"
     return nve, ander
+
+
+def settings_record(proto: Protocol) -> Dict[str, Dict[str, Any]]:
+    """JSON-ready fields of the (NVE, Andersen) MDSettings of ``proto``."""
+    out = {}
+    for name, st in zip(("nve", "andersen"), settings_pair(proto), strict=True):
+        rec = {f.name: getattr(st, f.name) for f in dataclasses.fields(st)}
+        out[name] = {k: list(v) if isinstance(v, tuple) else v for k, v in rec.items()}
+    assert set(out) == {"nve", "andersen"}, "both phases recorded"
+    assert out["andersen"]["andersen_mode"] == "count", "C++ count mode"
+    return out
 
 
 # ============================================================
@@ -322,6 +334,7 @@ def run_task(task: int, lanes_per_t: int, n_samples: int, root: Path) -> Path:
         "slurm_array_job_id": os.environ.get("SLURM_ARRAY_JOB_ID", ""),
         "jax_backend": jax.default_backend(), "git_commit": _git_commit(),
         "protocol": dataclasses.asdict(proto),
+        "settings": settings_record(proto), "temperature": temps.tolist(),
     }  # fmt: skip
     root.mkdir(parents=True, exist_ok=True)
     path = root / f"task{task}.json"
@@ -339,6 +352,12 @@ def collect(root: Path, n_tasks: int, out: Path) -> None:
     assert len(protos) == 1, "tasks ran different protocols"
     keys = ("lane_ids", "seeds", "t_factor", "phi_start", "phi", "ke",
             "equil_phi", "equil_ke")  # fmt: skip
+    extra: Dict[str, Any] = {}
+    if all("settings" in r and "temperature" in r for r in recs):
+        sets = {json.dumps(r["settings"], sort_keys=True) for r in recs}
+        assert len(sets) == 1, "tasks ran different MDSettings"
+        temps = [x for r in recs for x in r["temperature"]]
+        extra = {"settings": recs[0]["settings"], "temperature": temps}
     walls = [r["wall_seconds"] for r in recs]
     merged: Dict[str, Any] = {
         "description": "JAX replica of the C++ MD reference protocol (plan V2)",
@@ -347,7 +366,7 @@ def collect(root: Path, n_tasks: int, out: Path) -> None:
         "reference": "tests/data/md_cxx_reference.json",
         "protocol": recs[0]["protocol"], "andersen_acc_start": ANDERSEN_ACC_START,
         "control_factor": CONTROL_FACTOR, "base_seed": BASE_SEED,
-        **{k: [x for r in recs for x in r[k]] for k in keys},
+        **{k: [x for r in recs for x in r[k]] for k in keys}, **extra,
         "cost": {"tasks": n_tasks, "cpu_hours": sum(walls) / 3600.0,
                  "max_task_seconds": max(walls),
                  "hosts": sorted({r["host"] for r in recs}),

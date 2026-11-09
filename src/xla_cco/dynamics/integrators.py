@@ -9,10 +9,14 @@ im (m,)) where re/im are the energy's collective densities (m may include
 padding rows); integrators pass re/im through so the caller can reuse them.
 
 - ``verlet_step``: v += dt/2 F; r += dt v; F = F(r); v += dt/2 F.
-- ``andersen_reset``: "count" (C++ MD_System.cpp AndersonEvolve: acc += p;
-  while acc >= 1 (at most once per step for p <= 1): redraw one uniformly
-  chosen particle's velocity from N(0, T), acc -= 1) or "bernoulli" (one
-  redraw with probability p). No COM removal (as C++).
+- ``andersen_reset``: "count" (acc += p; if acc >= 1 (at most once per step
+  for p <= 1): redraw one uniformly chosen particle's velocity from N(0, T),
+  acc -= 1; the accumulator is carried across calls) or "bernoulli" (one
+  redraw with probability p). No COM removal (as C++). This is not the C++
+  MD_System.cpp AndersonEvolve rule, which resets its counter to 0 in every
+  call and fires while it is > 0 (501 resets per 5e4-step call from step 1,
+  D-050); a caller reproduces it by setting reset_acc = 1 at each call
+  (tools/cpp_reference/md_jax_replica.py, D-081).
 - ``baoab_step``: B (half kick), A (half drift), O (v = c v + sqrt((1-c^2) T)
   xi, c = exp(-gamma dt)), A, force, B. Exact configurational sampling for
   harmonic potentials at any stable dt (Leimkuhler & Matthews 2013).
