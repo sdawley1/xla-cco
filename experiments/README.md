@@ -818,6 +818,41 @@ Consequences at a ground state, where ρ = 0 inside K:
 - At χ = 0.45 the bulk has moved away from 1, toward 0 and 2, and the cluster stands out 3.9× above its surroundings.
 - A comparison with MP free of this feature uses the outer block alone (panel e, dotted).
 
+#### A vibrational band gap near χ → 1/2, and what it says about composites
+
+`batten2008_phonon_gap_plot.py` writes `figures/coupling_phonon_gap`. It uses 2D Poisson ground states at six χ, 6 per χ.
+
+**What K is.** At a ground state the nonzero normal modes (mass 1) have ω² = λ(K). K is also the plane-wave (Galerkin) form of the scalar wave operator −∇·η∇ with η a sum of point weights at the particles: ⟨q|−∇·η∇|p⟩ = (q·p) η̃(q − p), with η̃ ∝ ρ, restricted to |q|, |p| < K.
+- For a two-phase composite (TE photonic, anti-plane elastic or acoustic waves), the same matrix appears with ρ(k) replaced by m̃(k) ρ(k) (inclusion form factor) and with all plane waves kept.
+- K is therefore the point-scatterer, truncated limit of the composite's plane-wave Hamiltonian.
+- λ(C) divides each wave by its own |q|². That is a congruence, which keeps only the signs of the eigenvalues, not the gaps. The frequency variable is ω = √λ(K).
+
+**Result (N = 1024).** The largest spacing of ω/K in 0.3–1, compared with the largest spacing of the uncoupled spectrum ω = |q| (the k-shells):
+
+| χ | largest spacing (ω/K) | Δω/ω_mid | uncoupled shell spacing | gap? | modes below |
+|---|---|---|---|---|---|
+| 0.10 | 0.308–0.332 | 0.076 | 0.046 | no | 0.10 |
+| 0.25 | 0.716–0.719 | 0.004 | 0.020 | no | 0.57 |
+| 0.35 | 0.861–0.863 | 0.003 | 0.017 | no | 0.71 |
+| 0.40 | 0.753–0.760 | 0.010 | 0.016 | no (pseudo-gap) | 0.62 |
+| 0.455 | **0.607–0.683** | **0.118** | 0.015 | **yes, in every state** | 0.55 |
+| 0.491 | **0.517–0.605** | **0.156** | 0.014 | **yes, in every state** | 0.51 |
+
+**Where the gap sits.**
+- The effective dispersion (panel c) shows modes below the gap softened (ω < |q|) and modes above stiffened (ω > |q|): a level repulsion.
+- The gap lies 8–16% below the Bragg-like estimate ½k_peak/K = 0.705 and 0.670, set by the first S(k) peak beyond K (S ≈ 2.2–2.5).
+
+**The gap is not a two-point property.** Keeping every |ρ(k)|, and so S(k) at every wave vector, while randomizing the phases fills the gap completely:
+- the density in the ground-state gap window rises from 0–0.01 to 0.69–0.79;
+- the largest spacing falls to 0.002;
+- 9–11% of the surrogate eigenvalues are negative, so no point configuration can produce them.
+
+The gap is therefore enforced by the constraint that the ρ(k) come from N points, that is, by correlations beyond S(k).
+
+**Not yet tested:**
+- finite size (`batten2008_mp_finite_size_plot.py` with the N = 4096 flows);
+- composites with finite inclusions and all plane waves.
+
 #### All four χ for 2D Poisson
 
 `hessian_sign_mechanism`, `hessian_negative_compare` and `hessian_plateau_mechanism` now include 2D Poisson flows at χ = 0.25 (tag 1-4) and χ = 0.45 (tag 9-20), with 100 flows each. Pass the extra tags with `--extra-chi 1-4 9-20`; the other starts have χ = 0.1 and 0.4 only.
@@ -1045,6 +1080,7 @@ uv run --no-sync python -I experiments/scripts/batten2008_planes_mean_plot.py --
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_sign_universal_plot.py --roots experiments/trajectories/{flows2d/N1024,...} --labels ...   # hessian_sign_universal
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_mp_plot.py   # coupling_mp_compare (computes and caches mp_chi<tag>.npz; ~10 CPU-min, use a SLURM CPU job)
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_mp_shoulder_plot.py   # coupling_mp_shoulder (caches mp_shoulder_chi<tag>.npz; ~2 CPU-min)
+/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_phonon_gap_plot.py   # coupling_phonon_gap (caches phonon_chi<tag>.npz)
 # new chi for 2D Poisson (flows, tail, hessian, plateau, landscape, modes, winding, offplane): pass --chi 0.25 0.45 to each step; plots take --extra-chi 1-4 9-20
 /home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_windcv_explain_plot.py --roots ... --labels ...   # winding_cv_explained (needs landscape_chi*.npz)
 uv run --no-sync python -I experiments/scripts/batten2008_exclusion.py --roots experiments/trajectories/{flows2d/N1024,...} --flows 5   # exclusion_chi*.npz
@@ -1060,7 +1096,7 @@ uv run --no-sync python -I experiments/scripts/batten2008_windcv_plot.py --total
 
 **Data.** `trajectories/{gau2d/N1000,url2d/N1024,rsa2d/N999,hip2d/N1000}/` with the same files as `flows2d/N1024`, plus `winding_chi<tag>.npz`, `plateau_chi<tag>.npz` and `landscape_chi<tag>.npz` everywhere. The 20-flow runs are kept in `trajectories/<start>/N<N>_n20/`. The tolerance checks are in `trajectories/{batten2008_tight/N1000,flows2d_tight/N1024}/` (flow 0, atol 10⁻¹¹, rtol 10⁻³).
 
-**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `hessian_sign_compare`, `hessian_sign_mechanism`, `hessian_sign_starts`, `hessian_sign_universal`, `coupling_mp_compare`, `coupling_mp_shoulder`, `winding_cv_explained`, `exclusion_mode_control`, `exclusion_mode_spectra`, `exclusion_drive`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
+**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `hessian_sign_compare`, `hessian_sign_mechanism`, `hessian_sign_starts`, `hessian_sign_universal`, `coupling_mp_compare`, `coupling_mp_shoulder`, `coupling_phonon_gap`, `winding_cv_explained`, `exclusion_mode_control`, `exclusion_mode_spectra`, `exclusion_drive`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
 
 ### The 1D landscape against χ, in 3D
 
