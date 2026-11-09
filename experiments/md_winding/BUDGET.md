@@ -12,8 +12,8 @@ with GPU-h = ElapsedRaw × n_gpu / 3600. A job is not submitted if its projected
 | Pilot | 4 | 0.56 |
 | Production (E1, E1b) | 60 | 12.93 |
 | Langevin subset (E4) | 12 | 2.81 |
-| Reserve | 16 | 0.00 |
-| **Total** | **100** | **19.77** |
+| Reserve (INCONCLUSIVE remedy reruns) | 16 | 4.71 |
+| **Total** | **100** | **24.48** |
 
 ## Jobs
 
@@ -57,3 +57,8 @@ with GPU-h = ElapsedRaw × n_gpu / 3600. A job is not submitted if its projected
 | 2026-11-09 | 17163809 | mdw_e4_hip2d_1-10_g0.03 | Langevin | 708 | 1 | 0.20 |
 | 2026-11-09 | 17163810 | mdw_e4_hip2d_2-5_g0.003 | Langevin | 1870 | 1 | 0.52 |
 | 2026-11-09 | 17163811 | mdw_e4_hip2d_2-5_g0.03 | Langevin | 1881 | 1 | 0.52 |
+| 2026-11-09 | 17173885 | mdw_rerun_e1_flows2d_2-5 (H3 remedy: E1 flows2d chi=2-5, 4 cycles) | Reserve | 14334 | 1 | 3.98 |
+| 2026-11-09 | 17173886 | mdw_rerun_e4_flows2d_1-10_g0.003 (H7 remedy, 4 cycles) | Reserve | 1325 | 1 | 0.37 |
+| 2026-11-09 | 17173887 | mdw_rerun_e4_flows2d_1-10_g0.03 (H7 remedy, 4 cycles) | Reserve | 1306 | 1 | 0.36 |
+
+The line entries are rounded; the unrounded total is 3.4614 (verification) + 16.304 (pilot, production, Langevin) + 4.7125 (reserve) = 24.478 GPU-h.

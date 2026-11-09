@@ -802,7 +802,7 @@ There are two additional sets:
 - **E1b:** ρ_k traces of 2 ground states at T = 1e-6, for spectra.
 - **E4:** a BAOAB Langevin subset (flows2d and hip2d, γ = 0.003 and 0.03).
 
-The hypotheses H1–H8 were pre-registered in `md_winding/HYPOTHESES.md` (Amendments A1–A4). `md_winding/REPORT.md` holds the verdicts, the answers and every number; `md_winding/BUDGET.md` is the GPU ledger (19.77 of 100 GPU-h).
+The hypotheses H1–H8 were pre-registered in `md_winding/HYPOTHESES.md` (Amendments A1–A4). `md_winding/REPORT.md` holds the verdicts, the answers and every number; `md_winding/BUDGET.md` is the GPU ledger (24.48 of 100 GPU-h, of which 4.71 for the INCONCLUSIVE-remedy reruns).
 
 **Results.**
 - **Winding persists.** A constrained wave (|k| < K) winds at the Rice rate |k|/2π turns per unit time, whatever T, χ and the start. The normalized rate has per-start medians 0.997–1.0025, i.e. about 9.6 × 10³ turns per NVE segment. The rate over [t/2, t] matches the rate over [t/4, t/2] within 0.44%.
@@ -811,7 +811,7 @@ The hypotheses H1–H8 were pre-registered in `md_winding/HYPOTHESES.md` (Amendm
 - **Net winding** has zero mean. Its RMS is 0.9% (χ = 0.4) to 3.5% (χ = 0.1) of the unsigned winding. It is diffusive at χ = 0.4, but superdiffusive under NVE at χ = 0.1 (α = 1.18–1.28), and weak Langevin friction removes that (α = 1.01–1.02 at γ = 0.03).
 - **Registered verdicts:**
   - PASS: H5, H6b.
-  - INCONCLUSIVE: H3, H7 (|z| > 3 at deviations ≤ 0.44%).
+  - INCONCLUSIVE: H3, H7 (|z| > 3 at deviations ≤ 0.44%). Both remain INCONCLUSIVE after the decision-table remedy: one cell each rerun at 2× cycles (`batten2008_md_remedy.py`, deviations ≤ 0.32%).
   - FAIL: H1, H2, H8 (few-wave |k| bins), H4 (NVE superdiffusion) and H6 (diffusive rather than ballistic drift).
 
   A post hoc pooled-bin analysis and descriptive diagnostics are kept separate from the verdicts.
@@ -846,6 +846,9 @@ uv run --no-sync python -I experiments/scripts/batten2008_md_diagnostics.py --re
   - per-cell analyses `<start>/N<N>/md_analysis*_chi<tag>.npz`;
   - `verdicts.{json,md}`, with the exploratory pooled bins as a separate section;
   - `diagnostics.{json,md}`.
+- `trajectories/md_rerun/` (INCONCLUSIVE remedy; `md_winding/REPORT.md` §3 has the commands):
+  - `flows2d/N1024/md_chi2-5.*`, `md_langevin_g<γ>_chi1-10.*`: the 2×-cycles reruns (`--cycles 4`);
+  - `results/`: their analyses and `remedy.{json,md}` (`batten2008_md_remedy.py`).
 
 **Figures.**
 - `figures/md_F1_kymograph_chi<tag>`: winding kymographs.

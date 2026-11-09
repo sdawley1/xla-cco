@@ -8,13 +8,14 @@ Plan stages E2 (analysis), E3 (figures) and E5 (write-up), on the complete produ
 - **[D]** `trajectories/md_results/diagnostics.{json,md}`: the post hoc diagnostics (`batten2008_md_diagnostics.py`);
 - **[A]** `trajectories/md_results/<start>/N<N>/md_analysis*_chi<tag>.npz`: the per-cell analyses (`batten2008_md_analysis.py`);
 - **[J]** `trajectories/<start>/N<N>/md*_chi<tag>.json`: the run metadata, the equilibration gate, and the final sacct cost;
-- **[B]** `md_winding/BUDGET.md`: the GPU ledger.
+- **[B]** `md_winding/BUDGET.md`: the GPU ledger;
+- **[R]** `trajectories/md_rerun/results/remedy.{json,md}`: the INCONCLUSIVE-remedy reruns, their analyses and the reproducibility check (`batten2008_md_remedy.py`).
 
 ## 1. Summary
 
 - **Q1 (does arg ρ_k keep winding at fixed T?):** yes. In every cell a constrained wave winds at the Rice rate |k|/2π turns per unit time. The normalized rate ν (rate over |k|/2π, averaged over the constrained waves) has per-start medians 0.9970–1.0025 at harmonic T [A]. That is 9.49–9.69 × 10³ unsigned turns per NVE segment, at every T [D]. The rate over [t/2, t] equals the rate over [t/4, t/2] to within 0.44% in all 60 harmonic segments [V]. Winding never becomes stationary.
 - **Q2 (does the rate depend on the start?):** no for the unsigned rate. The mean bias-corrected Kruskal–Wallis effect size is η²_H = −0.010 over the 6 harmonic cells, and the largest pairwise difference of start medians is ≤ 0.53% (H5 PASS) [V]. The net-winding diffusion constant D_θ is start-independent at χ = 0.4. At χ = 0.1 and T ≤ 1e-5 it is 15–30% higher for URL than for the other starts [V].
-- **Registered verdicts:** H5 and H6b PASS; H3 and H7 INCONCLUSIVE; H1, H2, H4, H6 and H8 FAIL (Sec. 3). The FAILs fall into three groups:
+- **Registered verdicts:** H5 and H6b PASS; H3 and H7 INCONCLUSIVE; H1, H2, H4, H6 and H8 FAIL (Sec. 3). H3 and H7 remain INCONCLUSIVE after the decision-table remedy (one cell each rerun at 2× cycles and re-evaluated once; Sec. 3) [R]. The FAILs fall into three groups:
   - H1, H2, and through H2 part 1 of H8, fail only in |k|/K bins holding 2–8 waves (median 2), where 10 ground states resolve a 10% miss only marginally (Sec. 4) [D].
   - H4 fails because net winding is superdiffusive at χ = 0.1 (α = 1.18–1.28) under Andersen + NVE. The diagnostics show this comes from the near-integrable NVE dynamics, since weak Langevin friction removes it (α = 1.01–1.02 at γ = 0.03) [D].
   - H6 fails because drift along the ground-state manifold is diffusive (MSD ∝ √T t), not ballistic. Each H6 part misses its prediction by a definite factor: the unsigned rate is √π times the fixed-ρ prediction, and β = 1/4 instead of 1/2 [V, D].
@@ -67,7 +68,28 @@ The unit is a ground state (n = 10; n = 5 for E4). "Value" is the median over gr
 
 **Decision table.**
 - The H1, H2, H4, H6 and H8 FAILs each have at least one part that misses by ≥ 10%. By the table they are reported as physics; Sec. 4 shows which physics.
-- H3 and H7 are INCONCLUSIVE: some parts miss with |z| > 3 at deviations < 10% (here ≤ 0.44% and 0.07%). The table's remedy is to rerun one cell at 2× cycles (`NOTES.md` §1) from the 16 GPU-h reserve and re-evaluate once. **That rerun has not been done**, because this stage ran no GPU jobs; the decision is left to the orchestrator.
+- H3 and H7 are INCONCLUSIVE: some parts miss with |z| > 3 at deviations < 10% (here ≤ 0.44% and 0.07%). The table's remedy is to rerun one cell at 2× cycles (`NOTES.md` §1) from the 16 GPU-h reserve and re-evaluate once. That remedy was run; both hypotheses remain INCONCLUSIVE (next subsection).
+
+### INCONCLUSIVE remedy: 2×-cycles reruns (decision table)
+
+This subsection applies the decision-table remedy. It does not change the verdict table above, which is the registered production evaluation [V]; the remedy outcome is reported beside it [R].
+
+**What was run.** We reran the cell holding the largest-|z| INCONCLUSIVE part of each hypothesis with the production command, the same cell seeds and `--cycles 4` (2× the 2 production cycles; `NOTES.md` §1), into a separate data root (`trajectories/md_rerun/`) [R, B]:
+- H3: E1 flows2d χ = 0.4 (production miss: segment 0, T = 1e-5, 0.9956, z −8.0); job 17173885, 40 lanes, 3.98 GPU-h;
+- H7: E4 flows2d χ = 0.1 at γ = 0.003 and γ = 0.03 (production miss: γ ratio at T = 1e-4, 1.0007, z 3.41); jobs 17173886–7, 10 lanes each, 0.37 and 0.36 GPU-h. BAOAB / NVE pairs the rerun BAOAB cells with the production NVE cell.
+
+All 60 rerun lanes ended RUNNING. H3 and H7 were re-evaluated with the registered part functions on all 4 cycles of each rerun cell; the "after remedy" verdict replaces the rerun cell's production parts by its rerun parts and keeps every other cell.
+
+**The reruns are independent replicates, not bitwise extensions [R].** The rerun's first two cycles do not reproduce production bitwise. The set-up arrays (temperatures, ground states, waves) and the step counts agree exactly, and the dense ρ_k trace agrees to a relative 5.8 × 10⁻¹² (χ = 0.4) and 1.6–3.4 × 10⁻¹³ (E4) at its first shared row (t = 40 and 80). The difference then grows exponentially and exceeds 10% of |ρ_k| at t = 240 (χ = 0.4, Andersen equilibration), 2480 (γ = 0.003) and 6880 (γ = 0.03), all before the end of equilibration. The integrator, seeds, initial conditions and GPU model (A100 80 GB) are identical, so the initial difference is rounding. Its most likely source is that the reruns compile a different program (2200 instead of 1200 trace rows) and separately compiled A100 programs round differently (D-086); we have not isolated it from run-to-run GPU nondeterminism. The chaotic dynamics amplifies it to O(1). The rerun cycles 0–1 are therefore a second sample from the same law; the unsigned constrained winding per (cycle, lane), rerun over production, has median 0.99999 (range 0.971–1.023, n = 80; χ = 0.4) and 1.00000 (0.9988–1.0010 and 0.9997–1.0005, n = 20 each; E4). Four cycles of a fresh replicate is a stronger test than two added cycles, so we apply the remedy unchanged.
+
+| H | Production (all parts) | Production, rerun cell | Rerun cell, 4 cycles | After remedy |
+|---|---|---|---|---|
+| H3 | INCONCLUSIVE (57 / 3 / 0) | INCONCLUSIVE (5 / 1 / 0) | **INCONCLUSIVE** (11 / 1 / 0) | **INCONCLUSIVE** (63 / 3 / 0) |
+| H7 | INCONCLUSIVE (23 / 1 / 0) | INCONCLUSIVE (5 / 1 / 0) | **INCONCLUSIVE** (5 / 1 / 0) | **INCONCLUSIVE** (23 / 1 / 0) |
+
+- **H3 (flows2d χ = 0.4).** The production miss does not recur: segment 0 at T = 1e-5 gives 1.0024 (z 1.9) against 0.9956 (z −8.0) in production. A new miss appears in rerun segment 2 at T = 1e-5, 1.0032 (z 3.7), of the opposite sign. The 12 rerun window ratios span 0.9986–1.0032. After the remedy, H3 holds 3 INCONCLUSIVE parts in 66: the two production misses outside the rerun cell (flows2d χ = 0.1, url2d χ = 0.4) and the new one.
+- **H7 (flows2d χ = 0.1).** The 4 BAOAB / NVE parts pass (0.9993–1.0001, |z| ≤ 0.93). The γ = 0.003 / 0.03 ratio passes at T = 1e-4 (1.0003, z 2.63; production 1.0007, z 3.41) and misses at T = 1e-6 (1.00044, z 4.46; production 1.00006, z 1.36).
+- **Reading.** By the table, each verdict is re-evaluated once, so H3 and H7 stand as INCONCLUSIVE. In both cells the miss moves between parts across the two replicates, and in H3 it changes sign. The largest deviation of any rerun part is 0.32%, 9× below the 3% tolerance. For a ground-state t-statistic, P(|t| > 3) is 0.015 at n = 10 and 0.040 at n = 5 (derived, Student t with 9 and 4 degrees of freedom), so about 1 chance miss is expected among the 66 H3 parts and among the 24 H7 parts. The production z = −8.0 lies far outside that tail and did not recur. The four γ-ratio estimates (1.00006–1.00073, two replicates × two T) all exceed 1, which may indicate a γ dependence of ν of at most 0.07%; that is 40× smaller than the H7 tolerance, and we do not resolve it further.
 
 **T = 1e-3 (descriptive, no verdict).** Parts within / outside the criteria [V]:
 
@@ -133,7 +155,7 @@ Figures: `md_X1_pooled_posthoc_chi1-10.png`, `md_X1_pooled_posthoc_chi2-5.png`.
 ## 6. Answers
 
 **Q1: does arg ρ_k keep winding at fixed T, or become stationary?**
-It keeps winding. A constrained wave accumulates unsigned phase at |k|/2π turns per unit time, independent of T, χ and the start (ν medians 0.997–1.0025 at harmonic T, 1.0002–1.0009 at T = 1e-3) [A]. That is 9.49–9.69 × 10³ turns per segment in every cell [D]. The windowed rates agree to ≤ 0.44% (H3 is INCONCLUSIVE only through |z| on sub-percent deviations) [V]. The winding is the Rice rate of a Gaussian field whose phase velocity is set by the Maxwell–Boltzmann velocities, ⟨|ρ̇_k|²⟩ = N|k|²T. Since ⟨S_k⟩ = T, the T dependence cancels.
+It keeps winding. A constrained wave accumulates unsigned phase at |k|/2π turns per unit time, independent of T, χ and the start (ν medians 0.997–1.0025 at harmonic T, 1.0002–1.0009 at T = 1e-3) [A]. That is 9.49–9.69 × 10³ turns per segment in every cell [D]. The windowed rates agree to ≤ 0.44% (H3 is INCONCLUSIVE only through |z| on sub-percent deviations) [V]; in the 2×-cycles rerun of flows2d χ = 0.4 they agree to ≤ 0.32% [R]. The winding is the Rice rate of a Gaussian field whose phase velocity is set by the Maxwell–Boltzmann velocities, ⟨|ρ̇_k|²⟩ = N|k|²T. Since ⟨S_k⟩ = T, the T dependence cancels.
 
 **Q2: does the rate depend on which start the ground state came from?**
 No for the unsigned rate (H5 PASS: mean η²_H = −0.010; start medians differ by ≤ 0.53%) [V]. The net-winding diffusion constant D_θ is also start-independent at χ = 0.4 (no Holm-significant pair at any T). At χ = 0.1, URL ground states have a higher D_θ at T = 1e-6 (0.849 against 0.691–0.740) and at T = 1e-5 (1.283 against 0.986–1.065), with Holm p = 0.003–0.020 and |Cliff's δ| = 0.80–0.96 against 4 and 3 of the other starts; no pair differs at T = 1e-4 [V, `reports.H5_harmonic`]. Spearman correlations of D_θ with moments of the K spectrum reach |ρ| ≤ 0.48 in every cell [V, `reports.H5_harmonic.*.spearman_d_theta`]. At χ = 0.4 they do not recur across temperatures (e.g. k_cv: 0.48 at T = 1e-6; 0.06 and 0.09 at 1e-5 and 1e-4). At χ = 0.1 two moments recur with the same sign at T = 1e-6 and 1e-5 and vanish at 1e-4: k_q10_rel (ρ = 0.30, p = 0.032; ρ = 0.42, p = 0.0023; ρ = 0.04 at 1e-4) and k_min_rel (ρ = −0.47, p = 5.5 × 10⁻⁴; ρ = −0.29, p = 0.044; ρ = −0.001 at 1e-4). These are the two temperatures at which URL has the higher D_θ, so the correlations likely track the URL offset (a start effect) and not a spectral dependence within a start; we have not tested this (e.g. by excluding URL).
@@ -165,12 +187,12 @@ No for the unsigned rate (H5 PASS: mean η²_H = −0.010; start medians differ 
 - It randomizes the unconstrained ρ_k, which is why their unsigned rate takes the circular-Gaussian value and their net winding obeys (2πW_net)² ∝ ⟨|k|²⟩ MSD (F8).
 
 **Thermostat.**
-- The unsigned constrained rate does not depend on the thermostat: BAOAB / NVE ν = 0.9985–1.0061 and the γ = 0.003 / 0.03 ratio is 0.9998–1.0010 (H7, 23 of 24 parts PASS; the one INCONCLUSIVE deviates by 0.07%) [V].
+- The unsigned constrained rate does not depend on the thermostat: BAOAB / NVE ν = 0.9985–1.0061 and the γ = 0.003 / 0.03 ratio is 0.9998–1.0010 (H7, 23 of 24 parts PASS; the one INCONCLUSIVE deviates by 0.07%) [V]. The 2×-cycles rerun gives BAOAB / NVE 0.9993–1.0001 and a γ ratio of 1.0003–1.0004 [R].
 - Net-winding statistics at χ = 0.1 do depend on the thermostat (α and D_θ, Sec. 4). At χ = 0.4 they do not.
 
 ## 7. GPU-hours
 
-19.77 of the 100 GPU-h cap were used [B]:
+24.48 of the 100 GPU-h cap were used [B]:
 
 | Line | GPU-h |
 |---|---|
@@ -178,14 +200,14 @@ No for the unsigned rate (H5 PASS: mean η²_H = −0.010; start medians differ 
 | Pilot | 0.56 |
 | Production (E1 + E1b) | 12.93 |
 | Langevin (E4) | 2.81 |
-| Reserve | 0 (of 16) |
+| Reserve (INCONCLUSIVE remedy) | 4.71 (of 16) |
 
-The final sacct costs in the 28 output JSONs (refreshed with `--step cost`) sum to 16.30 GPU-h, which equals pilot + production + Langevin [J]. E2, E3 and E5 used CPU only: SLURM jobs 17171421 (16 cores, 22 min) and 17172995 (1 min).
+The final sacct costs in the 28 output JSONs (refreshed with `--step cost`) sum to 16.30 GPU-h, which equals pilot + production + Langevin [J]. The three remedy reruns (17173885–7) used 3.98 + 0.37 + 0.36 = 4.71 GPU-h (ElapsedRaw 14334, 1325 and 1306 s on 1 GPU; also in their JSON `cost` fields) [B, J]. E2, E3 and E5 used CPU only: SLURM jobs 17171421 (16 cores, 22 min) and 17172995 (1 min); the remedy analysis and the figure re-render used jobs 17176359, 17176658, 17191556 and 17176417 (≤ 1 min each).
 
 ## 8. Deviations from the plan
 
 1. **Equilibration gate.** 59 of 400 E1 lanes (and 2 of 20 E1b lanes) still missed the 5% ⟨Φ⟩/(MT) gate after the one extension. They were kept, as the CLI does, because the misses match the canonical 1/√(2M) scatter (Sec. 2). The decision table has no rule for this case.
-2. **INCONCLUSIVE remedy not run.** The 2×-cycles rerun for H3 and H7 needs GPU time, and this stage ran no GPU jobs. The reserve (16 GPU-h) is untouched.
+2. **INCONCLUSIVE remedy.** The 2×-cycles reruns for H3 and H7 ran from the reserve (4.71 of 16 GPU-h; Sec. 3). Their first two cycles were expected to reproduce production bitwise; they do not, because a differently shaped GPU program rounds differently and the dynamics amplifies the 10⁻¹³ difference (`NOTES.md` §3). The reruns are therefore independent replicates of the same cells, which we evaluate exactly as registered.
 3. **Location of the analysis outputs.** They are in `trajectories/md_results/<start>/N<N>/`, not beside the inputs. D-089 (a shared `--out-dir` overwrote the starts) was found and fixed during this stage. The production analysis (job 17171421) used per-start output directories, so its 28 files were never affected; the fixed script produces the same layout.
 4. **Post hoc additions.** The exploratory pooled bins (Sec. 5, `NOTES.md` §2) and the diagnostics (Sec. 4, `batten2008_md_diagnostics.py`) are post hoc and descriptive. Neither enters a verdict.
 5. **Provenance.** `run_script.git_dirty` is `null` in all 28 output JSONs: `git status` was not available inside the jobs. `git_head` is recorded: 6c48bfd6 for the pilot, fe54c5d0 for all other cells.
@@ -221,3 +243,17 @@ env -u JAX_PLATFORMS sbatch --export=ALL,PAR=4 experiments/slurm/batten2008_md_a
 ```
 
 The job writes `trajectories/md_results/` (per-cell analyses, `verdicts.{json,md}`, `diagnostics.{json,md}`) and the figures. `SKIP_ANALYSIS=1` reruns only the statistics and figures.
+
+The INCONCLUSIVE remedy (GPU reruns with `--cycles 4 --data-root experiments/trajectories/md_rerun`, then on a CPU node):
+
+```bash
+T=experiments/trajectories; R=$T/md_rerun
+python experiments/scripts/batten2008_md_analysis.py --out-dir $R/results \
+    --md $R/flows2d/N1024/md_chi2-5.npz \
+    $R/flows2d/N1024/md_langevin_g0.003_chi1-10.npz $R/flows2d/N1024/md_langevin_g0.03_chi1-10.npz
+python experiments/scripts/batten2008_md_remedy.py --production $T/md_results --rerun $R/results \
+    --out-json $R/results/remedy.json \
+    --pair $T/flows2d/N1024/md_chi2-5.npz $R/flows2d/N1024/md_chi2-5.npz \
+    --pair $T/flows2d/N1024/md_langevin_g0.003_chi1-10.npz $R/flows2d/N1024/md_langevin_g0.003_chi1-10.npz \
+    --pair $T/flows2d/N1024/md_langevin_g0.03_chi1-10.npz $R/flows2d/N1024/md_langevin_g0.03_chi1-10.npz
+```
