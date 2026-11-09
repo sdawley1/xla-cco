@@ -455,10 +455,10 @@ Statuses:
 
 ## D-088 — E1b power spectrum mixes the thermostatted phases into the NVE spectrum
 - **Found:** 2026-11-09, while writing the E1 run script (batten2008_md_run.py, E1b assembly)
-- **Status:** open
+- **Status:** fixed
 - **Where:** experiments/scripts/batten2008_md_analysis.py:695 (`_trace_spectra`)
 - **Symptom:** the rho trace of cli.md is global (one row every `record_rho_every` steps from step 0, across all phases), so for E1b (trace every 5 steps; 2e5 Andersen equilibration + 1e5 Andersen + 5000 or 10000 NVE steps) the "leading uniform run" that `_trace_spectra` transforms is the whole run: about 98 % of its samples are Andersen-thermostatted and only the last 1-2 % are the t = 200 NVE segment that F10 compares with sqrt(eig K). `trace_inverse_modulus` already restricts to the production segments (`segments(meta)`); `_trace_spectra` does not.
 - **Repro:** an E1b output (`batten2008_md_run.py --step spectra`) has trace_count = (n_equil + n_andersen + n_nve) / 5 uniform rows; `_trace_spectra` uses all of them (no gap), not the last n_nve / 5
 - **Impact:** F10 spectra would be broadened by the Andersen collisions and dominated by the equilibration; H-tests unaffected (F10 is descriptive). E1 files also get a `spec_power` from their 2000-step trace (Nyquist 0.04 << omega_min 0.17), which is aliased and should not be plotted.
-- **Regression test:** none yet (open; fix belongs to E2: restrict the spectrum to the trace rows inside each production segment, as `trace_inverse_modulus` does)
-- **Fix:** —
+- **Regression test:** tests/unit/test_batten2008_md.py::test_regression_D088_trace_spectrum_production_only, ::test_regression_D088_spectrum_ignores_non_production_property (Hypothesis; repro pinned by `@example`)
+- **Fix:** feat/md-E1fix: `_trace_spectra(arrays, meta, g, n_t)` takes only the trace rows whose step (trace_time / dt) lies in a production segment (s0, s0 + n] (the JSON phases, as `trace_inverse_modulus`), transforms the first Q rows of each segment (Q = fewest rows of any segment) and averages the normalized spectra over segments; it also stores `spec_rows`, `spec_segments` and `spec_nyquist` = pi / (cadence dt), so an E1 file's aliased 2000-step spectrum is identifiable (F10 plots only `md_analysis_spectra*`). Before the fix, the repro's spectrum (2020 rows) peaked at the out-of-production tone (omega 1.257) instead of the production tone (0.314).
