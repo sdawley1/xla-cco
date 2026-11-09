@@ -29,7 +29,7 @@ from hypothesis import strategies as st
 
 pytest.importorskip("matplotlib")
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "experiments" / "scripts"))
-from batten2008_mp_plot import stats  # noqa: E402
+from batten2008_mp_plot import ks_eff, stats  # noqa: E402
 from batten2008_mp_shoulder_plot import min_density  # noqa: E402
 
 # ============================================================
@@ -51,6 +51,22 @@ def test_regression_D018_stats_with_zero_modes(zeros: int, seed: int) -> None:
     assert out["var"] > 0.0 and 0.0 <= out["ks"] <= 1.0
     pos = stats(np.sort(rng.uniform(0.05, 2.0, size=(3, 200)), axis=1), 0.8)
     assert pos["inv"] > 0.0
+
+
+@pytest.mark.medium
+@given(spread=st.floats(1.05, 3.0), seed=st.integers(0, 2**31 - 1))
+@settings(max_examples=25, deadline=None)
+@example(spread=1.2, seed=0)  # D-018: HIP starts at chi = 0.4 have Var lambda > 1
+def test_regression_D018_ks_eff_undefined_for_variance_above_one(
+    spread: float, seed: int
+) -> None:
+    rng = np.random.default_rng(seed)
+    ev = np.sort(np.abs(rng.normal(1.0, spread, size=(3, 300))), axis=1)
+    assert float(np.mean(ev.var(axis=1))) >= 1.0 or np.isfinite(ks_eff(ev))
+    if float(np.mean(ev.var(axis=1))) >= 1.0:
+        assert np.isnan(ks_eff(ev))  # MP(c_eff) needs 0 < c_eff < 1
+    small = np.sort(rng.uniform(0.5, 1.5, size=(3, 300)), axis=1)
+    assert 0.0 <= ks_eff(small) <= 1.0
 
 
 @pytest.mark.medium

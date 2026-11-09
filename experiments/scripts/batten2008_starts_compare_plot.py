@@ -51,7 +51,7 @@ from batten2008_mp_plot import (  # noqa: E402
     CHI_COLOR,
     START_COLORS,
     START_LABELS,
-    ks_distance,
+    ks_eff,
 )
 from batten2008_phonon_gap_plot import largest_gap  # noqa: E402
 from batten2008_plot import finish, load, plt  # noqa: E402  (house rcParams)
@@ -132,8 +132,7 @@ def ks_summary(root: Path, tag: str) -> Optional[Dict[str, float]]:
     d = load(path)
     out = {"chi": float(d["chi"])}
     for key in ("gs", "start"):
-        c_eff = float(np.mean(d[key].var(axis=1)))
-        out[key] = ks_distance(d[key], c_eff) if 0.0 < c_eff < 1.0 else float("nan")
+        out[key] = ks_eff(d[key])
     assert np.isnan(out["gs"]) or 0.0 <= out["gs"] <= 1.0, "a distance"
     return out
 
