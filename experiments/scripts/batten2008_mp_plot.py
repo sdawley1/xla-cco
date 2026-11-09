@@ -158,7 +158,7 @@ def load_or_compute(root: Path, tag: str, n_flows: int) -> Dict[str, np.ndarray]
 def mp_cdf(c: float, x: np.ndarray) -> np.ndarray:
     """Marchenko-Pastur cumulative distribution (ratio c < 1, unit mean)."""
     lo, hi = (1.0 - np.sqrt(c)) ** 2, (1.0 + np.sqrt(c)) ** 2
-    t = np.linspace(lo, hi, 20001)
+    t = np.geomspace(lo, hi, 40001)  # log grid: the soft edge is steep as c -> 1
     dens = np.sqrt(np.maximum((hi - t) * (t - lo), 0.0)) / (2.0 * np.pi * c * t)
     cum = np.concatenate([[0.0], np.cumsum(0.5 * (dens[1:] + dens[:-1]) * np.diff(t))])
     assert abs(cum[-1] - 1.0) < 1e-3 and 0.0 < c < 1.0, "MP normalization"
