@@ -34,6 +34,8 @@ Statuses:
 | D-015 | fixed | `cli/relax.py` (`load_input`) | The CLI rejected its own output packs (basis scaled by N^(1/d)) as input. |
 | D-016 | fixed | `_device.py` (`classify_failure`) | GPU guard blamed `--gres=gpu` when `JAX_PLATFORMS=cpu` hid the GPU, and its fix hint synced CUDA JAX into the CPU env. |
 | D-017 | fixed | `tests/property/test_energy_tables_props.py` | Table-path gradient tolerance blind to pre-cancellation magnitude (sibling of D-011). |
+| D-018 | fixed | `experiments/scripts/batten2008_mp_plot.py` (`stats`, `ks_eff`) | Coupling statistics asserted a positive spectrum; HIP starts have round-off zero modes in C and Var λ > c. |
+| D-019 | fixed | `experiments/scripts/batten2008_mp_shoulder_plot.py` (`min_density`) | Dip window empty for the narrow saturated-RSA spectrum at χ = 0.1; asserted instead of giving NaN. |
 | D-020 | fixed | `tests/property/test_md_props.py` | MD reversibility property tolerance blind to \|r\|. |
 | D-040 | fixed | `dynamics/checkpoint.py` (`load_state`) | Corrupt MD checkpoint escaped as BadZipFile instead of a ValueError. |
 | D-041 | fixed | `cli/md.py` (`main`) | MD CLI usage errors exited 2 instead of 1. |
@@ -42,13 +44,13 @@ Statuses:
 | D-044 | fixed | `cli/md.py` (`run_phases`) | Equilibration gate averaged over the transient and was never acted on. |
 | D-045 | fixed | `cli/md.py` (`record_schedule`) | Default 200 snapshots deduplicated to 184. |
 | D-046 | fixed | `cli/md.py` (`_run_phase`) | Stale in-phase checkpoint left at the path handed to simulate. |
-| D-060 | fixed | `dynamics/run.py` (`begin_segment`) | Frozen `begin_segment` cannot recompute rho_prev (no waves); a scheme switch mixed COM-corrected and raw rho in the first winding step. |
-| D-061 | fixed | `tests/integration/test_md_cli.py` (end to end) | The real-driver end-to-end test ran NVE from random (non-ground) states, which the drift guard correctly aborts. |
-| D-062 | fixed | `cli/md.py` (`_run_phase`) | Andersen phases after an NVE segment started without begin_segment: their first winding step compared raw with COM-corrected rho. |
 | D-050 | wontfix-upstream | `MD_System.cpp:199-250` | Andersen count mode fires on step 1 and float accumulation of p = 0.01 shifts the schedule: 501 resets per 50000-step call, not 500. |
 | D-051 | wontfix-upstream | `MD_System.cpp:19-30, 128-136` | The MD system starts with zero acceleration, so the first Verlet half-kick after construction omits the force. |
 | D-052 | wontfix-upstream | `main.cpp:864-877` | MD sample log prints energy, KE, dt and pressure with the 6-significant-digit stream default. |
 | D-053 | fixed | `tools/cpp_reference/md_reference.py` (`shell_table`) | Shells grouped with exact float equality, so an ulp split of one shell put K inside it. |
+| D-060 | fixed | `dynamics/run.py` (`begin_segment`) | Frozen `begin_segment` cannot recompute rho_prev (no waves); a scheme switch mixed COM-corrected and raw rho in the first winding step. |
+| D-061 | fixed | `tests/integration/test_md_cli.py` (end to end) | The real-driver end-to-end test ran NVE from random (non-ground) states, which the drift guard correctly aborts. |
+| D-062 | fixed | `cli/md.py` (`_run_phase`) | Andersen phases after an NVE segment started without begin_segment: their first winding step compared raw with COM-corrected rho. |
 | D-070 | fixed | `benchmarks/md_bench.py` (`_bin_stats`) | V3 winding criterion (c) used the mean of per-wave ratios, biased by ~CV^2 for decorrelated waves; no dt passed at chi = 0.4. |
 | D-071 | fixed | `benchmarks/md_bench.py` (`round_up_125`) | log10 rounding put x just below 10^k in the next decade (assertion error). |
 | D-072 | fixed | `tests/unit/test_md_bench.py` (offline vs device winding) | Flaky high-tier test: subnormal S = rho^2/N counted by NumPy, flushed to 0 by XLA on CPU. |
@@ -182,6 +184,25 @@ Statuses:
 - **Regression test:** tests/property/test_energy_tables_props.py::test_regression_D017_coincident_particles_gradient_tolerance
 - **Fix:** atol = max(1e-12 * max(1, max|grad|), GRAD_SUM_C eps (4 pi n_max / V) sum(w) N + GRAD_SUM_FLOOR), the D-011 bound per particle, in both gradient comparisons
 
+## D-018 — coupling_mp_compare asserts a positive spectrum at HIP starts
+- **Found:** 2026-11-09, per-start coupling run (hip2d/N1000, SLURM 17145072)
+- **Status:** fixed
+- **Where:** experiments/scripts/batten2008_mp_plot.py (`stats`)
+- **Symptom:** `AssertionError: positive spectrum` (`stats`), then `AssertionError: MP normalization` (`ks_distance` with c_eff >= 1), while drawing coupling_mp_compare for HIP starts
+- **Repro:** HIP starts at chi = 0.4 (tag 2-5): the coupling C of the start configurations has 42-134 eigenvalues at round-off (|lambda| <= 6e-16, some negative), so <1/lambda>(1 - c) is a huge number of either sign, and Var lambda = 2.96 c = 2.37 > 1, so MP(c_eff) does not exist
+- **Impact:** no per-start figure for HIP; the stored Poisson figures are unaffected (their smallest start eigenvalue, 1e-11 at chi = 0.49, is a genuine void mode)
+- **Regression test:** tests/unit/test_batten2008_coupling_plots.py::test_regression_D018_stats_with_zero_modes and ::test_regression_D018_ks_eff_undefined_for_variance_above_one
+- **Fix:** <1/lambda> is NaN when lambda_min / lambda_max <= 1e-13 (round-off zeros), and the assertion checks only that it is not <= 0; `ks_eff` returns NaN (no point, no MP(c_eff) curve) unless 0 < c_eff < 1
+
+## D-019 — coupling_mp_shoulder dip window outside a narrow spectrum
+- **Found:** 2026-11-09, per-start coupling run (rsa2d/N999, SLURM 17145071)
+- **Status:** fixed
+- **Where:** experiments/scripts/batten2008_mp_shoulder_plot.py (`min_density`)
+- **Symptom:** `AssertionError: window inside the histogram` in panel (d)
+- **Repro:** saturated-RSA ground states at chi = 0.1 have lambda(C) within 0.85-1.15 (5-95 %), so the 0.3-0.8 window clipped to the quantiles is empty
+- **Impact:** no per-start figure for saturated RSA; Poisson unaffected
+- **Regression test:** tests/unit/test_batten2008_coupling_plots.py::test_regression_D019_min_density_window_outside_support
+- **Fix:** an empty clipped window returns NaN (no point drawn) instead of asserting
 
 ## D-020 — MD reversibility property used an absolute tolerance blind to |r|
 - **Found:** 2026-11-08, T1 fix round (Hypothesis `dev` profile, random seed)
@@ -263,36 +284,6 @@ Statuses:
 - **Regression test:** tests/integration/test_md_cli.py::test_regression_D046_simulate_never_gets_existing_file
 - **Fix:** the in-phase file is removed after every phase checkpoint and before every simulate call
 
-## D-060 — `begin_segment` cannot recompute rho_prev; scheme switch mixes COM rules
-- **Found:** 2026-11-08, while implementing T5 (run.py)
-- **Status:** fixed
-- **Where:** src/xla_cco/dynamics/run.py (`begin_segment`, `md_chunk`); frozen signature in the plan's interface
-- **Symptom:** the contract asks begin_segment to recompute rho_prev "from the current positions with the COM rule of the scheme", but its frozen signature `(state, settings, reset_sums, reset_winding)` has no waves or energy. Keeping the old rho_prev, Andersen -> begin_segment -> NVE compares the Andersen phase's COM-corrected rho with raw NVE rho in the first step (an error of k . R_cm per wave)
-- **Repro:** Andersen (p = 0) lane with a COM velocity, 6 steps; begin_segment(verlet settings); 1 NVE step -> wind_net differs from angle(rho_raw(r1) conj rho_raw(r0)) by O(1) rad
-- **Impact:** one spurious winding step per production segment (no outputs existed before the fix)
-- **Regression test:** tests/unit/test_md_run.py::test_regression_D060_begin_segment_recomputes_rho_prev_on_scheme_switch (property: test_begin_segment_property)
-- **Fix:** with reset_winding, begin_segment marks rho_prev pending (NaN); md_chunk recomputes pending rows of running lanes from the current positions with its scheme's COM rule before the first step. Interface concern reported to the orchestrator (an optional `waves`/`energy` argument would make it eager)
-
-## D-061 — CLI end-to-end test ran NVE from random states
-- **Found:** 2026-11-08, while implementing T5 (removing the strict xfail)
-- **Status:** fixed
-- **Where:** tests/integration/test_md_cli.py (`test_md_cli_end_to_end_small`)
-- **Symptom:** with the real driver every lane ended in STATUS_DRIFT: far from a minimum (Phi ~ 4 at T = 1e-4) the Verlet energy error exceeds drift_tol * dof T / 2 ~ 1.5e-6
-- **Repro:** remove the xfail and run the test on the unchanged input -> status_counts == {"STATUS_DRIFT": 4}
-- **Impact:** test only (the drift guard behaved as specified)
-- **Regression test:** tests/integration/test_md_cli.py::test_regression_D061_md_cli_end_to_end_small (renamed from test_md_cli_end_to_end_small; passes on ground states)
-- **Fix:** the test relaxes its three random starts with gradient_flow (Phi < 1e-20) and feeds those ground states, as production does
-
-## D-062 — Andersen phases after NVE start without begin_segment
-- **Found:** 2026-11-08, while implementing T5 (reading cli/md.py against run.py)
-- **Status:** fixed
-- **Where:** src/xla_cco/cli/md.py (`_run_phase`; phases built by `protocol_phases` with begin=False)
-- **Symptom:** after an NVE segment rho_prev holds raw rho; the next Andersen phase (no begin_segment) compares it with COM-corrected rho in its first step, adding |k . R_cm| (wrapped) to its winding
-- **Repro:** CLI run with cycles >= 2 on ground states: the first step of andersen1 added 3.13 rad (max over waves) more than |angle(rho~(r1) conj rho~(r0))|
-- **Impact:** none on written outputs (Andersen-phase winding and sums are reset by the next NVE begin_segment; snapshots fall in production segments only), but the in-state Andersen winding was wrong
-- **Regression test:** tests/integration/test_md_cli.py::test_regression_D062_andersen_after_nve_restarts_winding (test_md_cli_protocol now checks the restart flags)
-- **Fix:** every phase that does not begin a segment starts (done == 0) with `_rewind`: begin_segment(reset_sums=False, reset_winding=True) with remove_com=False, so rho_prev is recomputed under the phase's COM rule; velocities, sums and step are untouched, resume semantics unchanged
-
 ## D-050 — Andersen count mode: reset on step 1 and a 501-reset schedule
 - **Found:** 2026-11-08, while building the C++ MD reference (plan T4)
 - **Status:** wontfix-upstream
@@ -332,6 +323,37 @@ Statuses:
 - **Impact:** none on the committed data (L = sqrt(1000), M = 50 was unaffected: the cutoff K was checked by enumeration and the C++ harness), only on other boxes
 - **Regression test:** tests/unit/test_md_cxx_reference.py::test_regression_D053_shell_split_by_ulp, plus the `@example` pins in `test_choose_k_outer_properties`
 - **Fix:** group sorted |k|^2 into shells with relative tolerance `SHELL_RTOL = 1e-9` and place K between the largest value of one shell and the smallest of the next
+
+## D-060 — `begin_segment` cannot recompute rho_prev; scheme switch mixes COM rules
+- **Found:** 2026-11-08, while implementing T5 (run.py)
+- **Status:** fixed
+- **Where:** src/xla_cco/dynamics/run.py (`begin_segment`, `md_chunk`); frozen signature in the plan's interface
+- **Symptom:** the contract asks begin_segment to recompute rho_prev "from the current positions with the COM rule of the scheme", but its frozen signature `(state, settings, reset_sums, reset_winding)` has no waves or energy. Keeping the old rho_prev, Andersen -> begin_segment -> NVE compares the Andersen phase's COM-corrected rho with raw NVE rho in the first step (an error of k . R_cm per wave)
+- **Repro:** Andersen (p = 0) lane with a COM velocity, 6 steps; begin_segment(verlet settings); 1 NVE step -> wind_net differs from angle(rho_raw(r1) conj rho_raw(r0)) by O(1) rad
+- **Impact:** one spurious winding step per production segment (no outputs existed before the fix)
+- **Regression test:** tests/unit/test_md_run.py::test_regression_D060_begin_segment_recomputes_rho_prev_on_scheme_switch (property: test_begin_segment_property)
+- **Fix:** with reset_winding, begin_segment marks rho_prev pending (NaN); md_chunk recomputes pending rows of running lanes from the current positions with its scheme's COM rule before the first step. Interface concern reported to the orchestrator (an optional `waves`/`energy` argument would make it eager)
+
+## D-061 — CLI end-to-end test ran NVE from random states
+- **Found:** 2026-11-08, while implementing T5 (removing the strict xfail)
+- **Status:** fixed
+- **Where:** tests/integration/test_md_cli.py (`test_md_cli_end_to_end_small`)
+- **Symptom:** with the real driver every lane ended in STATUS_DRIFT: far from a minimum (Phi ~ 4 at T = 1e-4) the Verlet energy error exceeds drift_tol * dof T / 2 ~ 1.5e-6
+- **Repro:** remove the xfail and run the test on the unchanged input -> status_counts == {"STATUS_DRIFT": 4}
+- **Impact:** test only (the drift guard behaved as specified)
+- **Regression test:** tests/integration/test_md_cli.py::test_regression_D061_md_cli_end_to_end_small (renamed from test_md_cli_end_to_end_small; passes on ground states)
+- **Fix:** the test relaxes its three random starts with gradient_flow (Phi < 1e-20) and feeds those ground states, as production does
+
+## D-062 — Andersen phases after NVE start without begin_segment
+- **Found:** 2026-11-08, while implementing T5 (reading cli/md.py against run.py)
+- **Status:** fixed
+- **Where:** src/xla_cco/cli/md.py (`_run_phase`; phases built by `protocol_phases` with begin=False)
+- **Symptom:** after an NVE segment rho_prev holds raw rho; the next Andersen phase (no begin_segment) compares it with COM-corrected rho in its first step, adding |k . R_cm| (wrapped) to its winding
+- **Repro:** CLI run with cycles >= 2 on ground states: the first step of andersen1 added 3.13 rad (max over waves) more than |angle(rho~(r1) conj rho~(r0))|
+- **Impact:** none on written outputs (Andersen-phase winding and sums are reset by the next NVE begin_segment; snapshots fall in production segments only), but the in-state Andersen winding was wrong
+- **Regression test:** tests/integration/test_md_cli.py::test_regression_D062_andersen_after_nve_restarts_winding (test_md_cli_protocol now checks the restart flags)
+- **Fix:** every phase that does not begin a segment starts (done == 0) with `_rewind`: begin_segment(reset_sums=False, reset_winding=True) with remove_com=False, so rho_prev is recomputed under the phase's COM rule; velocities, sums and step are untouched, resume semantics unchanged
+
 ## D-070 — V3 criterion (c) estimator biased upward for decorrelated waves
 - **Found:** 2026-11-08, while implementing V3 (job 17119586, chi = 0.4 calibration)
 - **Status:** fixed
