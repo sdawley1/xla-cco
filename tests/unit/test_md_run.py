@@ -491,12 +491,15 @@ def test_wind_every_constrained_always_unconstrained_on_multiples() -> None:
 
 
 @pytest.mark.critical
-def test_sum_s_is_the_mean_latest_s_of_every_row() -> None:
+@pytest.mark.parametrize("basis", [None, SHEARED], ids=["density1", "sheared"])
+def test_sum_s_is_the_mean_latest_s_of_every_row(basis: Optional[np.ndarray]) -> None:
     """sum_s / n_sum = mean over steps of |rho_latest|^2 / N, every tracked row.
 
     rho_latest: constrained rows fresh each step; unconstrained rows fresh on
     cadence steps (wind_every = 3) and repeated in between. The reference is
-    the direct sum at the snapshot positions of every step.
+    the direct sum at the snapshot positions of every step. The sheared cell
+    has density N / V = 16 / 7.8 != 1, so S = |rho|^2 / N is told apart from
+    |rho|^2 / V (AUDIT-V1 F3).
     """
     n_steps, every = 12, 3
     st_ = _settings(
@@ -504,7 +507,9 @@ def test_sum_s_is_the_mean_latest_s_of_every_row() -> None:
         record_steps=tuple(range(1, n_steps + 1)), record_rho_every=1,
         max_rho_records=n_steps,
     )  # fmt: skip
-    system = _system()
+    system = _system(basis)
+    vol = abs(float(np.linalg.det(np.asarray(system[2]))))
+    assert (basis is None) == (vol == pytest.approx(N)), (basis, vol)
     lanes = _random_lanes([6], st_, system=system)
     out = run.simulate(*system, st_, lanes, n_steps)
     kv, nc = np.asarray(system[1].kvec), system[1].n_constrained

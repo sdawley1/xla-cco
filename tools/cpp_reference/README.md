@@ -128,3 +128,30 @@ PYTHONPATH=$PWD/src JAX_PLATFORMS=cpu UV_PROJECT_ENVIRONMENT=<venv> \
 restart from an `.MDDump` or append to the pack. Run logs go to
 `/scratch/gpfs/TORQUATO/sd2402/xla_cco_runs/md_cxx/seed<k>/`, and SLURM logs
 to `.../md_cxx/slurm-mdcxx-<job>_<k>.out`.
+
+## JAX replica of the MD protocol (plan V2)
+
+`md_jax_replica.py` replays the protocol above with `xla_cco.dynamics` in the
+same box and K, for the parity test `tests/parity/test_md_cxx_parity.py`.
+
+- Each lane gets its own uniform random start, relaxed by L-BFGS (1000
+  evaluations, one pass), with zero velocities. Equilibration is
+  20 × 2 × [all components N(0, T), no COM removal; NVE 5e4 steps], and
+  sampling is 20 × [count Andersen 5e4; NVE 5e4; record Φ, KE].
+- Andersen schedule: each Andersen phase sets `reset_acc = 1.0` (the C++
+  counter plus one). The library rule then fires at exactly the C++ steps
+  1, 100, …, 50000 (D-050, D-081). D-051 is not replicated.
+- Layout: 10 array tasks × 8 vmapped lanes (4 at T, 4 at 1.1 T, the power
+  control), 20 samples per lane: 800 samples at T and 800 at 1.1 T.
+
+```bash
+mkdir -p experiments/trajectories
+env -u JAX_PLATFORMS sbatch slurm/md_jax_replica_cpu.slurm          # 10 array tasks
+# after the jobs finish, on a login node:
+PYTHONPATH=$PWD/src JAX_PLATFORMS=cpu UV_PROJECT_ENVIRONMENT=<venv> \
+    uv run --no-sync python tools/cpp_reference/md_jax_replica.py collect
+```
+
+Task files go to `/scratch/gpfs/TORQUATO/sd2402/xla_cco_runs/md_jax_replica/`,
+SLURM logs to `experiments/trajectories/slurm-mdjaxrep-<job>_<k>.out`, and the
+merged result (with its cost record) to `tests/data/md_jax_replica.json`.
