@@ -827,6 +827,10 @@ Consequences at a ground state, where ρ = 0 inside K:
   - the plateau is n₋ = (Nd − 2M)/2;
   - the cut crossing is near Φ ≈ 10⁻¹¹.
 - **The stiff band's lower edge λ₂ₘ:** 0.95–1.0 k₁² at χ = 0.1, 0.25 and 0.4, but 0.22 k₁² at χ = 0.45. This is the soft edge of the coupling spectrum above.
+- **Landscape figures (`--extra-chi 1-4 9-20`):** `landscape_wells`, `landscape_floor` and `landscape_valley` now include both new χ. The modes, winding and off-plane steps were run for them.
+  - **χ = 0.45 has the slowest flow.** The residual's decay rate falls to 0.22 k₁², against 0.85–1.0 k₁² at χ ≤ 0.4 (valley b), and u^T K u / u^T D u falls to 0.005 (valley a).
+  - **This is the soft edge of K setting the clock.** The same 0.22 k₁² appears as the stiff band's lower edge. The flow slows down as χ → 1/2.
+  - **χ = 0.25 sits between χ = 0.1 and 0.4** on every measure.
 - **The first-order agreement H ≈ PRP** still holds and falls as √Φ at every χ. Its prefactor grows with χ as the stiff gap closes: the largest deviation at Φ = 10⁻³ is 10⁻⁵, 8·10⁻⁵, 2·10⁻³ and 5·10⁻² of max |λ| for χ = 0.1, 0.25, 0.4 and 0.45.
 - **Open: a small, systematic sign asymmetry at large χ.** The cut-free soft spectrum (P R P) has slightly more positive than negative eigenvalues in every flow, at every Φ:
   - (neg, pos) ≈ (200, 208) of 408 at χ = 0.4;

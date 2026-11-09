@@ -56,7 +56,14 @@ from matplotlib.lines import Line2D  # noqa: E402
 # CONSTANTS
 # ============================================================
 
-CHI_COLOR = {"1-10": "black", "1-4": "#1f4e9c", "2-5": "#c0392b", "9-20": "#2e7d32"}
+CHI_COLOR = {
+    "1-10": "black",
+    "1-4": "#1f4e9c",
+    "7-20": "#7d3c98",
+    "2-5": "#c0392b",
+    "9-20": "#2e7d32",
+    "49-100": "#16a085",
+}  # increasing chi
 START_COLOR = "0.55"
 MP_COLOR = "#b9770e"
 GUIDE = "0.6"
@@ -195,12 +202,18 @@ def stats(ev: np.ndarray, c: float) -> Dict[str, float]:
 
 def figure(data: Dict[str, Dict], out: Path, dpi: int) -> None:
     """Cumulative spectra per chi against MP, and the summary statistics."""
-    fig, axes = plt.subplots(2, 4, figsize=(25.0, 11.5), constrained_layout=True)
-    letters = iter("abcdefgh")
+    n = len(data)
+    assert 1 <= n <= 6, "at most six chi panels"
+    fig = plt.figure(figsize=(5.0 * n + 2.0, 11.5), constrained_layout=True)
+    grid = fig.add_gridspec(2, 12)
+    top = [fig.add_subplot(grid[0, 12 * i // n : 12 * (i + 1) // n]) for i in range(n)]
+    axes = np.array([[None] * 4, [fig.add_subplot(grid[1, 3 * i : 3 * i + 3])
+                                  for i in range(4)]], dtype=object)  # fmt: skip
+    letters = iter("abcdefghijkl")
     rows = []
     for col, (tag, d) in enumerate(data.items()):
         c, chi, color = float(d["c"]), float(d["chi"]), CHI_COLOR[tag]
-        ax = axes[0, col] if col < 4 else None
+        ax = top[col]
         mp = mp_cdf(c, GRID)
         if ax is not None:
             ax.plot(GRID, mp, color=MP_COLOR, lw=3.0, ls="--")
@@ -209,7 +222,7 @@ def figure(data: Dict[str, Dict], out: Path, dpi: int) -> None:
             ax.plot(GRID, ecdf(d["start"], GRID), color=START_COLOR, lw=2.0)
             ax.plot(GRID, ecdf(d["gs"], GRID), color=color, lw=2.0)
             ax.set_xscale("log")
-            ax.set_xlim(1e-3 if c > 0.5 else 0.1, 5.0)
+            ax.set_xlim(min(0.1, max(1e-5, 0.1 * (1.0 - np.sqrt(c)) ** 2)), 5.0)
             ax.set_xlabel(r"Coupling Spectrum, $\lambda(C)$")
             ax.set_ylabel("Cumulative Fraction")
             head = f"({next(letters)}) $\\chi = {chi:.2f}$"
@@ -234,10 +247,10 @@ def figure(data: Dict[str, Dict], out: Path, dpi: int) -> None:
                 Line2D([], [], color="0.3", lw=1.0, ls=":", marker="s",
                        mfc="none")]  # fmt: skip
     names = [f"ground states, $\\chi = {float(d['chi']):.2f}$" for d in data.values()]
-    names += ["Poisson starts (a-d)", "MP, ratio $c$",
+    names += ["Poisson starts (top row)", "MP, ratio $c$",
               r"MP, ratio $c_{\rm eff} = \mathrm{Var}\,\lambda$ (ground states)",
-              "ground states (e-h)",
-              "Poisson starts (e-h)"]  # fmt: skip
+              "ground states (bottom row)",
+              "Poisson starts (bottom row)"]  # fmt: skip
     fig.legend(handles, names, loc="upper center", ncol=4, bbox_to_anchor=(0.5, 0.0),
                frameon=False)  # fmt: skip
     finish(fig, out / "coupling_mp_compare", dpi)
