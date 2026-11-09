@@ -1041,7 +1041,7 @@ The coupling and loop figures above (`coupling_mp_compare`, `coupling_mp_shoulde
 
 `batten2008_starts_compare_plot.py` writes `figures/coupling_starts_compare` from these caches, one color per start (as in `hessian_sign_starts`):
 - (a) the relative width of the largest ω spacing in 0.3–1 K (median and 16–84% band over ground states; filled where it exceeds two uncoupled shell spacings);
-- (b) its edges;
+- (b) the gap edges, drawn only where (a) finds a gap;
 - (c) the irreducible share I_n/P_n at n = 4 and 12;
 - (d, e) the four-wave and triad loop-phase bias 2M·c₁ of the ground states, against the envelope of the random-phase and Gaussian models of every start;
 - (f) the Kolmogorov distance of λ(C) from MP with the measured variance, ground states and starts.
