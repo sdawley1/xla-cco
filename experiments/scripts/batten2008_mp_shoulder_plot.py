@@ -225,7 +225,9 @@ def min_density(ev: np.ndarray, lo: float, hi: float) -> float:
     """Least histogram density (bins of 0.05) in [lo, hi] inside the support.
 
     The window is clipped to the 5-95 % quantiles of the spectrum, so a window
-    reaching past an edge of the support does not read as a gap.
+    reaching past an edge of the support does not read as a gap; NaN if
+    nothing of the window is left (a narrow spectrum, e.g. saturated RSA at
+    chi = 0.1; D-019).
     """
     q05, q95 = np.quantile(np.ravel(ev), [0.05, 0.95])
     lo, hi = max(lo, float(q05)), min(hi, float(q95))
@@ -234,8 +236,8 @@ def min_density(ev: np.ndarray, lo: float, hi: float) -> float:
                         density=True)  # fmt: skip
     centres = np.arange(-1.0, 4.0, 0.05) + 0.025
     sel = (centres >= edges[0]) & (centres <= edges[-1])
-    assert np.any(sel), "window inside the histogram"
-    return float(h[sel].min())
+    assert h.shape == centres.shape, "one density per bin"
+    return float(h[sel].min()) if np.any(sel) else float("nan")
 
 
 def panel_dips(ax: plt.Axes, data: Dict[str, Dict]) -> None:

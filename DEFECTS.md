@@ -146,3 +146,22 @@ needed for parity, reproduce the behaviour.
 - **Regression test:** tests/property/test_energy_tables_props.py::test_regression_D017_coincident_particles_gradient_tolerance
 - **Fix:** atol = max(1e-12 * max(1, max|grad|), GRAD_SUM_C eps (4 pi n_max / V) sum(w) N + GRAD_SUM_FLOOR), the D-011 bound per particle, in both gradient comparisons
 
+## D-018 — coupling_mp_compare asserts a positive spectrum at HIP starts
+- **Found:** 2026-11-09, per-start coupling run (hip2d/N1000, SLURM 17145072)
+- **Status:** fixed
+- **Where:** experiments/scripts/batten2008_mp_plot.py (`stats`)
+- **Symptom:** `AssertionError: positive spectrum` while drawing coupling_mp_compare for HIP starts
+- **Repro:** HIP starts at chi = 0.4 (tag 2-5): the coupling C of the start configurations has 42-134 eigenvalues at round-off (|lambda| <= 6e-16, some negative), so <1/lambda>(1 - c) is a huge number of either sign
+- **Impact:** no per-start figure for HIP; the stored Poisson figures are unaffected (their smallest start eigenvalue, 1e-11 at chi = 0.49, is a genuine void mode)
+- **Regression test:** tests/unit/test_batten2008_coupling_plots.py::test_regression_D018_stats_with_zero_modes
+- **Fix:** <1/lambda> is NaN when lambda_min / lambda_max <= 1e-13 (round-off zeros); the assertion now checks only that it is not <= 0
+
+## D-019 — coupling_mp_shoulder dip window outside a narrow spectrum
+- **Found:** 2026-11-09, per-start coupling run (rsa2d/N999, SLURM 17145071)
+- **Status:** fixed
+- **Where:** experiments/scripts/batten2008_mp_shoulder_plot.py (`min_density`)
+- **Symptom:** `AssertionError: window inside the histogram` in panel (d)
+- **Repro:** saturated-RSA ground states at chi = 0.1 have lambda(C) within 0.85-1.15 (5-95 %), so the 0.3-0.8 window clipped to the quantiles is empty
+- **Impact:** no per-start figure for saturated RSA; Poisson unaffected
+- **Regression test:** tests/unit/test_batten2008_coupling_plots.py::test_regression_D019_min_density_window_outside_support
+- **Fix:** an empty clipped window returns NaN (no point drawn) instead of asserting
