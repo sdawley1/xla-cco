@@ -985,6 +985,30 @@ Mapped onto the partial-randomization curve, where uniform noise of half-width �
 
 **Cost:** SCBA 11–241 s per χ at N = 1024 and about 15 min at N = 4096, on CPU.
 
+#### Same two-point statistics, different loops
+
+`batten2008_loop_statistics_plot.py` writes `figures/loop_statistics` and caches `loopstats_chi<tag>.npz`. It uses 4 ground states per χ at N = 1024, with 4 surrogates each, and compares the three models of the vibrational spectrum:
+- ground states;
+- random-phase surrogates (same |ρ(k)| at every k);
+- the SCBA (a Gaussian field with the ground-state S(k)).
+
+**Two-point statistics are identical by construction:**
+- the surrogates match S(k) wave vector by wave vector, |ΔS| ≤ 5·10⁻¹⁶;
+- the SCBA input is the state-averaged S(k), which differs from a single state only by the about 10% state-to-state scatter.
+
+**Amplitude statistics also agree.** Beyond K the intensities |ρ|²/⟨|ρ|²⟩ are exponential, as for a Gaussian field: ⟨I²⟩ = 1.96–2.03 against 2, at every χ. So the SCBA's Gaussian-amplitude assumption holds.
+
+**The difference is in loop sums, not in single loop phases.**
+- Each closed walk's phase is nearly uniform: the |T|-weighted coherence per loop is ±0.01 in both ground states and surrogates.
+- There are about 2M times more irreducible walks than paired ones, so a coherence of order 1/(2M) suffices.
+- The difference is therefore measured exactly, from the diagonals of W³ and W⁴: the irreducible share of each wave's return amplitude.
+
+**Results:**
+- **Whole-spectrum quadrilateral share I₄/P₄:** −0.017, −0.083, −0.146, −0.209, −0.235 and −0.250 for χ = 0.10 → 0.49 (matching `loop_moments`).
+- **Triad share:** +0.003 to +0.011.
+- **Per wave (panel d):** the effect is concentrated on waves with |q|/K ≈ 0.35–0.5, just inside the K/2 edge of the uncoupled long-wave block. It reaches −0.42 at χ = 0.49 and is −0.16 to −0.07 at the outer edge.
+- **Per transfer length (panel e):** loops built from transfers in a single |k|/K band carry little (|share| ≤ 0.12, mixed signs; the largest is in the band 1.25–1.5, where the S(k) peak lies at χ ≥ 0.45). So the coherence that sets the gap comes mostly from loops that combine different transfer lengths.
+
 #### All four χ for 2D Poisson
 
 `hessian_sign_mechanism`, `hessian_negative_compare` and `hessian_plateau_mechanism` now include 2D Poisson flows at χ = 0.25 (tag 1-4) and χ = 0.45 (tag 9-20), with 100 flows each. Pass the extra tags with `--extra-chi 1-4 9-20`; the other starts have χ = 0.1 and 0.4 only.
@@ -1230,7 +1254,7 @@ uv run --no-sync python -I experiments/scripts/batten2008_windcv_plot.py --total
 
 **Data.** `trajectories/{gau2d/N1000,url2d/N1024,rsa2d/N999,hip2d/N1000}/` with the same files as `flows2d/N1024`, plus `winding_chi<tag>.npz`, `plateau_chi<tag>.npz` and `landscape_chi<tag>.npz` everywhere. The 20-flow runs are kept in `trajectories/<start>/N<N>_n20/`. The tolerance checks are in `trajectories/{batten2008_tight/N1000,flows2d_tight/N1024}/` (flow 0, atol 10⁻¹¹, rtol 10⁻³).
 
-**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `hessian_sign_compare`, `hessian_sign_mechanism`, `hessian_sign_starts`, `hessian_sign_universal`, `coupling_mp_compare`, `coupling_mp_shoulder`, `coupling_phonon_gap`, `coupling_phonon_dispersion`, `coupling_mp_finite_size`, `loop_moments`, `winding_cv_explained`, `exclusion_mode_control`, `exclusion_mode_spectra`, `exclusion_drive`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
+**Figures.** `figures/{flows2d_N1024,gau2d_N1000,url2d_N1024,rsa2d_N999,hip2d_N1000}_*` (including `*_winding_kymograph`), `figures/batten2008_N1000_winding_kymograph`, `figures/*_mode_planes_mean`, and the comparisons `figures/offplane_lopsided`, `offplane_kl_compare`, `offplane_kl_origin`, `hessian_negative_compare`, `hessian_plateau_mechanism`, `hessian_sign_compare`, `hessian_sign_mechanism`, `hessian_sign_starts`, `hessian_sign_universal`, `coupling_mp_compare`, `coupling_mp_shoulder`, `coupling_phonon_gap`, `coupling_phonon_dispersion`, `coupling_mp_finite_size`, `loop_moments`, `loop_statistics`, `winding_cv_explained`, `exclusion_mode_control`, `exclusion_mode_spectra`, `exclusion_drive`, `landscape_wells`, `landscape_floor`, `landscape_valley`, `winding_compare`, `winding_cv` and `winding_total`. All figures are PNG only.
 
 ### The 1D landscape against χ, in 3D
 
