@@ -20,6 +20,8 @@ number is a summary of quantities the pre-registered pipeline already stores:
   lag, and the exponent of the end-of-segment MSD against T (harmonic T);
 - ``energy``: mean / M and sd / sqrt(M) of the snapshot Phi / T at harmonic
   T (Gamma(M, 1): 1 and 1), and the equilibration gate misses (> 5 %);
+- ``winding``: unsigned turns of the constrained waves per segment and the
+  RMS net turns at the segment end;
 - ``spectra``: the largest sqrt(eig K) of each E1b ground state, the
   frequency above which the rho_k power stays below 1e-3 of its peak, and
   the power fraction at omega <= 1.05 max sqrt(eig K).
@@ -191,6 +193,26 @@ def drift(z: Data) -> Data:
     return out
 
 
+def winding_totals(z: Data) -> List[Data]:
+    """Per T: unsigned and RMS net turns of the constrained waves over one segment.
+
+    Unsigned: median over GS of the wave-mean unsigned rate x the segment
+    length; net: sqrt of the median over GS of the wave-mean W_net^2 at the
+    segment end (both averaged over segments by the analysis).
+    """
+    t_seg = float(np.asarray(z["msd_lag"])[-1])
+    assert t_seg > 0.0 and z["msd_c"].shape[1] == z["temps"].size, "MSD per T"
+    out: List[Data] = []
+    for ti in range(z["temps"].size):
+        unsigned = float(np.nanmedian(z["abs_mean_c"][:, ti])) * t_seg
+        net = math.sqrt(float(np.nanmedian(z["msd_c"][:, ti, -1])))
+        out.append({"T": float(z["temps"][ti]), "t_seg": t_seg,
+                    "unsigned_turns": unsigned, "rms_net_turns": net,
+                    "net_over_unsigned": net / unsigned})  # fmt: skip
+    assert all(r["unsigned_turns"] > 0.0 for r in out), "winding accumulates"
+    return out
+
+
 def energy(z: Data) -> Data:
     """Snapshot Phi / T against Gamma(M, 1) at harmonic T; gate misses (> 5 %)."""
     m = int(z["M"])
@@ -258,7 +280,8 @@ def diagnose(results: Path, verdicts: Optional[Data]) -> Data:
         key = f"{z['system']} chi={z['tag']}"
         out["cells"][key] = {"bin_counts": counts[(str(z["system"]), str(z["tag"]))],
                              "unconstrained": unconstrained(z), "drift": drift(z),
-                             "energy": energy(z)}  # fmt: skip
+                             "energy": energy(z),
+                             "winding": winding_totals(z)}  # fmt: skip
     if verdicts is not None:
         out["bin_waves"] = {h: bin_waves(verdicts["hypotheses"][h]["parts"], counts)
                             for h in ("H1", "H2")}  # fmt: skip
@@ -298,12 +321,29 @@ def _cells_md(cells: Dict[str, Data]) -> List[str]:
     return lines
 
 
+def _winding_md(cells: Dict[str, Data]) -> List[str]:
+    """Markdown table: unsigned / RMS net turns of the constrained waves per T."""
+    if not cells:
+        return []
+    temps = [r["T"] for r in next(iter(cells.values()))["winding"]]
+    lines = ["", "## Constrained winding per segment (unsigned / RMS net turns)", "",
+             "| Cell | " + " | ".join(f"T = {t:g}" for t in temps) + " |",
+             "|---|" + "---|" * len(temps)]  # fmt: skip
+    for key, c in cells.items():
+        vals = [f"{r['unsigned_turns']:.0f} / {r['rms_net_turns']:.1f}"
+                for r in c["winding"]]  # fmt: skip
+        lines.append(f"| {key} | " + " | ".join(vals) + " |")
+    assert len(lines) == len(cells) + 5, "header and rows"
+    return lines
+
+
 def markdown(diag: Data) -> str:
     """diagnostics.md: the thermostat, per-cell, bin-wave and spectral tables."""
     assert diag["label"] == LABEL, "a diagnose() result"
     lines = [f"# MD winding: {LABEL}", "", "## Thermostat (net winding)", ""]
     lines += _thermo_md(diag["thermostat"])
     lines += ["", "## Per cell", ""] + _cells_md(diag["cells"])
+    lines += _winding_md(diag["cells"])
     if "bin_waves" in diag:
         lines += ["", "## Waves per bin behind the H1 / H2 per-bin outcomes", "",
                   "| Hyp | Outcome | Parts | Waves median | min | max |",

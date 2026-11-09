@@ -136,6 +136,23 @@ def test_drift_exponents_of_diffusive_drift() -> None:
     assert res["lag_end"] == lag[-1]
 
 
+@pytest.mark.high
+@given(rate=st.floats(1e-3, 10.0), d_theta=st.floats(1e-3, 10.0))
+@example(rate=0.25, d_theta=0.18)
+def test_winding_totals_diffusive_net(rate: float, d_theta: float) -> None:
+    """Unsigned = rate x t_seg; net = sqrt(2 D t_seg) for MSD = 2 D t."""
+    lag = np.geomspace(0.02, 2e4, 50)
+    msd = np.broadcast_to(2.0 * d_theta * lag, (6, 2, lag.size))
+    z = {"temps": np.array([1e-6, 1e-4]), "msd_lag": lag, "msd_c": msd,
+         "abs_mean_c": np.full((6, 2), rate)}  # fmt: skip
+    for r in dg.winding_totals(z):
+        assert r["unsigned_turns"] == pytest.approx(rate * 2e4, rel=1e-12)
+        assert r["rms_net_turns"] == pytest.approx(math.sqrt(4e4 * d_theta), rel=1e-12)
+        assert r["net_over_unsigned"] == pytest.approx(
+            r["rms_net_turns"] / r["unsigned_turns"], rel=1e-14
+        )
+
+
 # ============================================================
 # ENERGY AND SPECTRA
 # ============================================================
