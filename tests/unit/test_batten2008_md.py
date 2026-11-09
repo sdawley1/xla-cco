@@ -966,13 +966,14 @@ SPEC_ROWS = 100_000 // SPEC_EVERY
 
 def _tone_trace(
     arrays: Dict[str, np.ndarray], meta: Dict[str, Any], m_in: int, amp_out: float,
-    m_out: int,
+    m_out: int, m_last: int = -1,
 ) -> Dict[str, np.ndarray]:  # fmt: skip
     """Copy of ``arrays`` whose rho trace is a pure tone per region.
 
     Inside the production segments rho = exp(i w_in t) with w_in = 2 pi m_in /
     (SPEC_ROWS dt_trace), on the segment's FFT grid; outside (equilibration,
-    Andersen) rho = amp_out exp(i w_out t).
+    Andersen) rho = amp_out exp(i w_out t). ``m_last >= 0`` replaces m_in in
+    the last production segment.
     """
     out = dict(arrays)
     t = arrays["trace_time"]
@@ -980,7 +981,10 @@ def _tone_trace(
     prod = np.any([(steps > a) & (steps <= a + b) for a, b in ana.segments(meta)],
                   axis=0)  # fmt: skip
     span = SPEC_ROWS * SPEC_EVERY * CLI_DT
-    phase = np.where(prod, TWO_PI * m_in / span * t, TWO_PI * m_out / span * t)
+    a_last, n_last = ana.segments(meta)[-1]
+    last = (steps > a_last) & (steps <= a_last + n_last)
+    m_prod = np.where(last & (m_last >= 0), m_last, m_in)
+    phase = np.where(prod, TWO_PI * m_prod / span * t, TWO_PI * m_out / span * t)
     amp = np.where(prod, 1.0, amp_out)
     rho = np.zeros(arrays["trace_rho"].shape)
     rho[..., 0] = (amp * np.cos(phase))[..., None]
@@ -1035,6 +1039,11 @@ def test_regression_D088_trace_spectrum_production_only(tmp_path: Path) -> None:
         ref += _segment_periodogram(series) / 2.0
     order = np.argsort(TWO_PI * np.fft.fftfreq(SPEC_ROWS, d=SPEC_EVERY * CLI_DT))
     np.testing.assert_allclose(power, ref[order], atol=1e-12)
+    two = ana._trace_spectra(_tone_trace(arrays, meta, 50, 1e3, 200, 80), meta, 2, 1)
+    p2 = two["spec_power"][0, 0]  # segments averaged: half the power at each tone
+    for m in (50, 80):
+        w = TWO_PI * m / (SPEC_ROWS * SPEC_EVERY * CLI_DT)
+        assert p2[np.argmin(np.abs(omega - w))] == pytest.approx(0.5, abs=1e-12)
     short = dict(tone, trace_count=np.full(2, 5))  # rows end before production
     assert ana._trace_spectra(short, meta, 2, 1) == {}
 
