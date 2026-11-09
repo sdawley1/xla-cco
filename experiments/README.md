@@ -1009,6 +1009,29 @@ Mapped onto the partial-randomization curve, where uniform noise of half-width �
 - **Per wave (panel d):** the effect is concentrated on waves with |q|/K ≈ 0.35–0.5, just inside the K/2 edge of the uncoupled long-wave block. It reaches −0.42 at χ = 0.49 and is −0.16 to −0.07 at the outer edge.
 - **Per transfer length (panel e):** loops built from transfers in a single |k|/K band carry little (|share| ≤ 0.12, mixed signs; the largest is in the band 1.25–1.5, where the S(k) peak lies at χ ≥ 0.45). So the coherence that sets the gap comes mostly from loops that combine different transfer lengths.
 
+**Phase distributions** (panels g–i; cache `loopphase_chi<tag>.npz`). Three models, compared at the largest χ:
+- the ground states;
+- the random-phase model: the same |ρ(k)| with uniform phases;
+- Gaussian-field (SCBA) realizations: complex Gaussian ρ(k) with E|ρ|² = N·S̄(k), the state-averaged S.
+
+What each panel shows:
+- **(g) Single-wave phases** arg ρ(k), K < |k| < 2K: uniform in all three models. Absolute phases change under translation, so they carry no information.
+- **(h) Four-wave loop phases** arg T, |T|-weighted, from 5·10⁵ sampled walks per realization with no cancelling pair: flat within sampling noise (±0.1 per bin) in all three. The exact ground-state first harmonic, 2c₁ cos φ, has amplitude 0.004, far below that noise. Loop by loop, the ground states cannot be told apart from either random model.
+- **(i) The exact first harmonic** c₁ = Σ Re T / Σ |T| over irreducible loops, computed from traces with no sampling. For triads it is c₁ = tr W³ / tr |W|³; for quadrilaterals it is (tr W⁴ − P₄)/(tr |W|⁴ − P₄), with P₄ the pairing sum averaged over phase randomizations.
+
+  2M·c₁ by model (4 realizations each):
+
+  | χ | 0.10 | 0.25 | 0.35 | 0.40 | 0.45 | 0.49 |
+  |---|---|---|---|---|---|---|
+  | quadrilaterals, ground states | −0.51 | −1.25 | −2.34 | −3.25 | −3.35 | −3.47 |
+  | quadrilaterals, random-phase | −0.26 | −0.07 | +0.07 | −0.01 | −0.07 | −0.08 |
+  | quadrilaterals, Gaussian | −0.07 | +0.02 | −0.06 | +0.10 | +0.14 | +0.08 |
+  | triads, ground states | +3.1 | +9.2 | +11.2 | +23.6 | +19.2 | +10.4 |
+  | triads, random models | −2.6 to +3.1 (realization noise) | | | | | |
+
+- **Interpretation.** The ground states carry a weak, systematic loop-phase bias of order 1/2M per loop: positive for triads, negative for quadrilaterals. Summed over the roughly 2M times more irreducible loops than paired ones, it becomes the 25% reduction of the fourth moment.
+- **Triads are coherent too,** but they enter only odd moments, which barely move the spectrum (m₃ changes by 1–2%). This is why the scorecard (f) shows a small triad effect.
+
 #### All four χ for 2D Poisson
 
 `hessian_sign_mechanism`, `hessian_negative_compare` and `hessian_plateau_mechanism` now include 2D Poisson flows at χ = 0.25 (tag 1-4) and χ = 0.45 (tag 9-20), with 100 flows each. Pass the extra tags with `--extra-chi 1-4 9-20`; the other starts have χ = 0.1 and 0.4 only.

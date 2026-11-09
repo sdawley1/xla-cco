@@ -36,7 +36,18 @@ Cached in <root>/loopstats_chi<tag>.npz. Writes <out>/loop_statistics.png:
 - (e) the irreducible share of tr W_B^4 for loops of transfers in |k|/K bands,
   every chi;
 - (f) the scorecard against chi: S(k) difference, intensity non-Gaussianity
-  <I^2> - 2, triad share and quadrilateral share.
+  <I^2> - 2, triad share and quadrilateral share;
+- (g) single-wave phases arg rho(k), K < |k| < 2K, largest chi: ground
+  states, the random-phase model (|rho| kept) and Gaussian-field (SCBA)
+  realizations;
+- (h) the |T|-weighted distribution of four-wave loop phases arg T at the
+  largest chi (sampled walks with no cancelling pair), the same three models,
+  as density / uniform - 1, with the exact first harmonic of the ground
+  states, 2 c_1 cos(phi), for scale;
+- (i) the exact first harmonic c_1 = sum Re T / sum |T| over irreducible
+  loops, times 2M, against chi: triads (c_1 = tr W^3 / tr |W|^3) and
+  quadrilaterals ((tr W^4 - P_4) / (tr |W|^4 - P_4), P_4 the pairing sum),
+  for all three models. Phase caches: <root>/loopphase_chi<tag>.npz.
 
 Samuel J. Dawley
 11/2026
@@ -63,6 +74,7 @@ from batten2008_mp_shoulder_plot import (  # noqa: E402
     lattice_kmag,
     lattice_rho,
     phase_randomized,
+    surrogate,
 )
 from batten2008_plot import finish, plt  # noqa: E402  (house rcParams)
 from matplotlib.lines import Line2D  # noqa: E402
@@ -80,6 +92,9 @@ N_SUR = 4  # random-phase surrogates per ground state
 SEED = 7
 GUIDE = "0.6"
 MODEL_COLORS = {"gs": "black", "sur": "#c0392b", "scba": "#1f4e9c"}
+PHASE_BINS = np.linspace(-np.pi, np.pi, 37)  # loop and single-wave phase bins
+N_WALKS = 500_000  # sampled closed walks per realization (phase histograms)
+N_GAUSS_PAIR = 2  # phase randomizations of a Gaussian realization (its pairings)
 
 # ============================================================
 # STATISTICS
@@ -243,13 +258,189 @@ def load_or_compute(root: Path, tag: str, n_states: int) -> Dict[str, np.ndarray
 
 
 # ============================================================
+# PHASES
+# ============================================================
+
+
+def harmonics(w: np.ndarray) -> Dict[str, float]:
+    """tr W^3, tr W^4 and tr |W|^3, tr |W|^4 per wave (|W| elementwise)."""
+    a = np.abs(w)
+    w2, a2 = w @ w, a @ a
+    m = w.shape[0]
+    out = {"t3": float(np.real(np.einsum("ab,ba->", w2, w))) / m,
+           "t4": float(np.sum(np.abs(w2) ** 2)) / m,
+           "a3": float(np.einsum("ab,ba->", a2, a)) / m,
+           "a4": float(np.sum(a2**2)) / m}  # fmt: skip
+    assert out["a4"] >= out["t4"] - 1e-9 and out["a3"] > 0.0, "|T| bounds"
+    return out
+
+
+def first_harmonics(h: Dict[str, float], pairing: float) -> np.ndarray:
+    """(triad c_1, quadrilateral c_1) of one realization."""
+    out = np.array([h["t3"] / h["a3"], (h["t4"] - pairing) / (h["a4"] - pairing)])
+    assert np.all(np.abs(out) <= 1.0 + 1e-9), "a mean cosine"
+    return out
+
+
+def loop_phases(rho: np.ndarray, nfull: np.ndarray,
+                rng: np.random.Generator) -> np.ndarray:  # fmt: skip
+    """|T|-weighted histogram of four-wave loop phases (no cancelling pair)."""
+    off = (rho.shape[0] - 1) // 2
+    a = rng.integers(0, nfull.shape[0], size=(N_WALKS, 4))
+    q = nfull[a]
+    k = q - np.roll(q, -1, axis=1)
+    keep = np.all(np.any(k != 0, axis=2), axis=1)
+    for i in range(4):
+        for j in range(i + 1, 4):
+            keep &= np.any(k[:, i] + k[:, j] != 0, axis=1)
+    q, k = q[keep], k[keep]
+    dots = np.einsum("wid,wid->wi", q, np.roll(q, -1, axis=1)).astype(float)
+    tt = np.prod(dots, axis=1) * np.prod(rho[k[..., 0] + off, k[..., 1] + off], axis=1)
+    h, _ = np.histogram(np.angle(tt), bins=PHASE_BINS, weights=np.abs(tt))
+    out: np.ndarray = h / h.sum()
+    assert out.shape == (PHASE_BINS.shape[0] - 1,), "one value per bin"
+    return out
+
+
+def single_phases(rho: np.ndarray, ring: np.ndarray) -> np.ndarray:
+    """Histogram (fractions) of arg rho(k) over the ring K < |k| < 2K."""
+    h, _ = np.histogram(np.angle(rho[ring]), bins=PHASE_BINS)
+    out: np.ndarray = h / h.sum()
+    assert out.shape == (PHASE_BINS.shape[0] - 1,), "one value per bin"
+    return out
+
+
+def model_phase_stats(rhos: Dict[str, List[np.ndarray]], geo: Dict,
+                      rng: np.random.Generator) -> Dict[str, np.ndarray]:  # fmt: skip
+    """First harmonics and phase histograms of every realization of each model."""
+    out: Dict[str, List[np.ndarray]] = {}
+    ring = (geo["kmag"] > 1.0) & (geo["kmag"] < 2.0)
+    for key, items in rhos.items():
+        for rho, pairing in items:
+            w = coupling_w(rho, geo["nfull"], geo["side"], geo["scale"])
+            out.setdefault(f"c1_{key}", []).append(
+                first_harmonics(harmonics(w), pairing)
+            )
+            out.setdefault(f"loop_{key}", []).append(
+                loop_phases(rho, geo["nfull"], rng)
+            )
+            out.setdefault(f"single_{key}", []).append(single_phases(rho, ring))
+    res = {k: np.asarray(v) for k, v in out.items()}
+    assert all(v.shape[0] >= 1 for v in res.values()), "realizations"
+    return res
+
+
+def pairing_sum(rho: np.ndarray, geo: Dict, rng: np.random.Generator,
+                reps: int) -> float:  # fmt: skip
+    """P_4 = <tr W^4 / 2M> over phase randomizations (the pairing sum)."""
+    vals = [harmonics(coupling_w(phase_randomized(rho, rng), geo["nfull"],
+                                 geo["side"], geo["scale"]))["t4"]
+            for _ in range(reps)]  # fmt: skip
+    out = float(np.mean(vals))
+    assert out > 0.0 and reps >= 1, "a positive sum"
+    return out
+
+
+def phase_compute(root: Path, tag: str, n_states: int) -> Dict[str, np.ndarray]:
+    """Phase statistics of ground states, random-phase and Gaussian models."""
+    meta = json.loads((root / f"flows_chi{tag}.json").read_text())
+    side, k_cut, n = float(meta["basis"][0][0]), float(meta["K"]), int(meta["N"])
+    nfull = full_waves(side, k_cut)
+    nmax = int(np.ceil(k_cut * side / (2.0 * np.pi)))
+    geo = {"nfull": nfull, "side": side, "scale": k_cut**2,
+           "kmag": lattice_kmag(nmax, side) / k_cut}  # fmt: skip
+    rng = np.random.default_rng(SEED + 1)
+    with np.load(root / f"flows_chi{tag}.npz", mmap_mode="r") as f:
+        states = np.asarray(f["s_final"][:n_states]) % 1.0 * side
+    gs = [lattice_rho(x, side, nmax) for x in states]
+    s_mean = np.mean([np.abs(r) ** 2 / n for r in gs], axis=0)
+    rhos: Dict[str, List] = {"gs": [], "sur": [], "scba": []}
+    for rho in gs:
+        pair = pairing_sum(rho, geo, rng, N_SUR)
+        rhos["gs"].append((rho, pair))
+        rhos["sur"].append((phase_randomized(rho, rng), pair))
+        g = surrogate(s_mean, n, rng)
+        rhos["scba"].append((g, pairing_sum(g, geo, rng, N_GAUSS_PAIR)))
+    out = model_phase_stats(rhos, geo, rng)
+    out.update(chi=np.array(float(meta["chi_actual"])),
+               m2=np.array(nfull.shape[0]))  # fmt: skip
+    print(f"{tag} phases: c1 x 2M (triad, quad) GS "
+          f"{np.round(out['c1_gs'].mean(0) * nfull.shape[0], 3).tolist()}, random "
+          f"phase {np.round(out['c1_sur'].mean(0) * nfull.shape[0], 3).tolist()}, "
+          f"Gaussian {np.round(out['c1_scba'].mean(0) * nfull.shape[0], 3).tolist()}",
+          flush=True)  # fmt: skip
+    return out
+
+
+def load_or_compute_phase(root: Path, tag: str, n_states: int) -> Dict[str, np.ndarray]:
+    """Cached in <root>/loopphase_chi<tag>.npz."""
+    path = root / f"loopphase_chi{tag}.npz"
+    if path.exists():
+        with np.load(path) as z:
+            cached = {k: np.asarray(z[k]) for k in z.files}
+        if cached["c1_gs"].shape[0] >= n_states:
+            return cached
+    res = phase_compute(root, tag, n_states)
+    np.savez(path, **res)
+    assert path.exists(), "cache written"
+    return res
+
+
+def phase_row(axes: np.ndarray, pdata: Dict[str, Dict]) -> None:
+    """(g) single-wave phases, (h) loop-phase distributions, (i) exact harmonics."""
+    tags = list(pdata)
+    big = pdata[tags[-1]]
+    pc = 0.5 * (PHASE_BINS[1:] + PHASE_BINS[:-1])
+    uniform = 1.0 / pc.shape[0]
+    for key, ls in (("gs", "-"), ("sur", "-"), ("scba", "--")):
+        for ax, name in ((axes[0], "single"), (axes[1], "loop")):
+            h = big[f"{name}_{key}"]
+            mid = h.mean(0) / uniform - 1.0
+            se = h.std(0, ddof=1) / np.sqrt(h.shape[0]) / uniform
+            ax.fill_between(pc, mid - 2 * se, mid + 2 * se, color=MODEL_COLORS[key],
+                            alpha=0.15, lw=0)  # fmt: skip
+            ax.plot(pc, mid, color=MODEL_COLORS[key], ls=ls,
+                    lw=2.0 if key == "gs" else 1.4)  # fmt: skip
+    c1 = float(big["c1_gs"][:, 1].mean())
+    axes[1].plot(pc, 2.0 * c1 * np.cos(pc), color="#2e7d32", lw=2.0, ls=":")
+    chi = np.array([float(pdata[t]["chi"]) for t in tags])
+    for key in ("gs", "sur", "scba"):
+        for col, mk, ls in ((1, "o", "-"), (0, "^", "--")):
+            v = [pdata[t][f"c1_{key}"][:, col] * float(pdata[t]["m2"]) for t in tags]
+            axes[2].errorbar(chi, [a.mean() for a in v],
+                             yerr=[a.std(ddof=1) / np.sqrt(a.size) for a in v],
+                             color=MODEL_COLORS[key], marker=mk, ms=7, ls=ls,
+                             lw=2.0 if key == "gs" else 1.2, capsize=3,
+                             mfc=None if key == "gs" else "none")  # fmt: skip
+    for ax in axes[:2]:
+        ax.axhline(0.0, color=GUIDE, lw=0.8, zorder=0)
+        ax.set_xlim(-np.pi, np.pi)
+        ax.set_xticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi],
+                      [r"$-\pi$", r"$-\pi/2$", "0", r"$\pi/2$", r"$\pi$"])  # fmt: skip
+        ax.set_ylabel("Density / Uniform $-$ 1")
+    chi_big = float(big["chi"])
+    axes[0].set_xlabel(r"Phase, $\arg\rho(\mathbf{k})$, $K < |\mathbf{k}| < 2K$")
+    axes[0].set_title(rf"(g) $\chi = {chi_big:.2f}$: single-wave phases are uniform",
+                      loc="left", fontsize=13)  # fmt: skip
+    axes[1].set_xlabel(r"Four-Wave Loop Phase, $\arg T$ ($|T|$-weighted)")
+    axes[1].set_title(rf"(h) $\chi = {chi_big:.2f}$: loop phases, loop by loop",
+                      loc="left", fontsize=13)  # fmt: skip
+    ax = axes[2]
+    ax.axhline(0.0, color=GUIDE, lw=0.8, zorder=0)
+    ax.set_xlabel(r"Constraint Ratio, $\chi$")
+    ax.set_ylabel(r"First Harmonic $\times\,2M$, $2M\langle\cos\arg T\rangle_{|T|}$")
+    ax.set_title("(i) exact loop-phase bias (o: quadrilaterals, ^: triads)",
+                 loc="left", fontsize=13)  # fmt: skip
+
+
+# ============================================================
 # FIGURE
 # ============================================================
 
 
-def figure(data: Dict[str, Dict], out: Path, dpi: int) -> None:
-    """S(k) agreement, amplitude agreement, and where the loop sums differ."""
-    fig, axes = plt.subplots(2, 3, figsize=(20.0, 11.5), constrained_layout=True)
+def figure(data: Dict[str, Dict], pdata: Dict[str, Dict], out: Path, dpi: int) -> None:
+    """S(k) and amplitudes agree; loop sums and loop-phase biases differ."""
+    fig, axes = plt.subplots(3, 3, figsize=(20.0, 17.0), constrained_layout=True)
     x = 0.5 * (K_BINS[1:] + K_BINS[:-1])
     centres = 0.5 * (I_BINS[1:] + I_BINS[:-1])
     bands = [0.5 * (a + b) for a, b in T_BANDS]
@@ -284,6 +475,7 @@ def figure(data: Dict[str, Dict], out: Path, dpi: int) -> None:
     for name, col, mk, vals in rows:
         axes[1, 2].plot(chi, vals, color=col, marker=mk, ms=7, lw=2.0, label=name)
     style(axes)
+    phase_row(axes[2], pdata)
     legend(fig, data, tags)
     finish(fig, out / "loop_statistics", dpi)
 
@@ -331,7 +523,7 @@ def style(axes: np.ndarray) -> None:
     ax.set_xlabel(r"Constraint Ratio, $\chi$")
     ax.set_ylabel("Difference from the Ground States")
     ax.legend(frameon=False, fontsize=10)
-    ax.set_title("(f) scorecard: only the four-wave loops differ", loc="left",
+    ax.set_title("(f) effect on the spectrum: only four-wave loops matter", loc="left",
                  fontsize=13)  # fmt: skip
 
 
@@ -343,6 +535,13 @@ def legend(fig: plt.Figure, data: Dict[str, Dict], tags: List[str]) -> None:
                Line2D([], [], color=MODEL_COLORS["scba"], lw=2.5, ls="--")]  # fmt: skip
     names = ["ground states (a-e)", "(a) SCBA input $S$", "(b) surrogates",
              "(c) Gaussian field (SCBA)"]  # fmt: skip
+    handles += [Line2D([], [], color=MODEL_COLORS["gs"], lw=2.0),
+                Line2D([], [], color=MODEL_COLORS["sur"], lw=1.4),
+                Line2D([], [], color=MODEL_COLORS["scba"], lw=1.4, ls="--"),
+                Line2D([], [], color="#2e7d32", lw=2.0, ls=":")]  # fmt: skip
+    names += ["(g-i) ground states", "(g-i) random-phase model ($|\\rho|$ kept)",
+              "(g-i) Gaussian field (SCBA)",
+              "(h) exact ground-state harmonic $2c_1\\cos\\phi$"]  # fmt: skip
     handles += [Line2D([], [], color=CHI_COLOR[t], lw=2.0) for t in tags]
     names += [rf"$\chi = {float(data[t]['chi']):.2f}$" for t in tags]
     fig.legend(handles, names, loc="upper center", ncol=5, bbox_to_anchor=(0.5, 0.0),
@@ -365,5 +564,6 @@ if __name__ == "__main__":
     args.out.mkdir(parents=True, exist_ok=True)
     data = {t: load_or_compute(args.root, t, args.states) for t in TAGS
             if (args.root / f"flows_chi{t}.npz").exists()}  # fmt: skip
-    figure(data, args.out, args.dpi)
+    pdata = {t: load_or_compute_phase(args.root, t, args.states) for t in data}
+    figure(data, pdata, args.out, args.dpi)
     print("Done.", flush=True)
