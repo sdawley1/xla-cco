@@ -16,10 +16,10 @@ particular all waves with |q| < K/2 are uncoupled from one another (C is the
 identity on them) and couple only to the outer waves. This script builds C
 from rho on the 2K lattice (checked against C from the gradients J),
 for 2D ground states (Poisson by default; --root, --prefix for the other
-starts) at every chi tag (flows 0..B-1; default 0.1, 0.25, 0.4 and 0.45,
-those present), and for random-phase surrogates of rho with the same
-lattice: phase-randomized (each |rho(k)| kept), a step S (0 inside K, 1
-outside) at N and 4N (the cell doubled per axis), and an ideal gas (S = 1).
+starts) at every chi tag (flows 0..B-1; default: every tag present), and
+for random-phase surrogates of rho with the same lattice: phase-randomized
+(each |rho(k)| kept), a step S (0 inside K, 1 outside) at N and 4N (the
+cell doubled per axis), and an ideal gas (S = 1).
 Rectangular cells use k = 2 pi (n_x / L_x, n_y / L_y), V = L_x L_y
 (batten2008_lattice.py). Writes <out>/[<prefix>_]coupling_mp_shoulder.png:
 
@@ -68,7 +68,6 @@ from batten2008_lattice import (  # noqa: E402
 )
 from batten2008_mp_plot import (  # noqa: E402
     CHI_COLOR,
-    DEFAULT_TAGS,
     coupling_eigs,
     default_tags,
     figure_path,
@@ -352,23 +351,17 @@ if __name__ == "__main__":
     default_root = Path("experiments/trajectories/flows2d/N1024")
     parser.add_argument("--root", type=Path, default=default_root)
     parser.add_argument("--tags", nargs="+", default=None,
-                        help="default: 0.1, 0.25, 0.4, 0.45 where present; "
-                        "'all': every tag present")  # fmt: skip
+                        help="default: every chi tag present in the root")  # fmt: skip
     parser.add_argument("--states", type=int, default=3)
     parser.add_argument("--out", type=Path, default=Path("experiments/figures"))
     parser.add_argument("--prefix", default="",
                         help="figure name prefix and start, e.g. hip2d")  # fmt: skip
     parser.add_argument("--dpi", type=int, default=600)
-    parser.add_argument("--cache-only", action="store_true",
-                        help="compute the caches, draw nothing")  # fmt: skip
     args = parser.parse_args()
-    tags = default_tags(args.root, args.tags, DEFAULT_TAGS)
+    tags = default_tags(args.root, args.tags, tuple(CHI_COLOR))
     assert args.states >= 1, "states"
     args.out.mkdir(parents=True, exist_ok=True)
     data = {t: load_or_compute(args.root, t, args.states) for t in tags}
-    if args.cache_only:
-        print("Caches only; done.", flush=True)
-        sys.exit(0)
     for d in data.values():
         km, lam, kb = d["km"], d["lam0"], d["kbar0"]
         near = np.abs(lam - 1.0) < 0.02
