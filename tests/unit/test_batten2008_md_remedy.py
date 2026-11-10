@@ -25,6 +25,13 @@ import pytest
 from hypothesis import example, given
 from hypothesis import strategies as st
 
+# ----- project -----
+from tests.tolerances import (
+    ATOL_MD_ONSET_REL,
+    ATOL_MD_PREFIX_DELTA,
+    RTOL_MD_PREFIX_DELTA,
+)
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "experiments" / "scripts"))
 import batten2008_md_remedy as rem  # noqa: E402
 import batten2008_md_stats as mds  # noqa: E402
@@ -113,7 +120,9 @@ def test_prefix_agreement_flags_any_difference(key: str, delta: float) -> None:
     flat[-1] += delta  # the last element lies in the overlap for every key
     out = rem.prefix_agreement(prod, rerun)
     assert not out["bitwise"] and not out["keys"][key]["bitwise"]
-    assert out["keys"][key]["max_abs"] == pytest.approx(delta, rel=1e-6, abs=1e-9)
+    assert out["keys"][key]["max_abs"] == pytest.approx(
+        delta, rel=RTOL_MD_PREFIX_DELTA, abs=ATOL_MD_PREFIX_DELTA
+    )
     assert all(v["bitwise"] for k, v in out["keys"].items() if k != key)
 
 
@@ -201,7 +210,7 @@ def test_divergence_onset_of_exponential_growth(rate: float, eps: float) -> None
     rerun["trace_rho"] = rerun["trace_rho"].copy()
     rerun["trace_rho"][:, : t.size] *= growth[None, :, None, None]
     out = rem.divergence_onset(prod, rerun)
-    assert out["rel"][0] == pytest.approx(eps, rel=1e-3, abs=1e-15)
+    assert out["rel"][0] == pytest.approx(eps, abs=ATOL_MD_ONSET_REL)
     for level, t_hit in out["t_reach"].items():
         expect = t[np.flatnonzero(growth - 1.0 > float(level))]
         assert t_hit == (float(expect[0]) if expect.size else None), level

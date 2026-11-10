@@ -34,12 +34,15 @@ from tests.tolerances import (
     ATOL_MD_ALPHA_EXACT,
     ATOL_MD_ALPHA_OU,
     ATOL_MD_ALPHA_RW,
+    ATOL_MD_INJECTED_DEV,
     ATOL_MD_SYN_ALPHA,
     MD_H5_NULL_CELLS,
     MD_H5_NULL_PASS,
     MD_H5_NULL_SET_MIN,
     MD_H5_NULL_SETS,
     RTOL_MD_D_RW,
+    RTOL_MD_ETA2_DISTINCT,
+    RTOL_MD_H5_MEDDIFF,
     RTOL_MD_RATE_EXACT,
     RTOL_MD_SYN_EQUIPARTITION,
     RTOL_MD_SYN_RATE,
@@ -465,7 +468,7 @@ def test_kruskal_eta2_hand_example() -> None:
     h, p, eta2 = mds.kruskal_eta2(groups)
     assert h == pytest.approx(7.2, rel=1e-12)
     assert eta2 == pytest.approx((7.2 - 2.0) / 6.0, rel=1e-12)
-    assert eta2 != pytest.approx(7.2 * 10 / 80, rel=1e-3)
+    assert eta2 != pytest.approx(7.2 * 10 / 80, rel=RTOL_MD_ETA2_DISTINCT)
     assert p == pytest.approx(sps.chi2.sf(7.2, 2), rel=1e-12)
     assert mds.kruskal_eta2([np.ones(3), np.ones(4)]) == (0.0, 1.0, 0.0)
 
@@ -719,7 +722,7 @@ def test_synthetic_verdicts_null_and_injected(
     assert res["hypotheses"]["H5"]["verdict"] == mds.FAIL
     assert res["hypotheses"]["H2"]["verdict"] == mds.FAIL
     worst = res["hypotheses"]["H5"]["worst"][0]
-    assert worst["dev"] == pytest.approx(0.15, abs=0.03)
+    assert worst["dev"] == pytest.approx(0.15, abs=ATOL_MD_INJECTED_DEV)
     assert worst["part"] == "mean KW eta2_H" and worst["value"] > mds.H5_ETA2
     pairs = [p["pair"] for p in res["hypotheses"]["H5"]["parts"] if "pair" in p]
     assert pairs and all("hip2d" in pair for pair in pairs)
@@ -838,7 +841,7 @@ def test_a1_h6_collapse_and_beta_use_harmonic_t() -> None:
          "net_rms_u": np.repeat(rms[None], 3, axis=0),
          "ratio_bin": np.full((3, 4, 40), np.nan)}  # fmt: skip
     parts = {p["part"]: p for p in mds.h6_parts([z], True)}
-    assert parts["beta"]["value"] == pytest.approx(0.5, abs=1e-9)
+    assert parts["beta"]["value"] == pytest.approx(0.5, abs=ATOL_MD_ALPHA_EXACT)
     assert parts["collapse t sqrt(T)"]["value"] < 1e-9
     desc = {p["part"]: p for p in mds.h6_parts([z], False)}
     assert desc["collapse t sqrt(T)"]["value"] > 0.2 and desc["beta"]["value"] > 0.6
@@ -921,7 +924,7 @@ def test_nu_is_rate_over_k_not_over_rice(tmp_path: Path) -> None:
     path = cli_files(tmp_path / "x" / "N3" / "md_chi1-3.npz", om, om, [1e-6], 2, s_mean)
     res = ana.analyze_file(path, None)
     want = np.mean(np.array([0.4, 1.3]) / np.array([0.5, 0.9]))
-    np.testing.assert_allclose(res["nu_c"], want, rtol=1e-11)
+    np.testing.assert_allclose(res["nu_c"], want, rtol=RTOL_MD_RATE_EXACT)
     rice_ratio = np.mean(np.array([0.4 / 0.5 * 2.0, 1.3 / 0.9 * 3.0]))
     assert abs(float(res["nu_c"][0, 0]) - rice_ratio) > 0.5
 
@@ -947,7 +950,7 @@ def test_h5_median_difference_is_relative() -> None:
     groups = {s: base.copy() for s in "abcd"}
     groups["e"] = base * 1.02
     part = mds.h5_cell(groups, "x")[1]
-    assert part["value"] == pytest.approx(0.02, rel=1e-3)
+    assert part["value"] == pytest.approx(0.02, rel=RTOL_MD_H5_MEDDIFF)
     assert part["outcome"] == mds.PASS
 
 

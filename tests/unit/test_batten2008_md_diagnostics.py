@@ -27,6 +27,9 @@ import pytest
 from hypothesis import example, given
 from hypothesis import strategies as st
 
+# ----- project -----
+from tests.tolerances import ATOL_MD_ALPHA_EXACT
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "experiments" / "scripts"))
 import batten2008_md_analysis as ana  # noqa: E402
 import batten2008_md_diagnostics as dg  # noqa: E402
@@ -116,7 +119,7 @@ def test_unconstrained_ratio_is_rate_over_circular_rice() -> None:
 def test_loglog_slope_power_law(p: float, c: float, n: int) -> None:
     """y = c x^p gives slope p; fewer than two positive points give NaN."""
     x = np.geomspace(1e-2, 1e3, n)
-    assert dg.loglog_slope(x, c * x**p) == pytest.approx(p, abs=1e-9)
+    assert dg.loglog_slope(x, c * x**p) == pytest.approx(p, abs=ATOL_MD_ALPHA_EXACT)
     y = np.full(n, -1.0)
     y[0] = 1.0
     assert math.isnan(dg.loglog_slope(x, y))

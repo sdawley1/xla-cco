@@ -27,6 +27,9 @@ from hypothesis import example, given
 from hypothesis import strategies as st
 from hypothesis.extra import numpy as hnp
 
+# ----- project -----
+from tests.tolerances import RTOL_MD_SCATTER_SD
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "experiments" / "scripts"))
 import batten2008_md_analysis as ana  # noqa: E402
 import batten2008_md_stats as mds  # noqa: E402
@@ -180,8 +183,8 @@ def test_per_wave_scatter_recovers_sd() -> None:
     """sigma_w = rms over harmonic T and low-|k| waves of the sd over ground states."""
     z = _fake_analysis(PILOT_COUNTS, [1e-6, 1e-5, 1e-4, 1e-3], 400, 2)
     sig = mds.per_wave_scatter(z, 0.35)
-    assert sig["S/T"] == pytest.approx(0.2, rel=0.05)  # generator sd 0.2
-    assert sig["Rice"] == pytest.approx(0.1, rel=0.05)
+    assert sig["S/T"] == pytest.approx(0.2, rel=RTOL_MD_SCATTER_SD)  # generator sd
+    assert sig["Rice"] == pytest.approx(0.1, rel=RTOL_MD_SCATTER_SD)
     z["ratio"][:, 3] *= 100.0  # T = 1e-3 is not harmonic: ignored
     hi = np.flatnonzero(z["kmag"] > 0.35)
     z["ratio"][..., hi] *= 100.0  # waves above k_max: ignored
