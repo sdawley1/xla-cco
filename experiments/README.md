@@ -1313,3 +1313,79 @@ uv run --no-sync python -I experiments/scripts/batten2008_windcv_plot.py --total
 ### The 1D landscape against χ, in 3D
 
 `batten2008_landscape3d.py` (`figures/batten2008_N6_landscape3d`) stacks the 1D landscape Φ(x₂, x₃) at heights z = χ, with Blues filled contours on a shared scale and no trajectories. N = 3 allows only χ = 1/3 and 2/3, so the figure uses N = 6 (χ = 1/6 to 5/6, M = 1–5) and slices its five-dimensional landscape at x₁ = 0 with x₄, x₅, x₆ on their lattice sites. The landscape's corrugation and depth grow with χ: Φ ≤ 2.3 at χ = 1/6 and up to 6.5 at χ = 5/6.
+
+## Low-temperature MD around stealthy ground states: does arg ρ_k keep winding?
+
+We ran molecular dynamics at fixed low temperature around the 2D stealthy ground states of the five starts above (Poisson, Gaussian, URL, saturated RSA, HIP), at χ = 0.1 and 0.4. The question was whether the phase of each collective density ρ_k keeps winding at fixed T or becomes stationary, and whether its rate depends on the start.
+
+**Setup.** The MD library is `xla_cco.dynamics` (`python -m xla_cco.cli.md`). We took 10 ground states per (start, χ) and ran each at T ∈ {1e-6, 1e-5, 1e-4, 1e-3}. Each lane goes through:
+1. a harmonic start;
+2. count-mode Andersen thermalization (p = 0.01);
+3. two cycles of [Andersen 10⁵ steps, COM removal, NVE 10⁶ steps], with the winding of every wave with |k| < 2K accumulated on the device.
+
+There are two additional sets:
+- **E1b:** ρ_k traces of 2 ground states at T = 1e-6, for spectra.
+- **E4:** a BAOAB Langevin subset (flows2d and hip2d, γ = 0.003 and 0.03).
+
+The hypotheses H1–H8 were pre-registered in `md_winding/HYPOTHESES.md` (Amendments A1–A4). `md_winding/REPORT.md` holds the verdicts, the answers and every number; `md_winding/BUDGET.md` is the GPU ledger (24.48 of 100 GPU-h, of which 4.71 for the INCONCLUSIVE-remedy reruns).
+
+**Results.**
+- **Winding persists.** A constrained wave (|k| < K) winds at the Rice rate |k|/2π turns per unit time, whatever T, χ and the start. The normalized rate has per-start medians 0.997–1.0025, i.e. about 9.6 × 10³ turns per NVE segment. The rate over [t/2, t] matches the rate over [t/4, t/2] within 0.44%.
+- **No start dependence.** The unsigned rate does not depend on the start (mean η²_H = −0.010, medians within 0.53%).
+- **Unconstrained waves** (K < |k| < 2K) wind at |k|√(T/S)/2π, the circular-Gaussian Rice rate. Drift along the ground-state manifold randomizes their ρ_k. The drift is diffusive with MSD ∝ √T t, so their net-winding rate scales as T^{1/4}.
+- **Net winding** has zero mean. Its RMS is 0.9% (χ = 0.4) to 3.5% (χ = 0.1) of the unsigned winding. It is diffusive at χ = 0.4, but superdiffusive under NVE at χ = 0.1 (α = 1.18–1.28), and weak Langevin friction removes that (α = 1.01–1.02 at γ = 0.03).
+- **Registered verdicts:**
+  - PASS: H5, H6b.
+  - INCONCLUSIVE: H3, H7 (|z| > 3 at deviations ≤ 0.44%). Both remain INCONCLUSIVE after the decision-table remedy: one cell each rerun at 2× cycles (`batten2008_md_remedy.py`, deviations ≤ 0.32%).
+  - FAIL: H1, H2, H8 (few-wave |k| bins), H4 (NVE superdiffusion) and H6 (diffusive rather than ballistic drift).
+
+  A post hoc pooled-bin analysis and descriptive diagnostics are kept separate from the verdicts.
+
+```bash
+# MD production (GPU; one job per cell, job names mdw_*); STEP = run (E1), spectra (E1b), langevin (E4, with --gamma)
+env -u JAX_PLATFORMS sbatch -J mdw_e1_flows2d_1-10 --time=03:00:00 \
+    --export=ALL,STEP=run,STEP_ARGS="--system flows2d --chi 1-10" experiments/slurm/batten2008_md_gpu.slurm
+# final sacct cost into each output JSON (no GPU)
+uv run --no-sync python experiments/scripts/batten2008_md_run.py --step cost --system flows2d --chi 1-10
+# E2 + E3 on a CPU node: per-file analysis, H1-H8 verdicts, post hoc diagnostics, figures F1-F10 and X1
+mkdir -p experiments/trajectories
+env -u JAX_PLATFORMS sbatch --export=ALL,PAR=4 experiments/slurm/batten2008_md_analysis_cpu.slurm
+# or step by step
+uv run --no-sync python experiments/scripts/batten2008_md_analysis.py \
+    --md $(ls experiments/trajectories/*/N*/md_*chi*.npz | grep -v -e ckpt -e md_analysis) \
+    --out-dir experiments/trajectories/md_results          # -> md_results/<start>/N<N>/md_analysis*_chi<tag>.npz
+uv run --no-sync python experiments/scripts/batten2008_md_stats.py --analysis experiments/trajectories/md_results \
+    --out-json experiments/trajectories/md_results/verdicts.json
+uv run --no-sync python -I experiments/scripts/batten2008_md_diagnostics.py --results experiments/trajectories/md_results
+/home/sd2402/torquato-scratch-sd2402/conda_envs/plottime/bin/python -I experiments/scripts/batten2008_md_plot.py \
+    --root experiments/trajectories/md_results --out experiments/figures --exploratory
+```
+
+**Data.**
+- `trajectories/<start>/N<N>/`, per χ tag:
+  - `md_chi<tag>.{npz,json}` (E1, 40 lanes);
+  - `md_spectra_chi<tag>.{npz,json}` (E1b);
+  - `md_langevin_g<γ>_chi<tag>.{npz,json}` (E4; flows2d and hip2d only);
+  - `*.jobs.json` (SLURM jobs) and `*.ckpt.npz` (checkpoints).
+- `trajectories/md_results/`:
+  - per-cell analyses `<start>/N<N>/md_analysis*_chi<tag>.npz`;
+  - `verdicts.{json,md}`, with the exploratory pooled bins as a separate section;
+  - `diagnostics.{json,md}`.
+- `trajectories/md_rerun/` (INCONCLUSIVE remedy; `md_winding/REPORT.md` §3 has the commands):
+  - `flows2d/N1024/md_chi2-5.*`, `md_langevin_g<γ>_chi1-10.*`: the 2×-cycles reruns (`--cycles 4`);
+  - `results/`: their analyses and `remedy.{json,md}` (`batten2008_md_remedy.py`).
+
+**Figures.**
+- `figures/md_F1_kymograph_chi<tag>`: winding kymographs.
+- `md_F2_rates`: rates against the Rice lines.
+- `md_F3_stationarity`: windowed-rate ratios.
+- `md_F4_net_msd`: net-winding MSD and exponent α.
+- `md_F5_starts`: start dependence.
+- `md_F6_temperature`: T dependence.
+- `md_F7_equipartition`: equipartition.
+- `md_F8_drift`: manifold drift.
+- `md_F9_thermostat`: BAOAB against Andersen + NVE.
+- `md_F10_spectra`: ρ_k spectra against √eig K.
+- `md_X1_pooled_posthoc_chi<tag>`: post hoc pooled bins.
+
+All figures are PNG only. The docstring of `batten2008_md_plot.py` lists the panels.

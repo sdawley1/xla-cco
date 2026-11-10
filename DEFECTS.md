@@ -44,6 +44,7 @@ Statuses:
 | D-044 | fixed | `cli/md.py` (`run_phases`) | Equilibration gate averaged over the transient and was never acted on. |
 | D-045 | fixed | `cli/md.py` (`record_schedule`) | Default 200 snapshots deduplicated to 184. |
 | D-046 | fixed | `cli/md.py` (`_run_phase`) | Stale in-phase checkpoint left at the path handed to simulate. |
+| D-047 | fixed | `experiments/md_winding/HYPOTHESES.md` (H5) | Kruskal-Wallis eps^2 < 0.06 failed under the null more often than not (E[eps^2] = 0.082 for 5 x 10); Amendment A1 uses eta^2_H. |
 | D-050 | wontfix-upstream | `MD_System.cpp:199-250` | Andersen count mode fires on step 1 and float accumulation of p = 0.01 shifts the schedule: 501 resets per 50000-step call, not 500. |
 | D-051 | wontfix-upstream | `MD_System.cpp:19-30, 128-136` | The MD system starts with zero acceleration, so the first Verlet half-kick after construction omits the force. |
 | D-052 | wontfix-upstream | `main.cpp:864-877` | MD sample log prints energy, KE, dt and pressure with the 6-significant-digit stream default. |
@@ -62,6 +63,9 @@ Statuses:
 | D-085 | fixed | `cli/relax.py` (`select_device`) | `--device cpu` failed once a GPU backend was initialized in the same process: `jax_platforms` is ignored after init and `jax.devices()[0]` stayed the GPU (76 in-process CLI test failures on the GPU suite). |
 | D-086 | fixed | `tests/unit/test_energy.py` (`test_value_grad_density_bitwise_trig`) | Bitwise equality of separately compiled programs is a CPU property; on the GPU the jitted variants differ by ~1 ulp. |
 | D-087 | fixed | `tests/property/test_energy_props.py` (D-011 regression) | The D-011 demonstration (the old tolerance fails on the pinned input) depends on CPU rounding; on the GPU the old tolerance passes. |
+| D-088 | fixed | `batten2008_md_analysis.py` (`_trace_spectra`) | E1b power spectrum mixed the thermostatted phases into the NVE spectrum (table row added with D-089; section below). |
+| D-089 | fixed | `batten2008_md_analysis.py` (`__main__`, `output_path`) | A shared `--out-dir` wrote every start's `md_analysis_chi<tag>.npz` to the same file, so the starts overwrote one another silently. |
+| D-090 | fixed | `experiments/README.md` (E2 step-by-step command); `batten2008_md_analysis.py` (`output_name`) | The README glob `md_*chi*.npz` also matched an analysis output (`md_analysis_chi1-10.npz`), which `load_md` then rejected with a missing-arrays error that aborted the loop. |
 
 ## D-006 — `unit_ball_volume` is not bit-equal to the C++ hard-coded constants
 - **Found:** 2026-11-05, by the T4 auditor's preview parity
@@ -102,7 +106,6 @@ Statuses:
 - **Impact:** the CLI had to substitute 0.0 for NaN, which differs from C++ output
 - **Regression test:** tests/unit/test_tables.py::test_regression_D009_function_table_writes_nan_like_cpp
 - **Fix:** NaN is written as glibc printf `%1.10e` does (`nan` or `-nan` by sign bit; verified with ctypes snprintf); only +/-inf still raises
-
 
 ## D-010 — Undersized `n_max` and non-integer `n_vectors` failed silently on the table path
 - **Found:** 2026-11-06, by the independent audit of T11
@@ -284,6 +287,16 @@ Statuses:
 - **Regression test:** tests/integration/test_md_cli.py::test_regression_D046_simulate_never_gets_existing_file
 - **Fix:** the in-phase file is removed after every phase checkpoint and before every simulate call
 
+## D-047 — H5 epsilon^2 threshold lies below its null expectation
+- **Found:** 2026-11-08, while implementing E2 (batten2008_md_stats.py)
+- **Status:** fixed (resolved by Amendments A1, d7271b7, and A2, 2cc30a2, to HYPOTHESES.md, before any production job)
+- **Where:** experiments/md_winding/HYPOTHESES.md, H5 ("Kruskal-Wallis effect size eps^2 < 0.06"); experiments/scripts/batten2008_md_stats.py (`kruskal_epsilon2`)
+- **Symptom:** with eps^2 = H (n+1)/(n^2-1) and k = 5 starts of n_g = 10 ground states (n = 50), H ~ chi^2_4 under the null, so E[eps^2] = 4/49 = 0.082 and P(eps^2 < 0.06) = P(chi^2_4 < 2.94) = 0.43 per (chi, T) cell; over 6 harmonic cells a start-independent system passes all with probability ~0.006
+- **Repro:** the synthetic dry run with independent draws per start (batten2008_md_synthetic.py, no injected effect): H5 parts "KW eps2" missed in 3 of 6 cells (eps^2 0.07-0.10), so H5 was INCONCLUSIVE although nu is identical in law across starts
+- **Impact:** before A1, H5 could only be PASS or INCONCLUSIVE on data with no start dependence (no false FAIL: FAIL needs a >= 10 % median difference); no production data existed
+- **Regression test:** tests/unit/test_batten2008_md.py::test_regression_D047_h5_null_set_pass_rate (>= 18 of 20 start-independent sets pass the A2 mean-eta^2_H part; 197 of 200 measured), plus test_h5_cell_null_pass_rate (per cell 0.835) and the property test_h5_identical_starts_pass_property
+- **Fix:** A1.1: `kruskal_eta2` returns the bias-corrected eta^2_H = (H - k + 1)/(n - k) (null mean 0). A1 alone still left a start-independent set passing all 6 cells with probability 0.85^6 = 0.37 (measured 6/20 full synthetic sets), so A2 (2cc30a2) evaluates H5 part 1 on the mean of eta^2_H over the harmonic cells (`h5_mean_eta2`; per-cell values descriptive): 20/20 full synthetic null sets pass (largest mean 0.053)
+
 ## D-050 — Andersen count mode: reset on step 1 and a 501-reset schedule
 - **Found:** 2026-11-08, while building the C++ MD reference (plan T4)
 - **Status:** wontfix-upstream
@@ -464,3 +477,33 @@ Statuses:
 - **Impact:** test-only. The pinned repro is a statement about CPU (float64, XLA CPU reduction order) rounding; the fixed tolerance (D-011) bounds the error on any device
 - **Regression test:** the same test, now pinned to the CPU device (asserts the gradient lives on the CPU)
 - **Fix:** the test runs under `jax.default_device(cpu)`
+
+## D-088 — E1b power spectrum mixes the thermostatted phases into the NVE spectrum
+- **Found:** 2026-11-09, while writing the E1 run script (batten2008_md_run.py, E1b assembly)
+- **Status:** fixed
+- **Where:** experiments/scripts/batten2008_md_analysis.py:695 (`_trace_spectra`)
+- **Symptom:** the rho trace of cli.md is global (one row every `record_rho_every` steps from step 0, across all phases), so for E1b (trace every 5 steps; 2e5 Andersen equilibration + 1e5 Andersen + 5000 or 10000 NVE steps) the "leading uniform run" that `_trace_spectra` transforms is the whole run: about 98 % of its samples are Andersen-thermostatted and only the last 1-2 % are the t = 200 NVE segment that F10 compares with sqrt(eig K). `trace_inverse_modulus` already restricts to the production segments (`segments(meta)`); `_trace_spectra` does not.
+- **Repro:** an E1b output (`batten2008_md_run.py --step spectra`) has trace_count = (n_equil + n_andersen + n_nve) / 5 uniform rows; `_trace_spectra` uses all of them (no gap), not the last n_nve / 5
+- **Impact:** F10 spectra would be broadened by the Andersen collisions and dominated by the equilibration; H-tests unaffected (F10 is descriptive). E1 files also get a `spec_power` from their 2000-step trace (Nyquist 0.04 << omega_min 0.17), which is aliased and should not be plotted.
+- **Regression test:** tests/unit/test_batten2008_md.py::test_regression_D088_trace_spectrum_production_only, ::test_regression_D088_spectrum_ignores_non_production_property (Hypothesis; repro pinned by `@example`)
+- **Fix:** feat/md-E1fix: `_trace_spectra(arrays, meta, g, n_t)` takes only the trace rows whose step (trace_time / dt) lies in a production segment (s0, s0 + n] (the JSON phases, as `trace_inverse_modulus`), transforms the first Q rows of each segment (Q = fewest rows of any segment) and averages the normalized spectra over segments; it also stores `spec_rows`, `spec_segments` and `spec_nyquist` = pi / (cadence dt), so an E1 file's aliased 2000-step spectrum is identifiable (F10 plots only `md_analysis_spectra*`). Before the fix, the repro's spectrum (2020 rows) peaked at the out-of-production tone (omega 1.257) instead of the production tone (0.314).
+
+## D-089 — A shared --out-dir lets the starts overwrite one another's analysis
+- **Found:** 2026-11-09, while running E2 on the complete production data (wt-E5)
+- **Status:** fixed
+- **Where:** experiments/scripts/batten2008_md_analysis.py (`__main__`: `dest = (args.out_dir or md_path.parent) / output_name(md_path)`)
+- **Symptom:** the analysis file name depends only on the input stem (`md_chi1-10.npz` -> `md_analysis_chi1-10.npz`), not on the start, so with `--out-dir DIR` the five starts at one chi all write `DIR/md_analysis_chi1-10.npz`; the last one wins and batten2008_md_stats.py then sees one start per chi (H5 NOT_EVALUATED, the other hypotheses on one start) with no error
+- **Repro:** `batten2008_md_analysis.py --md flows2d/N1024/md_chi1-10.npz gau2d/N1000/md_chi1-10.npz --out-dir R` leaves one file, `R/md_analysis_chi1-10.npz` (gau2d)
+- **Impact:** none on the results: the production run (job 17171421) passed a per-start `--out-dir R/<system>/N<N>` from the SLURM script, so all 28 analyses are distinct (`collect` finds 10 production, 8 Langevin and 10 spectra files); the hazard was for any later rerun with one --out-dir
+- **Regression test:** tests/unit/test_batten2008_md.py::test_regression_D089_out_dir_keeps_starts_apart, ::test_regression_D089_out_dir_property (Hypothesis; repro pinned by `@example`); both failed before the fix
+- **Fix:** `output_path(path, out_dir)` mirrors the input's `<system>/N<N>` directories under `--out-dir` (unchanged without it); experiments/slurm/batten2008_md_analysis_cpu.slurm passes one `--out-dir`, which yields the same layout as job 17171421
+
+## D-090 — The README step-by-step analysis command picks up an analysis output
+- **Found:** 2026-11-09, by the A-E5 audit (AUDIT-E5 F3)
+- **Status:** fixed
+- **Where:** experiments/README.md (E2 step-by-step: `--md $(ls experiments/trajectories/*/N*/md_*chi*.npz | grep -v ckpt)`); experiments/scripts/batten2008_md_analysis.py (`output_name`, `__main__`)
+- **Symptom:** the glob also matches `md_analysis*_chi<tag>.npz` written beside the inputs (the pilot left `flows2d/N1024/md_analysis_chi1-10.npz`), so the loop reaches it, `load_md` raises `ValueError: ... lacks arrays [...]` and the remaining files are not analysed
+- **Repro:** run the README command in the main checkout: 29 files are passed, one of them `flows2d/N1024/md_analysis_chi1-10.npz`
+- **Impact:** none on the results; the SLURM script (`find ... ! -name 'md_analysis*'`) was used for production (job 17171421)
+- **Regression test:** tests/unit/test_batten2008_md.py::test_regression_D090_analysis_output_is_not_an_input (Hypothesis; repro pinned by `@example`); failed before the fix
+- **Fix:** the README command also filters `md_analysis` (`grep -v -e ckpt -e md_analysis`; 28 files); `output_name` raises `ValueError("... is an analysis output, not an MD output")` for an `md_analysis*` stem, and `__main__` resolves the destination before analysing, so a bad name fails at once with that message

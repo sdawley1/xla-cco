@@ -313,3 +313,99 @@ MD_PARITY_KS_THIN: int = 2
 # samples is rho (1 - rho^B)^2 / (B (1 - rho^2)) = 0.022, so the 20 means per seed
 # are nearly independent and the SE is underestimated by ~ 2 %.
 MD_PARITY_BLOCK: int = 10
+# ----- MD winding analysis and statistics (E2: batten2008_md_*.py) -----
+# Least-squares slope of exactly linear W(t) = w t (+ c) on <= 200 log-spaced times
+# in [1e-3, 1e4]: the centred sums carry ~R eps relative rounding (R = 200: 4.4e-14),
+# amplified by t_max / sd(t) <~ 5 from centring; 1e-11 leaves > 40x headroom.
+RTOL_MD_RATE_EXACT: float = 1e-11
+# Windowed rates by linear interpolation at snapshot times that include t/4, t/2
+# and t exactly: one subtraction and one division of O(1e3) values, ~4 eps relative;
+# 1e-12 is ample.
+RTOL_MD_WINDOW_EXACT: float = 1e-12
+# Exact power laws msd = c t^a through fit_msd (also the H6 beta and the diagnostics
+# loglog_slope, the same least-squares log-log slope): polyfit of exact log-log data
+# (R <= 100 points, |log t| <= 25) returns a to ~R eps |log t| ~ 5e-13; 1e-9.
+ATOL_MD_ALPHA_EXACT: float = 1e-9
+# Exponent of the analytic Ornstein-Uhlenbeck MSD 2 D tau^2 (t/tau - 1 + e^-t/tau)
+# fitted over t in [10 tau, 1e4 tau]: the local slope 1 + tau / t - ... decays
+# from 1.11 at 10 tau to 1.0001 at 1e4 tau; the log-spaced least-squares average
+# is 1.009 (computed, 120 points in [1e-2, 1e4]); 0.04 bounds it with 4x headroom,
+# while the all-lag fit (ballistic t^2 included) gives 1.34, far outside.
+ATOL_MD_ALPHA_OU: float = 0.04
+# Exponent and D of the pooled MSD of 4000 Gaussian random walks at 60 log-spaced
+# times in [1, 1e3]: the MSD at each time has relative sd sqrt(2 / 4000) = 2.2 %
+# and the times are correlated; the log-log slope over 3 decades has sd 0.0035
+# (measured over 20 seeds), so 0.05 is a > 10 sd bound that still rejects any
+# exponent outside [0.95, 1.05]. D from the 2 D t fit is dominated by the last
+# points: relative sd 1.9 % (measured over 20 seeds); 0.12 = 6 sd.
+ATOL_MD_ALPHA_RW: float = 0.05
+RTOL_MD_D_RW: float = 0.12
+# Synthetic MD (batten2008_md_synthetic) recovered by the analysis, pooled over
+# all lanes and waves of the end-to-end set (6 ground states x 3 T, 12
+# constrained and ~40 unconstrained waves, 2 segments of t = 400; measured with
+# seed 3: Rice ratio 0.994 constrained / 1.000 unconstrained, S/T 0.991, Phi/(MT)
+# 0.991, median alpha 1.012, nu 0.999):
+# - unsigned rate / Rice: the sampled total variation of the Ornstein-Uhlenbeck
+#   oscillators undercounts by O(gamma dt) (0.3 % constrained, 0.5 % unconstrained
+#   at dt = 0.025, measured against dt = 0.0125); the pooled statistical sd is
+#   ~0.7 %; 3 % bounds bias + 3 sd.
+RTOL_MD_SYN_RATE: float = 0.03
+# - <S_k> / T and <Phi> / (M T): per-wave relative sd ~ sqrt(tau_S / t) ~ 9 %
+#   (tau_S ~ 1 / gamma), pooled over ~200 wave series ~0.7 %; 3 % = 4 sd.
+RTOL_MD_SYN_EQUIPARTITION: float = 0.03
+# - median MSD exponent over the 18 lanes: lane sd 0.18 at t = 400 (window
+#   [~38, 400], 24 walks per lane), median of 18 -> ~0.05; 0.15 = 3 sd (the
+#   pre-registered band is 0.1; this set is far shorter than production runs).
+ATOL_MD_SYN_ALPHA: float = 0.15
+# H5 under Amendment A1 (D-047): with no start effect, k = 5 starts of 10 ground
+# states, eta^2_H < 0.06 <=> H < 6.7, so a cell passes with P(chi2_4 < 6.7) = 0.847
+# (asymptotic; measured 0.835 over the 200 seeded cells). Binomial sd over 200
+# cells is 0.025; [0.77, 0.92] is about +-3 sd and excludes the plain-epsilon^2
+# rate 0.39 (P(chi2_4 < 2.94) = 0.43) by > 15 sd.
+MD_H5_NULL_CELLS: int = 200
+MD_H5_NULL_PASS: tuple = (0.77, 0.92)
+# Amendment A2: H5 part 1 is the mean of eta^2_H over the 6 harmonic cells. Under
+# the null the mean has expectation ~0 and sd ~ sqrt(2 (k-1)) / (n-k) / sqrt(6) =
+# 0.026, so P(mean >= 0.06) ~ 0.01 per set; P(>= 18 of 20 sets pass) > 0.999. The
+# old rule (every cell below 0.06) passes only 0.85^6 = 0.37 of the sets.
+MD_H5_NULL_SETS: int = 20
+MD_H5_NULL_SET_MIN: int = 18
+
+# ----- MD experiment analysis tests (AUDIT-W5 S2: test_batten2008_md*.py) -----
+# Negative check that eta^2_H = (H - k + 1) / (n - k) = 0.8667 of the 3 x 3 hand
+# example is not the plain epsilon^2 = H (n + 1) / (n^2 - 1) = 0.9: the two differ by
+# 3.7 % relative, the computed value is exact to ~1e-15; 1e-3 sits 37x below the gap.
+RTOL_MD_ETA2_DISTINCT: float = 1e-3
+# H5 relative median difference of 5 starts x 10 values (base 5.0045 median, one start
+# x 1.02): the grand median of the 50 pooled values is 5.006, not 5.0045, so the
+# value is 0.02 x 5.0045 / 5.006 = 0.019994 (offset 3.0e-4 relative); 1e-3 = 3.3x,
+# while the absolute difference (0.1) or the unscaled ratio (1.02) fail by >> 1e-3.
+RTOL_MD_H5_MEDDIFF: float = 1e-3
+# H5 deviation recovered from the injected synthetic set (hip2d rates x 1.15, 6
+# ground states, 3 harmonic T): dev = max over cells of (med hip2d - med lowest) /
+# grand median. Error sources: the 6-state medians (nu sd ~0.0035 per state, so
+# the ratio of two medians has sd ~1.25 sqrt(2) 0.0035 / sqrt(6) = 0.25 %, i.e.
+# ~0.003 in dev), the grand-median offset (~5e-4) and the different O(gamma dt)
+# winding undercount of the faster rates (<= 0.5 % of 1.15, ~0.006): <= 0.01 at
+# 3 sd. Measured 0.1514 (cells 0.1476-0.1514, seed 3); 0.03 = 3x that bound, still
+# rejecting the eta^2_H value (0.40) or the rate ratio (1.15) reported as dev.
+ATOL_MD_INJECTED_DEV: float = 0.03
+# per_wave_scatter of the post hoc fixture (generator sd 0.2 and 0.1, 400 ground
+# states, 3 harmonic T x 22 waves with |k|/K <= 0.35): sigma_w = sqrt(mean of 66
+# independent sample variances with 399 dof), relative sd sqrt(2 / 399) / sqrt(66)
+# / 2 = 0.44 %; measured 0.29 % and 0.13 %. 0.05 = 11 sd, so no false alarm, while
+# the variance in place of the sd (0.04, 0.01) or the SE over 400 states (/ 20) fail.
+RTOL_MD_SCATTER_SD: float = 0.05
+# prefix_agreement max_abs of one value x perturbed by delta in [1e-12, 1e3]
+# (|x| <= 73 in the _raw fixture): x + delta rounds by eps/2 (|x| + delta) and the
+# difference once more, so |max_abs - delta| <= eps/2 |x| + eps delta <= 8e-15 +
+# 2.2e-16 delta (measured <= 1.1e-13 at delta = 1e3, 6e-15 at 1e-12); atol 1e-13
+# and rtol 1e-15 bound it with >= 4x headroom at every delta (the former atol 1e-9
+# accepted any max_abs < 1e-9, so the delta = 1e-12 example checked no size).
+ATOL_MD_PREFIX_DELTA: float = 1e-13
+RTOL_MD_PREFIX_DELTA: float = 1e-15
+# divergence_onset of rho x (1 + eps) at t = 0 (eps in [1e-15, 1e-12], rho = 1, 2):
+# 1 + eps rounds to the float grid (spacing 2.2e-16) and the rest is exact (powers
+# of 2), so rel = eps +- 1.1e-16 (measured 1.1e-16); 5e-16 = 4.5x and half the
+# smallest eps (the former 1e-15 accepted rel = 0 at eps = 1e-15).
+ATOL_MD_ONSET_REL: float = 5e-16
