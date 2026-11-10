@@ -1160,7 +1160,7 @@ def test_regression_D089_out_dir_property(systems: List[str], tag: str) -> None:
     assert all(d.parent.parent.name == s for d, s in zip(dests, systems, strict=True))
 
 
-@pytest.mark.medium
+@pytest.mark.high
 @given(
     rest=st.sampled_from(["", "_langevin_g0.03", "_spectra"]),
     tag=st.sampled_from(["1-10", "2-5", "7-20"]),
