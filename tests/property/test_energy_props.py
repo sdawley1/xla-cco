@@ -270,17 +270,22 @@ def test_gradient_sums_to_zero(case: tuple) -> None:
 
 @pytest.mark.medium
 def test_regression_D011_grad_sum_tolerance_scales_with_gradient_magnitude() -> None:
+    """D-011 repro: the old tolerance fails, the fixed one holds. The repro is a
+    statement about CPU rounding, so it runs on the CPU device (D-087)."""
     rng = np.random.default_rng(34)
     s = np.full((16, 1), 0.40625)
     n = rng.integers(-4, 5, size=(13, 1))
     n[n == 0] = 1
     w = rng.uniform(0.5, 2.0, 13)
-    _, grad = _energy(n, w, 1.0).value_and_grad(jnp.asarray(s))
-    total = float(np.abs(np.asarray(grad).sum()))
-    old_atol = 1e-11 * max(1.0, float(np.abs(grad).max()) * 16)
-    assert total > old_atol, "old tolerance no longer reproduces D-011"
-    assert total <= _grad_sum_atol(n, w, 1.0, 16)
-    _check_grad_sum(s, n, w, 1.0)
+    cpu = jax.devices("cpu")[0]
+    with jax.default_device(cpu):
+        _, grad = _energy(n, w, 1.0).value_and_grad(jnp.asarray(s))
+        assert grad.devices() == {cpu}, "the D-011 repro is pinned to the CPU"
+        total = float(np.abs(np.asarray(grad).sum()))
+        old_atol = 1e-11 * max(1.0, float(np.abs(grad).max()) * 16)
+        assert total > old_atol, "old tolerance no longer reproduces D-011"
+        assert total <= _grad_sum_atol(n, w, 1.0, 16)
+        _check_grad_sum(s, n, w, 1.0)
 
 
 @pytest.mark.high

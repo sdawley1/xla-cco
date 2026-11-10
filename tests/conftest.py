@@ -16,7 +16,7 @@ Samuel J. Dawley
 # ============================================================
 
 # ----- standard library -----
-from typing import Callable
+from typing import Callable, Iterator
 
 # ----- numerics -----
 import jax
@@ -54,6 +54,34 @@ def _require_x64() -> None:
     import xla_cco  # noqa: F401  (import enables x64)
 
     assert jax.config.jax_enable_x64, "jax_enable_x64 must be on"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _clear_jax_caches() -> Iterator[None]:
+    """Drop compiled XLA programs after each test module.
+
+    Every CPU-JIT program stays memory-mapped until it is released, and the
+    full suite exceeded vm.max_map_count (65530) once the MD tests landed
+    (``Failed to materialize symbols``; AUDIT-T2 F1). Clearing per module
+    keeps the peak near 1e4 maps.
+    """
+    assert jax.config.jax_enable_x64, "x64 stays on across modules"
+    yield
+    jax.clear_caches()
+
+
+@pytest.fixture(autouse=True)
+def _restore_default_device() -> Iterator[None]:
+    """Restore jax_default_device after each test.
+
+    The CLIs' select_device sets it process-wide (D-085); without the reset
+    one in-process CLI test would move the rest of the GPU suite to the CPU.
+    """
+    saved = jax.config.jax_default_device
+    assert saved is None or hasattr(saved, "platform"), "a device or None"
+    yield
+    jax.config.update("jax_default_device", saved)
+    assert jax.config.jax_default_device == saved, "default device restored"
 
 
 @pytest.fixture

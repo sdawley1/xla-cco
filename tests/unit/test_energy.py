@@ -12,6 +12,7 @@ Samuel J. Dawley
 # ============================================================
 
 # ----- standard library -----
+import dataclasses
 from typing import Any, Iterator
 
 # ----- numerics -----
@@ -20,14 +21,19 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 # ----- project -----
 import oracle
-from tolerances import ATOL_FD, RTOL_KERNEL_E, RTOL_KERNEL_F
+from strategies import chunk_sizes, fractional_configs, integer_kvectors
+from tolerances import ATOL_FD, RTOL_KERNEL_E, RTOL_KERNEL_F, TABLE_RHO_C
 from xla_cco.box import Box, cubic_box
 from xla_cco.energy import (
     AbstractEnergy,
     StealthyEnergy,
+    _phase_block,
+    _power_table,
     collective_density,
     make_stealthy_energy,
 )
@@ -270,3 +276,180 @@ def test_factory_matches_oracle_large_m(pad_to: int) -> None:
     np.testing.assert_allclose(
         got_f, ref_f, rtol=RTOL_KERNEL_F, atol=RTOL_KERNEL_F * np.abs(ref_f).max()
     )
+
+
+# ============================================================
+# VALUE, GRADIENT AND DENSITY IN ONE PASS (MD)
+# ============================================================
+
+
+def _vgd_case(
+    dim: int, n: int, chunk: Any, tables: bool
+) -> tuple[jnp.ndarray, StealthyEnergy]:
+    """Padded energy (pad_to 64: zero rows) and positions for value_grad_density."""
+    box = cubic_box(n, dim)
+    kset = enumerate_kvectors(np.asarray(box.basis), 0.0, {1: 9.0, 2: 4.5, 3: 3.2}[dim])
+    en = make_stealthy_energy(box, kset, chunk_size=chunk, pad_to=64)
+    if tables:
+        en = dataclasses.replace(en, n_max=int(np.abs(kset.n).max()))
+    assert en.n_vectors.shape[0] > kset.n.shape[0]  # padding rows present
+    s = np.random.default_rng(dim + n).uniform(-1.0, 2.0, size=(n, dim))
+    return jnp.asarray(s), en
+
+
+def _assert_bitwise(got: Any, ref: Any) -> None:
+    """Exact equality of every array (no tolerance)."""
+    assert len(got) == len(ref)
+    for a, b in zip(got, ref, strict=True):
+        np.testing.assert_array_equal(np.asarray(a), np.asarray(b), strict=True)
+
+
+def _table_rho(
+    s: jnp.ndarray, en: StealthyEnergy, jit: bool = False
+) -> tuple[np.ndarray, np.ndarray]:
+    """Phase-table rho of every k row, blocked as the energy's chunks.
+
+    The table sums are not chunk-invariant bitwise (measured: 1 ulp moves
+    between chunkings, and between eager and jitted unchunked sums), so the
+    reference sums the same k blocks (zero-padded to whole chunks, padding
+    dropped) with a scan of one block per step, jitted when the energy is.
+    """
+    if jit:
+        out = jax.jit(lambda x: _table_rho_impl(x, en))(s)
+    else:
+        out = _table_rho_impl(s, en)
+    return np.asarray(out.real), np.asarray(out.imag)
+
+
+def _table_rho_impl(s: jnp.ndarray, en: StealthyEnergy) -> jnp.ndarray:
+    """Complex blocked table rho (body of ``_table_rho``)."""
+    assert en.n_max is not None
+    table = _power_table(s, en.n_max)
+    m = en.n_vectors.shape[0]
+    size = m if en.chunk_size is None else min(en.chunk_size, m)
+    n_chunks = -(-m // size)
+    if n_chunks == 1:
+        return jnp.sum(_phase_block(table, en.n_vectors), axis=1)
+    pad = jnp.zeros((n_chunks * size - m, en.n_vectors.shape[1]))
+    blocks = jnp.concatenate([en.n_vectors, pad]).reshape(n_chunks, size, -1)
+    _, out = jax.lax.scan(
+        lambda _, n_c: (None, jnp.sum(_phase_block(table, n_c), axis=1)), None, blocks
+    )
+    return out.reshape(-1)[:m]
+
+
+@pytest.mark.critical
+@pytest.mark.parametrize("dim,n", [(1, 9), (2, 12), (3, 10)])
+@pytest.mark.parametrize("chunk", [None, 1, 5, 7, 16, 1000])
+@pytest.mark.parametrize("jit", [False, True])
+def test_value_grad_density_bitwise_trig(
+    dim: int, n: int, chunk: Any, jit: bool
+) -> None:
+    """Trig path: value_grad_density is bitwise value_and_grad and
+    collective_density. Pinned to the CPU (D-086): separately compiled GPU
+    programs may reduce in different orders (~1 ulp)."""
+    cpu = jax.devices("cpu")[0]
+    with jax.default_device(cpu):
+        s, en = _vgd_case(dim, n, chunk, tables=False)
+        vgd = eqx.filter_jit(en.value_grad_density) if jit else en.value_grad_density
+        vag = eqx.filter_jit(en.value_and_grad) if jit else en.value_and_grad
+        cd = eqx.filter_jit(collective_density) if jit else collective_density
+        val, grad, re, im = vgd(s)
+        _assert_bitwise((val, grad), vag(s))
+        _assert_bitwise((re, im), cd(s, en.n_vectors, chunk))
+    assert grad.devices() == {cpu} and re.devices() == {cpu}, "ran on the CPU"
+    pad = np.asarray(en.weights) == 0.0
+    assert np.all(np.asarray(re)[pad] == n) and np.all(np.asarray(im)[pad] == 0.0)
+
+
+@pytest.mark.critical
+@pytest.mark.parametrize("dim,n", [(1, 9), (2, 12), (3, 10)])
+@pytest.mark.parametrize("chunk", [None, 1, 5, 7, 16, 1000])
+@pytest.mark.parametrize("jit", [False, True])
+def test_value_grad_density_bitwise_tables(
+    dim: int, n: int, chunk: Any, jit: bool
+) -> None:
+    """Table path: Phi/grad bitwise to value_and_grad; rho is the table rho the
+    gradient used (bitwise) and equals collective_density to table rounding."""
+    s, en = _vgd_case(dim, n, chunk, tables=True)
+    vgd = eqx.filter_jit(en.value_grad_density) if jit else en.value_grad_density
+    vag = eqx.filter_jit(en.value_and_grad) if jit else en.value_and_grad
+    val, grad, re, im = vgd(s)
+    _assert_bitwise((val, grad), vag(s))
+    assert en.n_max is not None
+    atol = TABLE_RHO_C * np.finfo(float).eps * n * (1 + 2 * np.pi) * en.n_max * dim
+    tab = _table_rho(s, en, jit)
+    if jit and (chunk is None or chunk >= en.n_vectors.shape[0]):
+        # one jitted block: XLA fuses the rho sum with the gradient's use of the
+        # phases, so its bits are not reproducible standalone (1 ulp measured)
+        np.testing.assert_allclose(np.asarray(re), tab[0], rtol=0, atol=atol)
+        np.testing.assert_allclose(np.asarray(im), tab[1], rtol=0, atol=atol)
+    else:
+        _assert_bitwise((re, im), tab)
+    ref_re, ref_im = collective_density(s, en.n_vectors, chunk)
+    np.testing.assert_allclose(np.asarray(re), np.asarray(ref_re), rtol=0, atol=atol)
+    np.testing.assert_allclose(np.asarray(im), np.asarray(ref_im), rtol=0, atol=atol)
+
+
+@pytest.mark.high
+@settings(deadline=None, max_examples=40)
+@given(data=st.data(), chunk=chunk_sizes(), tables=st.booleans())
+def test_value_grad_density_property_bitwise(
+    data: Any, chunk: Any, tables: bool
+) -> None:
+    s = data.draw(fractional_configs())
+    d = s.shape[1]
+    n_vec = data.draw(integer_kvectors(dim=d)).astype(np.float64)
+    total = -(-n_vec.shape[0] // 8) * 8  # zero padding rows on a small shape grid
+    n_pad = np.vstack([n_vec, np.zeros((total - n_vec.shape[0], d))])
+    w = np.concatenate([np.ones(n_vec.shape[0]), np.zeros(total - n_vec.shape[0])])
+    en = StealthyEnergy(
+        n_vectors=jnp.asarray(n_pad), weights=jnp.asarray(w),
+        volume=jnp.asarray(float(s.shape[0])), chunk_size=chunk,
+        n_max=int(np.abs(n_vec).max()) if tables else None,
+    )  # fmt: skip
+    sj = jnp.asarray(s)
+    val, grad, re, im = en.value_grad_density(sj)
+    _assert_bitwise((val, grad), en.value_and_grad(sj))
+    ref = _table_rho(sj, en) if tables else collective_density(sj, en.n_vectors, chunk)
+    _assert_bitwise((re, im), ref)
+
+
+def _count_primitive(jaxpr: Any, name: str) -> int:
+    """Number of equations with primitive ``name`` in a jaxpr and its sub-jaxprs."""
+    count = 0
+    for eqn in jaxpr.eqns:
+        count += int(eqn.primitive.name == name)
+        for val in eqn.params.values():
+            for sub in val if isinstance(val, (list, tuple)) else [val]:
+                inner = getattr(sub, "jaxpr", sub)
+                if hasattr(inner, "eqns"):
+                    count += _count_primitive(inner, name)
+    return count
+
+
+@pytest.mark.high
+def test_value_grad_density_one_chunked_density_pass() -> None:
+    """Chunked trig path: rho is computed once (one cos in the density map, one in
+    the gradient scan) and no (n, m) array is ever formed."""
+    n, chunk = 50, 16
+    box = cubic_box(n, 2)
+    kset = enumerate_kvectors(np.asarray(box.basis), 0.0, 12.0)
+    en = make_stealthy_energy(box, kset, chunk_size=chunk, pad_to=64)
+    m = en.n_vectors.shape[0]
+    s = jnp.asarray(np.random.default_rng(1).uniform(size=(n, 2)))
+    jaxpr = jax.make_jaxpr(en.value_grad_density)(s).jaxpr
+    assert max(_walk_jaxpr_sizes(jaxpr)) < n * m
+    assert _count_primitive(jaxpr, "cos") == 2
+    assert _count_primitive(jaxpr, "sin") == 2
+
+
+@pytest.mark.medium
+def test_value_grad_density_shapes_and_float32() -> None:
+    s, en = _vgd_case(2, 12, 7, tables=False)
+    val, grad, re, im = en.value_grad_density(s)
+    m = en.n_vectors.shape[0]
+    assert val.shape == () and grad.shape == s.shape
+    assert re.shape == (m,) and im.shape == (m,) and re.dtype == jnp.float64
+    with pytest.raises(TypeError):
+        en.value_grad_density(s.astype(jnp.float32))

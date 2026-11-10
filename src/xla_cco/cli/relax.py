@@ -49,6 +49,7 @@ from typing import Any, Dict, List, Sequence, Tuple, Union
 
 # ----- numerics -----
 import jax
+import jax.numpy as jnp
 import numpy as np
 
 # ----- project -----
@@ -85,6 +86,7 @@ UNIT_VOLUME_ATOL: float = 1e-12
 G2_CUTOFF_FRACTION: float = 0.2  # C++ main.cpp: 0.2 * L
 SK_K_DIR_MAX: float = 5.0  # C++ main.cpp: IsotropicStructureFactor(..., 5, 400)
 SK_K_MAX: float = 400.0
+GPU_PLATFORMS: Tuple[str, ...] = ("gpu", "cuda")  # jax Device.platform of a GPU
 STATUS_NAMES: Dict[int, str] = {
     getattr(result_mod, name): name
     for name in dir(result_mod)
@@ -199,19 +201,32 @@ def validate_args(args: argparse.Namespace) -> None:
 
 
 def select_device(device: str) -> str:
-    """Select the JAX platform explicitly and return its name.
+    """Select the JAX device explicitly and return its platform name.
 
-    ``gpu`` calls ``require_gpu`` (raises RuntimeError with the cause);
-    ``cpu`` pins the platform to cpu. Never falls back silently.
+    ``gpu`` calls ``require_gpu`` (raises RuntimeError with the cause) and
+    makes the first GPU the default device; ``cpu`` pins the platform list
+    to cpu (effective before the backend starts) and makes the CPU the
+    default device, which also holds after a GPU backend was initialized in
+    the same process (D-085). The platform of a freshly placed array is
+    checked, so the selection never falls back silently.
     """
     assert device in ("gpu", "cpu"), "device must be gpu or cpu"
     if device == "gpu":
         require_gpu()
+        targets = [d for d in jax.devices() if d.platform in GPU_PLATFORMS]
     else:
         jax.config.update("jax_platforms", "cpu")  # type: ignore[no-untyped-call]
-    platform = str(jax.devices()[0].platform)
-    if (device == "cpu") != (platform == "cpu"):
-        raise RuntimeError(f"requested --device {device} but JAX uses {platform}")
+        targets = list(jax.devices("cpu"))
+    if not targets:
+        raise RuntimeError(f"requested --device {device} but JAX has no such "
+                           f"device: {jax.devices()}")  # fmt: skip
+    jax.config.update("jax_default_device", targets[0])  # type: ignore[no-untyped-call]
+    used = {str(d.platform) for d in jnp.zeros(()).devices()}
+    wanted = GPU_PLATFORMS if device == "gpu" else ("cpu",)
+    if len(used) != 1 or not used <= set(wanted):
+        raise RuntimeError(f"requested --device {device} but JAX uses {used}")
+    platform = used.pop()
+    assert platform in wanted, "checked above"
     return platform
 
 
