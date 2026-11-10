@@ -4,7 +4,7 @@
 Tests of the MD observables: wave densities, COM correction and winding.
 
 References are independent: ``collective_density`` in fractional
-coordinates, ``batten2008_winding.cumulative_winding`` (NumPy, np.angle),
+coordinates, ``oracle.cumulative_winding`` (NumPy, np.angle),
 closed-form rotations and the Rice formula for a circular complex Gaussian
 process, <|theta'|> = sigma_rho' / sigma_rho.
 
@@ -18,8 +18,6 @@ Samuel J. Dawley
 
 # ----- standard library -----
 import math
-import sys
-from pathlib import Path
 from typing import Any, Optional, Tuple
 
 # ----- numerics -----
@@ -32,6 +30,7 @@ from hypothesis import strategies as st
 from hypothesis.extra import numpy as hnp
 
 # ----- project -----
+from oracle import PHASE_FLOOR, cumulative_winding
 from strategies import boxes, chunk_sizes, fractional_configs, integer_kvectors
 from tolerances import (
     ATOL_MD_COM_MEAN,
@@ -50,9 +49,6 @@ from xla_cco.dynamics.observables import (
     winding_update,
 )
 from xla_cco.energy import collective_density
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "experiments" / "scripts"))
-from batten2008_winding import PHASE_FLOOR, cumulative_winding  # noqa: E402
 
 # ============================================================
 # CONSTANTS
