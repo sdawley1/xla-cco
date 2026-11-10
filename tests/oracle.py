@@ -233,3 +233,29 @@ def blocked_standard_error(x: np.ndarray, min_blocks: int = 128) -> float:
         best = max(best, math.sqrt(float(np.var(y)) / (y.size - 1)))
         y = 0.5 * (y[: 2 * (y.size // 2) : 2] + y[1 : 2 * (y.size // 2) : 2])
     return best
+
+
+# ============================================================
+# PHASE WINDING
+# ============================================================
+
+# S below this: the phase is round-off (as experiments/scripts/batten2008_winding)
+PHASE_FLOOR = 1e-16
+
+
+def cumulative_winding(rho: np.ndarray, n: int) -> np.ndarray:
+    """W (F, M): turns of arg rho accumulated up to each frame (resolved steps).
+
+    A copy of ``batten2008_winding.cumulative_winding`` (NumPy, np.angle), kept
+    here so the MD package tests do not depend on the untracked experiments/.
+    A step counts only when S = |rho|^2 / n exceeds PHASE_FLOOR at both ends.
+    """
+    assert rho.ndim == 2 and rho.shape[0] >= 1, "rho must be (F, M)"
+    assert n >= 1, "n is the particle count"
+    sk = np.abs(rho) ** 2 / n
+    dth = np.abs(np.angle(rho[1:] * np.conj(rho[:-1])))
+    ok = (sk[1:] > PHASE_FLOOR) & (sk[:-1] > PHASE_FLOOR)
+    step = np.where(ok, dth, 0.0) / (2.0 * np.pi)
+    zero = np.zeros((1, rho.shape[1]))
+    out: np.ndarray = np.concatenate([zero, np.cumsum(step, axis=0)])
+    return out

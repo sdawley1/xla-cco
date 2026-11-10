@@ -87,8 +87,10 @@ everything is float64 (float32 input raises `TypeError`).
 
 ## Where next
 
-- [experiments/README.md](experiments/README.md): reproduction of Dawley &
-  Torquato, PRE 112, 045310 (2025) trajectories and the Wasserstein analysis.
+- `experiments/` (local only, not tracked by git): reproduction of Dawley &
+  Torquato, PRE 112, 045310 (2025) trajectories, the Wasserstein analysis
+  and the collective-coordinate studies; its tests live in
+  `experiments/tests/`.
 - [DEFECTS.md](DEFECTS.md): every defect found, with its regression test.
 - [docs/library-evaluation.md](docs/library-evaluation.md): library choices.
 
