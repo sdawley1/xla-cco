@@ -8,7 +8,7 @@ from gradient flow (Phi < 1e-20). References are independent of the driver:
 the Cartesian Hessian from ``jax.hessian`` of a direct Phi(r), its exact
 discrete velocity-Verlet propagation mode by mode (cos(w~ dt) = 1 - w^2 dt^2
 / 2) mapped through the density Jacobian J (drho = J dr), the eigenvalues of
-K = (2/V) J J^T, and ``batten2008_winding.cumulative_winding`` (NumPy).
+K = (2/V) J J^T, and ``oracle.cumulative_winding`` (NumPy).
 
 Samuel J. Dawley
 11/2026
@@ -20,8 +20,6 @@ Samuel J. Dawley
 
 # ----- standard library -----
 import math
-import sys
-from pathlib import Path
 from typing import Any, Dict, Tuple
 
 # ----- numerics -----
@@ -32,6 +30,7 @@ import pytest
 from scipy import stats
 
 # ----- project -----
+from oracle import cumulative_winding
 from systems import stealthy_ground_state
 from tolerances import (
     ATOL_MD_WAVE_PER_PARTICLE,
@@ -50,9 +49,6 @@ from xla_cco.dynamics.thermal import harmonic_sample
 from xla_cco.energy import make_stealthy_energy
 from xla_cco.kvectors import enumerate_kvectors
 from xla_cco.minimize.result import STATUS_RUNNING
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "experiments" / "scripts"))
-from batten2008_winding import cumulative_winding  # noqa: E402
 
 # ============================================================
 # CONSTANTS

@@ -154,7 +154,7 @@ Statuses:
 - **Symptom:** frames whose plan had converged (marginal error < tol) but whose row-argmax rounding collided were certified; the greedy repair there exceeded the exact W_2 on 343 of 1860 compared chi = 0.4 POS frames (worst 2.8e-3 relative) and 28 of 1699 at chi = 0.1
 - **Repro:** genuine near-ties (two close particles whose partner swap costs less than ~eps) split the plan's mass, so the argmax collides however long Sinkhorn runs
 - **Impact:** the full-resolution Sinkhorn curves carried errors up to 2.8e-3 at about 1.5 % of POS frames; the exact 201-frame curves were unaffected
-- **Regression test:** tests/unit/test_wasserstein_analysis.py::test_regression_D014_converged_collision_not_certified (also the apply_fallback tests)
+- **Regression test:** experiments/tests/test_wasserstein_analysis.py::test_regression_D014_converged_collision_not_certified (also the apply_fallback tests)
 - **Fix:** only a bijective rounding certifies a frame (every compared bijective frame equalled the exact optimum); `wasserstein_fallback.py` solves the exact assignment at all other frames and `apply_fallback` substitutes those values, failing loudly if any are missing
 
 ## D-015 — CLI cannot read its own output
@@ -194,7 +194,7 @@ Statuses:
 - **Symptom:** `AssertionError: positive spectrum` (`stats`), then `AssertionError: MP normalization` (`ks_distance` with c_eff >= 1), while drawing coupling_mp_compare for HIP starts
 - **Repro:** HIP starts at chi = 0.4 (tag 2-5): the coupling C of the start configurations has 42-134 eigenvalues at round-off (|lambda| <= 6e-16, some negative), so <1/lambda>(1 - c) is a huge number of either sign, and Var lambda = 2.96 c = 2.37 > 1, so MP(c_eff) does not exist
 - **Impact:** no per-start figure for HIP; the stored Poisson figures are unaffected (their smallest start eigenvalue, 1e-11 at chi = 0.49, is a genuine void mode)
-- **Regression test:** tests/unit/test_batten2008_coupling_plots.py::test_regression_D018_stats_with_zero_modes and ::test_regression_D018_ks_eff_undefined_for_variance_above_one
+- **Regression test:** experiments/tests/test_batten2008_coupling_plots.py::test_regression_D018_stats_with_zero_modes and ::test_regression_D018_ks_eff_undefined_for_variance_above_one
 - **Fix:** <1/lambda> is NaN when lambda_min / lambda_max <= 1e-13 (round-off zeros), and the assertion checks only that it is not <= 0; `ks_eff` returns NaN (no point, no MP(c_eff) curve) unless 0 < c_eff < 1
 
 ## D-019 — coupling_mp_shoulder dip window outside a narrow spectrum
@@ -204,7 +204,7 @@ Statuses:
 - **Symptom:** `AssertionError: window inside the histogram` in panel (d)
 - **Repro:** saturated-RSA ground states at chi = 0.1 have lambda(C) within 0.85-1.15 (5-95 %), so the 0.3-0.8 window clipped to the quantiles is empty
 - **Impact:** no per-start figure for saturated RSA; Poisson unaffected
-- **Regression test:** tests/unit/test_batten2008_coupling_plots.py::test_regression_D019_min_density_window_outside_support
+- **Regression test:** experiments/tests/test_batten2008_coupling_plots.py::test_regression_D019_min_density_window_outside_support
 - **Fix:** an empty clipped window returns NaN (no point drawn) instead of asserting
 
 ## D-020 — MD reversibility property used an absolute tolerance blind to |r|
@@ -294,7 +294,7 @@ Statuses:
 - **Symptom:** with eps^2 = H (n+1)/(n^2-1) and k = 5 starts of n_g = 10 ground states (n = 50), H ~ chi^2_4 under the null, so E[eps^2] = 4/49 = 0.082 and P(eps^2 < 0.06) = P(chi^2_4 < 2.94) = 0.43 per (chi, T) cell; over 6 harmonic cells a start-independent system passes all with probability ~0.006
 - **Repro:** the synthetic dry run with independent draws per start (batten2008_md_synthetic.py, no injected effect): H5 parts "KW eps2" missed in 3 of 6 cells (eps^2 0.07-0.10), so H5 was INCONCLUSIVE although nu is identical in law across starts
 - **Impact:** before A1, H5 could only be PASS or INCONCLUSIVE on data with no start dependence (no false FAIL: FAIL needs a >= 10 % median difference); no production data existed
-- **Regression test:** tests/unit/test_batten2008_md.py::test_regression_D047_h5_null_set_pass_rate (>= 18 of 20 start-independent sets pass the A2 mean-eta^2_H part; 197 of 200 measured), plus test_h5_cell_null_pass_rate (per cell 0.835) and the property test_h5_identical_starts_pass_property
+- **Regression test:** experiments/tests/test_batten2008_md.py::test_regression_D047_h5_null_set_pass_rate (>= 18 of 20 start-independent sets pass the A2 mean-eta^2_H part; 197 of 200 measured), plus test_h5_cell_null_pass_rate (per cell 0.835) and the property test_h5_identical_starts_pass_property
 - **Fix:** A1.1: `kruskal_eta2` returns the bias-corrected eta^2_H = (H - k + 1)/(n - k) (null mean 0). A1 alone still left a start-independent set passing all 6 cells with probability 0.85^6 = 0.37 (measured 6/20 full synthetic sets), so A2 (2cc30a2) evaluates H5 part 1 on the mean of eta^2_H over the harmonic cells (`h5_mean_eta2`; per-cell values descriptive): 20/20 full synthetic null sets pass (largest mean 0.053)
 
 ## D-050 — Andersen count mode: reset on step 1 and a 501-reset schedule
@@ -485,7 +485,7 @@ Statuses:
 - **Symptom:** the rho trace of cli.md is global (one row every `record_rho_every` steps from step 0, across all phases), so for E1b (trace every 5 steps; 2e5 Andersen equilibration + 1e5 Andersen + 5000 or 10000 NVE steps) the "leading uniform run" that `_trace_spectra` transforms is the whole run: about 98 % of its samples are Andersen-thermostatted and only the last 1-2 % are the t = 200 NVE segment that F10 compares with sqrt(eig K). `trace_inverse_modulus` already restricts to the production segments (`segments(meta)`); `_trace_spectra` does not.
 - **Repro:** an E1b output (`batten2008_md_run.py --step spectra`) has trace_count = (n_equil + n_andersen + n_nve) / 5 uniform rows; `_trace_spectra` uses all of them (no gap), not the last n_nve / 5
 - **Impact:** F10 spectra would be broadened by the Andersen collisions and dominated by the equilibration; H-tests unaffected (F10 is descriptive). E1 files also get a `spec_power` from their 2000-step trace (Nyquist 0.04 << omega_min 0.17), which is aliased and should not be plotted.
-- **Regression test:** tests/unit/test_batten2008_md.py::test_regression_D088_trace_spectrum_production_only, ::test_regression_D088_spectrum_ignores_non_production_property (Hypothesis; repro pinned by `@example`)
+- **Regression test:** experiments/tests/test_batten2008_md.py::test_regression_D088_trace_spectrum_production_only, ::test_regression_D088_spectrum_ignores_non_production_property (Hypothesis; repro pinned by `@example`)
 - **Fix:** feat/md-E1fix: `_trace_spectra(arrays, meta, g, n_t)` takes only the trace rows whose step (trace_time / dt) lies in a production segment (s0, s0 + n] (the JSON phases, as `trace_inverse_modulus`), transforms the first Q rows of each segment (Q = fewest rows of any segment) and averages the normalized spectra over segments; it also stores `spec_rows`, `spec_segments` and `spec_nyquist` = pi / (cadence dt), so an E1 file's aliased 2000-step spectrum is identifiable (F10 plots only `md_analysis_spectra*`). Before the fix, the repro's spectrum (2020 rows) peaked at the out-of-production tone (omega 1.257) instead of the production tone (0.314).
 
 ## D-089 — A shared --out-dir lets the starts overwrite one another's analysis
@@ -495,7 +495,7 @@ Statuses:
 - **Symptom:** the analysis file name depends only on the input stem (`md_chi1-10.npz` -> `md_analysis_chi1-10.npz`), not on the start, so with `--out-dir DIR` the five starts at one chi all write `DIR/md_analysis_chi1-10.npz`; the last one wins and batten2008_md_stats.py then sees one start per chi (H5 NOT_EVALUATED, the other hypotheses on one start) with no error
 - **Repro:** `batten2008_md_analysis.py --md flows2d/N1024/md_chi1-10.npz gau2d/N1000/md_chi1-10.npz --out-dir R` leaves one file, `R/md_analysis_chi1-10.npz` (gau2d)
 - **Impact:** none on the results: the production run (job 17171421) passed a per-start `--out-dir R/<system>/N<N>` from the SLURM script, so all 28 analyses are distinct (`collect` finds 10 production, 8 Langevin and 10 spectra files); the hazard was for any later rerun with one --out-dir
-- **Regression test:** tests/unit/test_batten2008_md.py::test_regression_D089_out_dir_keeps_starts_apart, ::test_regression_D089_out_dir_property (Hypothesis; repro pinned by `@example`); both failed before the fix
+- **Regression test:** experiments/tests/test_batten2008_md.py::test_regression_D089_out_dir_keeps_starts_apart, ::test_regression_D089_out_dir_property (Hypothesis; repro pinned by `@example`); both failed before the fix
 - **Fix:** `output_path(path, out_dir)` mirrors the input's `<system>/N<N>` directories under `--out-dir` (unchanged without it); experiments/slurm/batten2008_md_analysis_cpu.slurm passes one `--out-dir`, which yields the same layout as job 17171421
 
 ## D-090 — The README step-by-step analysis command picks up an analysis output
@@ -505,5 +505,5 @@ Statuses:
 - **Symptom:** the glob also matches `md_analysis*_chi<tag>.npz` written beside the inputs (the pilot left `flows2d/N1024/md_analysis_chi1-10.npz`), so the loop reaches it, `load_md` raises `ValueError: ... lacks arrays [...]` and the remaining files are not analysed
 - **Repro:** run the README command in the main checkout: 29 files are passed, one of them `flows2d/N1024/md_analysis_chi1-10.npz`
 - **Impact:** none on the results; the SLURM script (`find ... ! -name 'md_analysis*'`) was used for production (job 17171421)
-- **Regression test:** tests/unit/test_batten2008_md.py::test_regression_D090_analysis_output_is_not_an_input (Hypothesis; repro pinned by `@example`); failed before the fix
+- **Regression test:** experiments/tests/test_batten2008_md.py::test_regression_D090_analysis_output_is_not_an_input (Hypothesis; repro pinned by `@example`); failed before the fix
 - **Fix:** the README command also filters `md_analysis` (`grep -v -e ckpt -e md_analysis`; 28 files); `output_name` raises `ValueError("... is an analysis output, not an MD output")` for an `md_analysis*` stem, and `__main__` resolves the destination before analysing, so a bad name fails at once with that message
