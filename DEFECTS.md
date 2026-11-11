@@ -62,6 +62,8 @@ Statuses:
 | D-085 | fixed | `cli/relax.py` (`select_device`) | `--device cpu` failed once a GPU backend was initialized in the same process: `jax_platforms` is ignored after init and `jax.devices()[0]` stayed the GPU (76 in-process CLI test failures on the GPU suite). |
 | D-086 | fixed | `tests/unit/test_energy.py` (`test_value_grad_density_bitwise_trig`) | Bitwise equality of separately compiled programs is a CPU property; on the GPU the jitted variants differ by ~1 ulp. |
 | D-087 | fixed | `tests/property/test_energy_props.py` (D-011 regression) | The D-011 demonstration (the old tolerance fails on the pinned input) depends on CPU rounding; on the GPU the old tolerance passes. |
+| D-091 | fixed | `theory/hardsphere.py` (`solve_py`) | PY cache key rounds eta to 12 decimal places, a relative perturbation up to ~1e-9 at small eta that shows up as noise in g(chi)/chi^2 and its derivatives. |
+| D-092 | fixed | `theory/geometry.py` (`_intersection_fraction_beta`) | alpha_d via I_{1 - x^2/4}((d+1)/2, 1/2) loses absolute accuracy ~eps/x at small x (1 - x^2/4 rounds); used in production for d >= 4. |
 
 ## D-006 — `unit_ball_volume` is not bit-equal to the C++ hard-coded constants
 - **Found:** 2026-11-05, by the T4 auditor's preview parity
@@ -464,3 +466,23 @@ Statuses:
 - **Impact:** test-only. The pinned repro is a statement about CPU (float64, XLA CPU reduction order) rounding; the fixed tolerance (D-011) bounds the error on any device
 - **Regression test:** the same test, now pinned to the CPU device (asserts the gradient lives on the CPU)
 - **Fix:** the test runs under `jax.default_device(cpu)`
+
+## D-091 — PY cache key rounds eta to 12 decimal places
+- **Found:** 2026-11-11, while building the PHS theory layer (feat/phs-theory), before its first commit
+- **Status:** fixed
+- **Where:** src/xla_cco/theory/hardsphere.py (`solve_py`, `ETA_CACHE_DIGITS`)
+- **Symptom:** `solve_py` solved at `round(eta, 12)`: an absolute rounding of up to 5e-13, i.e. a relative perturbation of up to ~6e-10 at eta ~ 1e-3. g(chi) ~ eta^2, so the Chebyshev interpolant of g(chi)/chi^2 (built from solves at small chi) carried ~1e-9 relative noise, which differentiation amplifies to ~1e-6 in h'(chi) (measured: h' of the d = 3 interpolant changed by 2e-6 between 16 and 32 nodes, independent of the PY tolerance)
+- **Repro:** `solve_py(8.0004e-4 + 3e-13, 1).eta` -> `0.00080004`, relative error 3.7e-10
+- **Impact:** none released (found before the first commit of the module); numbers would have carried the ~1e-9 relative noise
+- **Regression test:** tests/unit/test_theory_hardsphere.py::test_regression_D091_eta_cache_key_keeps_relative_precision (failed on all three pinned eta before the fix); tests/property/test_theory_props.py::test_eta_cache_key_is_relative (generalization, D-091 repro pinned with `@example`)
+- **Fix:** the key is eta rounded to 15 significant figures (`_eta_cache_key`, relative change <= 5e-15). Afterwards the 20-node interpolant agrees with direct PY solves to < 1e-13 relative (was ~1e-9) and h' is stable to ~3e-9 between 16 and 32 nodes (was ~2e-6)
+
+## D-092 — Incomplete-beta alpha_d loses accuracy at small separation
+- **Found:** 2026-11-11, Hypothesis (tests/property/test_theory_props.py::test_alpha_closed_form_matches_incomplete_beta), before the first commit of the module
+- **Status:** fixed
+- **Where:** src/xla_cco/theory/geometry.py (`_intersection_fraction_beta`; production path of `intersection_fraction` for d >= 4)
+- **Symptom:** alpha_d(x) = I_z((d+1)/2, 1/2) with z = 1 - x^2/4 formed in floating point: the rounding of z (~1e-16) is amplified by dI/dz ~ 1/x near z = 1, so the absolute error grows like eps/x at small x
+- **Repro:** `_intersection_fraction_beta(1e-5, 1)` differs from the exact 1 - x/2 by 2.1e-13 (shrunk Hypothesis input x = 1e-5, d = 1)
+- **Impact:** none released; d <= 3 use the closed forms, d >= 4 (not used by the PY/PHS layer) would carry ~1e-16/x absolute error
+- **Regression test:** tests/unit/test_theory_geometry.py::test_regression_D092_beta_form_accurate_at_small_separation (failed at x = 1e-5, 1e-7, 1e-9 before the fix); property generalization with the repro pinned: tests/property/test_theory_props.py::test_alpha_closed_form_matches_incomplete_beta
+- **Fix:** for x^2/4 < 1/2 use the complement 1 - I_{x^2/4}(1/2, (d+1)/2), where the argument x^2/4 is formed without cancellation
