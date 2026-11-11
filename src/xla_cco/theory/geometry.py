@@ -63,7 +63,8 @@ def unit_ball_volume(d: int) -> float:
     """Return v1(d) = pi^(d/2) / Gamma(1 + d/2), the volume of the unit d-ball."""
     dim = check_dim(d)
     out = math.pi ** (dim / 2.0) / math.gamma(1.0 + dim / 2.0)
-    assert out > 0.0 and math.isfinite(out), "unit-ball volume must be positive"
+    assert out > 0.0, "unit-ball volume must be positive"
+    assert math.isfinite(out), "unit-ball volume must be finite"
     return float(out)
 
 

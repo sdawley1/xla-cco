@@ -31,10 +31,15 @@ Derivatives, py closure: G(chi) = g(chi) / chi^2 is analytic on [0, 1/2]
 direct PY solves at N_CHEB first-kind Chebyshev nodes (built once per d,
 cached) and g, g', g'' follow from the series analytically. This is smooth,
 consistent (h is exactly (chi g)' of the returned g) and makes grid sweeps
-cheap; the interpolant agrees with direct solves to ~1e-13 relative
-(tests/unit/test_theory_phs.py), so its accuracy is that of the PY grid
-(O(dr^2) ~ 3e-5 relative in g at the default dr = 1/205). Derivatives,
-low_chi closure: exact integrals by adaptive quadrature.
+cheap. Each node value is the dr^2 Richardson extrapolation of g on the
+dr = 1/102 and 1/205 grids (``hardsphere._richardson_pair``, the solves that
+``contact_value`` uses too): the raw 1/205 grid alone is ~1.5e-5 relative off
+in g and ~1e-4 in h' near chi = 1/2 (audit of PR #20). Accuracy against an
+independent real-space PY solver: ~1e-7 relative in g and ~3e-8 absolute in
+the dp/dn coefficient -d chi^2 h'; the interpolant reproduces the extrapolated
+node values to ~1e-13. S(q) itself is the raw 1/205 grid (O(dr^2) ~ 1e-5;
+S(1+) differs from ``contact_value`` by <~ 3e-5). Derivatives, low_chi closure:
+exact integrals by adaptive quadrature.
 
 Samuel J. Dawley
 11/2026
@@ -63,7 +68,14 @@ from xla_cco.theory.geometry import (
     intersection_fraction,
     unit_ball_volume,
 )
-from xla_cco.theory.hardsphere import PYSolution, solve_py
+from xla_cco.theory.hardsphere import (
+    RICHARDSON_FINE,
+    RICHARDSON_TOL,
+    PYSolution,
+    _richardson,
+    _richardson_pair,
+    solve_py,
+)
 
 # ============================================================
 # CONSTANTS
@@ -73,7 +85,6 @@ CHI_MAX: float = 0.5  # disordered stealthy branch: 0 <= chi < 1/2
 CLOSURES: Tuple[str, ...] = ("py", "low_chi")
 N_CHEB: int = 20  # Chebyshev nodes of the py interpolant of g(chi)/chi^2
 QUAD_EPS: float = 1e-13  # absolute/relative accuracy requested from quad
-PY_TOL: float = 1e-13  # PY iteration tolerance (roundoff floor ~1e-14)
 LNM_SERIES_X: float = 1e-3  # below |x| use the series of log1p(x) - x
 
 # ============================================================
@@ -88,6 +99,7 @@ def check_chi(chi: float) -> float:
         raise ValueError(
             f"chi must lie in [0, {CHI_MAX}) (disordered branch), got {chi}"
         )
+    assert 0.0 <= val < CHI_MAX, "validated chi"
     return val
 
 
@@ -106,19 +118,33 @@ def check_closure(closure: str) -> str:
 def b_coefficient(d: int) -> float:
     """Return b(d) = 1 / (2^d alpha_d(1)), so that eta = b(d) chi."""
     dim = check_dim(d)
-    out = 1.0 / (2.0**dim * float(intersection_fraction(1.0, dim)))
+    a_one = float(intersection_fraction(1.0, dim))
+    assert 0.0 < a_one <= 0.5, "alpha_d(1) lies in (0, 1/2]"
+    out = 1.0 / (2.0**dim * a_one)
     assert 0.0 < out <= 1.0, "b(d) decreases from b(1) = 1"
     return out
 
 
 def c_k(K: float, d: int) -> float:
-    """Return c_K = v1(d) K^d / (2 (2 pi)^d), constrained wavevectors per volume."""
+    """Return c_K = v1(d) K^d / (2 (2 pi)^d), constrained wavevectors per volume.
+
+    Raises
+    ------
+    ValueError
+        If K is not finite and > 0, or c_K under- or overflows (D-094).
+    """
     dim = check_dim(d)
     kval = float(K)
     if not (math.isfinite(kval) and kval > 0.0):
         raise ValueError(f"K must be finite and > 0, got {K}")
-    out = unit_ball_volume(dim) * kval**dim / (2.0 * (2.0 * math.pi) ** dim)
+    try:
+        out = unit_ball_volume(dim) * kval**dim / (2.0 * (2.0 * math.pi) ** dim)
+    except OverflowError:
+        out = math.inf
+    if not (math.isfinite(out) and out > 0.0):
+        raise ValueError(f"c_K under- or overflows for K = {K}, d = {dim}")
     assert out > 0.0, "c_K must be positive"
+    assert math.isfinite(out), "c_K must be finite"
     return out
 
 
@@ -128,11 +154,18 @@ def c_k(K: float, d: int) -> float:
 
 
 def _py_solution(chi: float, d: int) -> PYSolution:
-    """Return the converged PY solution at eta = b(d) chi (raise if not)."""
-    sol = solve_py(b_coefficient(d) * chi, d, tol=PY_TOL)
+    """Return the converged fine-grid PY solution at eta = b(d) chi (raise if not).
+
+    Same grid and tolerance as the fine member of ``_richardson_pair``, so the
+    cached solve is shared with the pair entropy and ``contact_value``.
+    """
+    sol = solve_py(
+        b_coefficient(d) * chi, d, n_grid=RICHARDSON_FINE, tol=RICHARDSON_TOL
+    )
     if not sol.converged:
         raise RuntimeError(f"PY did not converge at chi = {chi}, d = {d}")
     assert sol.d == d, "solution dimension mismatch"
+    assert sol.residual < RICHARDSON_TOL, "converged residual below tolerance"
     return sol
 
 
@@ -187,18 +220,30 @@ def _log1p_minus(x: np.ndarray) -> np.ndarray:
     """Return ln(1 + x) - x without cancellation for small |x| (x > -1)."""
     assert np.all(x > -1.0), "need S = 1 + x > 0"
     series = x * x * (-0.5 + x * (1.0 / 3.0 + x * (-0.25 + x * 0.2)))
-    return np.asarray(np.where(np.abs(x) < LNM_SERIES_X, series, np.log1p(x) - x))
+    out = np.asarray(np.where(np.abs(x) < LNM_SERIES_X, series, np.log1p(x) - x))
+    assert np.all(out <= 0.0), "ln(1 + x) - x <= 0"
+    return out
 
 
-def _pair_entropy_direct(chi: float, d: int) -> float:
-    """Return g(chi) for the py closure by trapezoid over one PY solution."""
-    sol = _py_solution(chi, d)
+def _pair_entropy_on(sol: PYSolution) -> float:
+    """Return g = d int_1^R q^(d-1) [ln S - S + 1] dq by trapezoid on one grid."""
+    d = sol.d
     dr = float(sol.r[1])
     m = int(round(1.0 / dr))
     q = sol.r[m:]
     assert abs(q[0] - 1.0) < 1e-12 and sol.g[m] > 0.0, "node m is the contact"
     f = q ** (d - 1) * _log1p_minus(sol.g[m:] - 1.0)
     out = d * dr * (float(np.sum(f)) - 0.5 * float(f[0] + f[-1]))
+    assert out <= 0.0, "relative entropy must be <= 0"
+    return out
+
+
+def _pair_entropy_direct(chi: float, d: int) -> float:
+    """Return g(chi), py closure, Richardson-extrapolated from two PY grids."""
+    coarse, fine = _richardson_pair(b_coefficient(d) * chi, d)
+    g_c, g_f = _pair_entropy_on(coarse), _pair_entropy_on(fine)
+    out = _richardson(g_c, g_f, float(coarse.r[1]), float(fine.r[1]))
+    assert g_c <= 0.0 and g_f <= 0.0, "grid values are relative entropies"
     assert out <= 0.0 or chi == 0.0, "relative entropy must be <= 0"
     return out
 
@@ -218,10 +263,22 @@ def _py_ratio_series(d: int) -> chebyshev.Chebyshev:
 
 
 def _low_chi_integral(chi: float, d: int, power: int) -> float:
-    """Return d int_1^2 q^(d-1) F(chi u) dq, u = alpha(q)/alpha(1), for F by power.
+    """Return d int_1^2 q^(d-1) F_p(u, chi u) dq with u = alpha(q)/alpha(1).
 
-    power 0: ln(1 + x) - x; power 1: -u x / (1 + x); power 2: -u^2 / (1 + x)^2,
-    i.e. the integrands of g, g' and g'' of the low_chi closure.
+    Parameters
+    ----------
+    chi : float
+        Stealthiness in [0, 1/2).
+    d : int
+        Dimension, 1, 2 or 3.
+    power : int
+        0: F = ln(1 + x) - x; 1: F = -u x / (1 + x); 2: F = -u^2 / (1 + x)^2,
+        i.e. the integrands of g, g' and g'' of the low_chi closure.
+
+    Returns
+    -------
+    float
+        The integral (<= 0), by adaptive quadrature to QUAD_EPS.
     """
     assert power in (0, 1, 2), "power selects g, g' or g''"
     a1 = float(intersection_fraction(1.0, d))
@@ -280,4 +337,5 @@ def pair_entropy_ratio(chi: float, d: int, closure: str = "py") -> float:
     """Return g(chi) = sigma / c_K = d int_1^inf q^(d-1) [ln S - S + 1] dq <= 0."""
     g0, _, _ = pair_entropy_derivs(chi, d, closure)
     assert math.isfinite(g0), "g must be finite"
+    assert g0 <= 0.0, "relative entropy must be <= 0"
     return g0

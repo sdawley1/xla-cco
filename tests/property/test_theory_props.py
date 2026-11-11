@@ -24,10 +24,20 @@ import numpy as np
 import pytest
 from hypothesis import example, given
 from hypothesis import strategies as st
+from scipy import integrate
 
 # ----- project -----
-from tolerances import ATOL_FD_PRESSURE, RTOL_ALPHA_BETA, RTOL_EOS_FORMULA
+from theory_oracle import lens_fraction_quad
+from tolerances import (
+    ATOL_FD_PRESSURE,
+    RTOL_ALPHA_BETA,
+    RTOL_B_QUAD,
+    RTOL_EOS_FORMULA,
+    RTOL_QUAD_ORACLE,
+    RTOL_Z_COLD,
+)
 from xla_cco.theory.eos import (
+    DPDN_FLOOR_ULPS,
     compressibility_fixed_k,
     dp_dn_fixed_k,
     manifold_entropy_fixed_chi,
@@ -39,7 +49,13 @@ from xla_cco.theory.geometry import (
     intersection_fraction,
     unit_ball_volume,
 )
-from xla_cco.theory.hardsphere import _eta_cache_key, g2_exact_1d, g2_low_density
+from xla_cco.theory.hardsphere import (
+    _eta_cache_key,
+    c_py_3d,
+    contact_value,
+    g2_exact_1d,
+    g2_low_density,
+)
 from xla_cco.theory.phs import (
     b_coefficient,
     c_k,
@@ -61,6 +77,8 @@ TEMP = st.floats(1e-3, 10.0, allow_nan=False)
 SEP = st.floats(0.0, 3.0, allow_nan=False, allow_subnormal=False)
 Q = st.floats(0.0, 30.0, allow_nan=False, allow_subnormal=False)
 ETA = st.floats(0.0, 0.95, allow_nan=False, allow_subnormal=False)
+ETA_PY = st.floats(0.0, 0.6, allow_nan=False, allow_subnormal=False)
+ETA_PY_GRID = st.sampled_from((0.0, 0.05, 0.1, 0.2, 0.3))  # cached d = 2 solves
 
 
 def _density(chi: float, d: int) -> float:
@@ -213,6 +231,44 @@ def test_compressibility_bounded_and_increasing_in_t(
     assert k_lo <= k_hi * (1.0 + RTOL_EOS_FORMULA)
 
 
+@pytest.mark.medium
+@given(
+    st.floats(1e-300, 1e300, allow_nan=False),
+    st.floats(1e-300, 1e300, allow_nan=False),
+    DIMS,
+    st.sampled_from(("ideal", "gaussian")),
+)
+@example(1e300, 1e-100, 3, "gaussian")  # D-094 repro: chi underflows to 0
+@example(1.0, 1e200, 3, "ideal")  # D-094: K^3 overflows
+@example(1.8961503816218355e154, 1.0, 1, "ideal")  # D-094: n^2 overflows
+def test_extreme_inputs_finite_or_value_error(
+    n: float, K: float, d: int, level: str
+) -> None:
+    """D-094: any (n, K) gives a finite pressure or a ValueError, nothing else."""
+    try:
+        p = pressure_fixed_k(n, 1.0, d=d, K=K, level=level)
+    except ValueError:
+        return
+    assert np.all(np.isfinite(p))
+
+
+@pytest.mark.high
+@given(CHI_POS, st.floats(1e-3, 1e3, allow_nan=False), DIMS, LEVELS)
+@example(0.45, 1.0, 3, "gaussian")  # D-093: T >= T_c = n/(3 chi - 1) there
+def test_compressibility_positive_or_nan(
+    chi: float, t_rel: float, d: int, level: str
+) -> None:
+    """D-093: n T kappa is either NaN (dp/dn not positive) or T/(dp/dn) > 0."""
+    n = _density(chi, d)
+    T = t_rel * n
+    kappa = float(compressibility_fixed_k(n, T, d=d, level=level, closure="low_chi"))
+    slope = float(dp_dn_fixed_k(n, T, d=d, level=level, closure="low_chi"))
+    if math.isnan(kappa):
+        assert slope <= DPDN_FLOOR_ULPS * np.finfo(float).eps * (n + T)
+    else:
+        assert kappa > 0.0 and kappa == pytest.approx(T / slope, rel=RTOL_EOS_FORMULA)
+
+
 @pytest.mark.high
 @given(CHI, TEMP, DIMS, st.one_of(st.none(), st.integers(2, 10_000)))
 def test_z_rpa_between_one_and_harmonic(
@@ -222,7 +278,7 @@ def test_z_rpa_between_one_and_harmonic(
     rpa = float(z_fixed_chi(chi, T, d=d, N=N, level="rpa"))  # type: ignore[arg-type]
     cold = float(z_fixed_chi(chi, 1e-12, d=d, N=N, level="rpa"))  # type: ignore[arg-type]
     assert 1.0 <= rpa <= harm <= 1.0 + d * chi * (1.0 + 1e-15)
-    assert cold == pytest.approx(harm, rel=1e-11)
+    assert cold == pytest.approx(harm, rel=RTOL_Z_COLD)
 
 
 @pytest.mark.high
@@ -237,8 +293,54 @@ def test_manifold_entropy_phs_below_gaussian(
 
 
 @pytest.mark.high
-@given(CHI_POS, DIMS)
-def test_b_coefficient_sets_peak(chi: float, d: int) -> None:
-    """S_low(1+) = 1 + 2^d b chi alpha_d(1) = 1 + chi for every d."""
-    peak = 1.0 + 2**d * b_coefficient(d) * chi * float(intersection_fraction(1.0, d))
-    assert peak == pytest.approx(1.0 + chi, rel=1e-14)
+@given(st.integers(1, 8))
+def test_b_coefficient_matches_lens_quadrature(d: int) -> None:
+    """b(d) = 1/(2^d alpha_d(1)) with alpha_d(1) from the lens quadrature
+    (independent of geometry.py): the overlap of two unit balls 1 apart."""
+    expected = 1.0 / (2**d * lens_fraction_quad(1.0, d))
+    assert b_coefficient(d) == pytest.approx(expected, rel=RTOL_B_QUAD)
+
+
+@pytest.mark.critical
+@given(st.floats(0.0, 0.95, allow_nan=False, allow_subnormal=False))
+def test_c_py_3d_identities(eta: float) -> None:
+    """Wertheim-Thiele c: c(1-) = -g(1+) = -(1 + eta/2)/(1 - eta)^2 (PY:
+    c = -y inside, y continuous), c increasing on [0, 1], 0 outside, and the
+    PY compressibility 1 - rho c^(0) = (1 + 2 eta)^2/(1 - eta)^4 by quadrature."""
+    r = np.linspace(0.0, 1.0, 101)
+    c = c_py_3d(r, eta)
+    contact = (1.0 + eta / 2.0) / (1.0 - eta) ** 2
+    assert float(c[-1]) == pytest.approx(-contact, rel=RTOL_QUAD_ORACLE)
+    ulps = 4.0 * np.finfo(float).eps * float(np.max(np.abs(c)))  # rounding of c
+    assert np.all(np.diff(c) >= -ulps) and float(c_py_3d(1.5, eta)) == 0.0
+    c0, _ = integrate.quad(
+        lambda x: 4.0 * math.pi * x * x * float(c_py_3d(x, eta)),
+        0.0,
+        1.0,
+        epsabs=1e-13,
+        epsrel=1e-13,
+    )
+    rho = 6.0 * eta / math.pi
+    expected = (1.0 + 2.0 * eta) ** 2 / (1.0 - eta) ** 4
+    assert 1.0 - rho * c0 == pytest.approx(expected, rel=RTOL_QUAD_ORACLE)
+
+
+@pytest.mark.critical
+@given(ETA_PY, ETA_PY, st.sampled_from((1, 3)))
+def test_contact_value_analytic_dims(e1: float, e2: float, d: int) -> None:
+    """d = 1: equals the Tonks g2(1+); d = 3: equals -c(1-) (PY); both >= 1
+    and increasing in eta."""
+    lo, hi = sorted((e1, e2))
+    other = float(g2_exact_1d(1.0, lo)) if d == 1 else -float(c_py_3d(1.0, lo))
+    assert contact_value(lo, d) == pytest.approx(other, rel=RTOL_QUAD_ORACLE)
+    assert 1.0 <= contact_value(lo, d) <= contact_value(hi, d)
+
+
+@pytest.mark.high
+@given(ETA_PY_GRID, ETA_PY_GRID)
+def test_contact_value_2d_increasing(e1: float, e2: float) -> None:
+    """d = 2 (numerical): contact value >= 1 + 2^2 alpha_2(1) eta (positive
+    O(eta^2) terms) and increasing in eta; eta from a fixed grid (cached)."""
+    lo, hi = sorted((e1, e2))
+    first = 1.0 + 4.0 * lens_fraction_quad(1.0, 2) * lo
+    assert first <= contact_value(lo, 2) <= contact_value(hi, 2)

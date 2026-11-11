@@ -393,9 +393,9 @@ SECOND_ORDER_RATIO_TOL: float = 0.5
 # low_chi: g/chi^2 + a = (d/3) chi int_1^2 q^(d-1) u^3 dq + O(chi^2) with
 # u = alpha/alpha(1) <= 1; measured coefficient 0.083, 0.146, 0.200 (d = 1, 2, 3).
 C_G_CUBIC: float = 0.5
-# py: g/chi^2 at chi = 1e-4 vs -a: PY grid error O(dr^2) (measured 1.2e-5, 2.8e-5,
-# ~0 relative for d = 1, 2, 3 at chi -> 0) plus the O(chi) term (<= 0.8 chi relative,
-# 8e-5); measured 8.7e-5, 4.8e-5, 1.5e-5.
+# py: g/chi^2 at chi = 1e-4 vs -a: the O(chi) term (PY's O(eta^2) part differs from
+# the low_chi cubic, <= 0.8 chi relative = 8e-5) plus the Richardson-extrapolated
+# grid error (~1e-7); measured 7.5e-5, 2.0e-5, 3.6e-5 relative (d = 1, 2, 3).
 RTOL_PY_G_LIMIT: float = 2e-4
 # Chebyshev interpolant (20 nodes) of g/chi^2 vs direct PY solves: after D-091 the
 # only error is solver roundoff (PY tol 1e-13); measured <= 9e-14 relative.
@@ -415,3 +415,26 @@ ATOL_FD_PRESSURE: float = 1e-7
 # p - n^2/2 at T = 1e-12: T (c_K |ln 2 pi T| + n + c_K |ln 2 pi n| + c_K (1 + |h|))
 # <~ 1e-12 (0.04 * 26 + 3 + 0.1) ~ 5e-12 for n <= 3, d = 2.
 ATOL_T0_PRESSURE: float = 1e-10
+# Quoted literals: half a unit in the last quoted decimal (the value is only known
+# to that rounding). 4 decimals: the task's -d chi^2 h' estimates (0.0029, ...).
+ATOL_QUOTED_4DP: float = 5e-5
+# b(2) quoted as 0.63938 (5 decimals; true 0.6393826).
+ATOL_QUOTED_B2: float = 5e-6
+# a_2 quoted as 0.3119501 (7 decimals; mpmath 0.3119500998, audit of PR #20).
+ATOL_QUOTED_A2: float = 5e-8
+# z_fixed_chi rpa at T = 1e-12 vs harmonic: (M/N) T/(n + T) <= 1.5e-12 relative to
+# Z >= 1, plus a few ulp.
+RTOL_Z_COLD: float = 1e-11
+# b(d) vs 1/(2^d alpha_d(1)) with alpha_d(1) from the lens quadrature: abs error of
+# the quadrature <= ATOL_ALPHA_QUAD = 1e-12 divided by alpha_d(1) >= 0.117 (d <= 8).
+RTOL_B_QUAD: float = 1e-10
+# d = 2 PY contact vs the auditor's independent real-space solver (Richardson over
+# dr = 0.02, 0.01, 0.005), quoted with +-3e-8; our (dr = 1/102, 1/205) Richardson
+# residual is ~1e-8 (finer-pair test); measured diffs 7e-10, 5.5e-9, 2.0e-8.
+ATOL_PY2D_CONTACT_EXTERNAL: float = 5e-8
+# py g(chi), d = 2, vs the auditor's solver at dr = 0.01 / 0.005 (not extrapolated):
+# that oracle's own O(dr^2) error is ~1e-7 relative; measured 1.4e-7, 7e-8, 1.1e-7.
+RTOL_PY_G_EXTERNAL: float = 3e-7
+# py -d chi^2 h', d = 2, vs the auditor's 5-point differences (quoted to 7 decimals,
+# +-5e-8; two FD steps agreed to all digits): measured diffs 3.0e-8, 3.2e-8, 2.2e-8.
+ATOL_PY_TCOEF_EXTERNAL: float = 1e-7

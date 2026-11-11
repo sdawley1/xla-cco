@@ -23,7 +23,12 @@ import numpy as np
 import pytest
 
 # ----- project -----
-from tolerances import ATOL_FD_PRESSURE, ATOL_T0_PRESSURE, RTOL_EOS_FORMULA
+from tolerances import (
+    ATOL_FD_PRESSURE,
+    ATOL_PY_TCOEF_EXTERNAL,
+    ATOL_T0_PRESSURE,
+    RTOL_EOS_FORMULA,
+)
 from xla_cco.theory.eos import (
     compressibility_fixed_k,
     dp_dn_fixed_k,
@@ -141,17 +146,18 @@ def test_pressure_zero_temperature_limit(level: str) -> None:
 
 @pytest.mark.high
 @pytest.mark.parametrize(
-    "chi, expected", [(0.094, 0.0029), (0.291, 0.0726), (0.488, 0.2993)]
+    "chi, expected", [(0.094, 0.0032556), (0.291, 0.1152153), (0.488, 0.7910968)]
 )
-def test_phs_dpdn_t_coefficient_d2_low_chi(chi: float, expected: float) -> None:
-    """(dp/dn_phs - dp/dn_gauss)/T at d = 2, low_chi: the task's estimates."""
+def test_phs_py_dpdn_t_coefficient_d2_external(chi: float, expected: float) -> None:
+    """(dp/dn_phs - dp/dn_gauss)/T = -d chi^2 h', d = 2, py closure, against the
+    auditor's independent real-space PY solver (AUDIT-phs-theory.md, PR #20)."""
     n, T = _n_of_chi(chi, 2), 0.7
-    kw = {"d": 2, "closure": "low_chi"}
+    kw = {"d": 2, "closure": "py"}
     extra = (
         dp_dn_fixed_k(n, T, level="phs", **kw)
         - dp_dn_fixed_k(n, T, level="gaussian", **kw)
     ) / T
-    assert float(extra) == pytest.approx(expected, abs=5e-5)
+    assert float(extra) == pytest.approx(expected, abs=ATOL_PY_TCOEF_EXTERNAL)
 
 
 @pytest.mark.high
@@ -282,3 +288,38 @@ def test_manifold_entropy_rejects_bad_input() -> None:
             manifold_entropy_fixed_chi(0.2, **kwargs)
     with pytest.raises(ValueError):
         manifold_entropy_fixed_chi(0.5, d=2)
+
+
+# ============================================================
+# REGRESSION TESTS
+# ============================================================
+
+
+@pytest.mark.high
+def test_regression_D093_compressibility_nan_where_unstable() -> None:
+    """D-093: gaussian, d = 3, chi = 0.45: dp/dn = n + T (1 - 3 chi) <= 0 for
+    T >= T_c = n / (3 chi - 1); there n T kappa is NaN, below T_c it is finite."""
+    chi = 0.45
+    n = _n_of_chi(chi, 3)
+    t_c = n / (3.0 * chi - 1.0)
+    T = np.array([0.5 * t_c, 0.999 * t_c, t_c, 2.0 * t_c])
+    kappa = compressibility_fixed_k(n, T, d=3, level="gaussian")
+    assert np.all(np.isnan(kappa[2:])), kappa
+    expected = T[:2] / (n + T[:2] * (1.0 - 3.0 * chi))
+    np.testing.assert_allclose(kappa[:2], expected, rtol=RTOL_EOS_FORMULA)
+    assert np.all(kappa[:2] > 0.0)
+
+
+@pytest.mark.medium
+def test_regression_D094_out_of_range_inputs_raise_value_error() -> None:
+    """D-094: chi or c_K under/overflow must raise ValueError, not AssertionError."""
+    with pytest.raises(ValueError):
+        pressure_fixed_k(1e300, 1.0, d=3, K=1e-100)  # chi underflows to 0
+    with pytest.raises(ValueError):
+        dp_dn_fixed_k(1e300, 1.0, d=3, K=1e-100)
+    with pytest.raises(ValueError):
+        c_k(1e-200, 3)  # K^3 underflows
+    with pytest.raises(ValueError):
+        c_k(1e200, 3)  # K^3 overflows
+    with pytest.raises(ValueError):
+        pressure_fixed_k(1.8961503816218355e154, 1.0, d=1, level="ideal")  # n^2

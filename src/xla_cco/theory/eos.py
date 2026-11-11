@@ -58,6 +58,9 @@ from xla_cco.theory.phs import CHI_MAX, c_k, check_closure, pair_entropy_derivs
 
 ENTROPY_LEVELS: Tuple[str, ...] = ("ideal", "gaussian", "phs")
 Z_LEVELS: Tuple[str, ...] = ("harmonic", "rpa")
+# dp/dn = n + T coeff is rounded to a few ulp of (n + T) (|coeff| <= 1 + d chi
+# + |d chi^2 h'|); below this many ulp it is indistinguishable from <= 0 (D-093).
+DPDN_FLOOR_ULPS: float = 16.0
 
 # ============================================================
 # VALIDATION
@@ -79,6 +82,14 @@ def _check_level(level: str, allowed: Tuple[str, ...]) -> str:
     return level
 
 
+def _require_finite(out: np.ndarray, what: str) -> np.ndarray:
+    """Return ``out``; raise ValueError if it overflowed (inputs out of range)."""
+    if not np.all(np.isfinite(out)):
+        raise ValueError(f"{what} overflows: n, T or K out of range (D-094)")
+    assert out.dtype == np.float64, "results are float64"
+    return out
+
+
 def _check_chi_array(chi: np.ndarray) -> np.ndarray:
     """Raise ValueError unless every chi lies in [0, 1/2); return chi."""
     if not np.all(np.isfinite(chi)) or np.any(chi < 0.0) or np.any(chi >= CHI_MAX):
@@ -89,13 +100,39 @@ def _check_chi_array(chi: np.ndarray) -> np.ndarray:
 def _fixed_k_inputs(
     n: ArrayLike, T: ArrayLike, d: int, K: float, level: str, closure: str
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, int]:
-    """Validate and broadcast; return (n, T, chi, c_K, d)."""
+    """Validate and broadcast the fixed-K arguments.
+
+    Parameters
+    ----------
+    n, T : ArrayLike
+        Number density and temperature (> 0, finite).
+    d : int
+        Dimension, 1, 2 or 3.
+    K : float
+        Constraint radius (> 0, with c_K representable).
+    level, closure : str
+        Entropy level and PHS closure (validated only).
+
+    Returns
+    -------
+    Tuple[np.ndarray, np.ndarray, np.ndarray, float, int]
+        Broadcast n, T, chi = c_K / (n d), and c_K, d.
+
+    Raises
+    ------
+    ValueError
+        On any invalid argument, chi outside (0, 1/2) or chi underflowing to
+        0 (D-094).
+    """
     dim = check_dim(d, SUPPORTED_DIMS)
     _check_level(level, ENTROPY_LEVELS)
     check_closure(closure)
     n_b, t_b = np.broadcast_arrays(_positive(n, "n"), _positive(T, "T"))
     ck = c_k(K, dim)
-    chi = _check_chi_array(ck / (n_b * dim))
+    with np.errstate(over="ignore"):
+        chi = _check_chi_array(ck / (n_b * dim))
+    if np.any(chi == 0.0):
+        raise ValueError("chi = c_K / (n d) underflows to 0: n or K out of range")
     assert n_b.shape == t_b.shape == chi.shape, "broadcast failed"
     assert ck > 0.0 and np.all(chi > 0.0), "fixed K gives chi > 0"
     return n_b, t_b, chi, ck, dim
@@ -104,7 +141,22 @@ def _fixed_k_inputs(
 def _entropy_terms(
     chi: np.ndarray, d: int, closure: str
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return arrays (g, h, h') at every chi (one evaluation per unique chi)."""
+    """Return arrays (g, h, h') at every chi (one evaluation per unique chi).
+
+    Parameters
+    ----------
+    chi : np.ndarray
+        Stealthiness values in [0, 1/2), any shape.
+    d : int
+        Dimension, 1, 2 or 3.
+    closure : str
+        PHS closure, "py" or "low_chi".
+
+    Returns
+    -------
+    Tuple[np.ndarray, np.ndarray, np.ndarray]
+        g(chi), h(chi) = (chi g)', h'(chi), each with the shape of ``chi``.
+    """
     uniq, inverse = np.unique(chi, return_inverse=True)
     assert inverse.size == chi.size, "every chi needs a table row"
     table = np.empty((uniq.size, 3))
@@ -155,7 +207,9 @@ def pressure_fixed_k(
         dlnw = dlnw - ck * np.log(2.0 * math.pi * n_b) + ck
     if level == "phs":
         dlnw = dlnw + ck * _entropy_terms(chi, dim, closure)[1]
-    out = 0.5 * n_b * n_b + ck * t_b * np.log(2.0 * math.pi * t_b) + t_b * dlnw
+    with np.errstate(over="ignore", invalid="ignore"):
+        out = 0.5 * n_b * n_b + ck * t_b * np.log(2.0 * math.pi * t_b) + t_b * dlnw
+    out = _require_finite(np.asarray(out, dtype=float), "pressure")
     assert out.shape == n_b.shape, "pressure must follow the broadcast shape"
     assert np.all(np.isfinite(out)), "pressure must be finite"
     return np.asarray(out, dtype=float)
@@ -172,7 +226,23 @@ def dp_dn_fixed_k(
 ) -> np.ndarray:
     """Return (dp/dn)_{T,K}: n + T, n + T (1 - d chi), and - T d chi^2 h' for phs.
 
-    Arguments as in ``pressure_fixed_k``.
+    Parameters
+    ----------
+    n, T : ArrayLike
+        Number density and temperature (> 0), broadcast together.
+    d : int
+        Dimension, 1, 2 or 3.
+    K : float
+        Constraint radius (> 0); chi = c_K / (n d) must lie in (0, 1/2).
+    level : str
+        "ideal", "gaussian" or "phs".
+    closure : str
+        PHS closure, "py" or "low_chi" (used by level "phs" only).
+
+    Returns
+    -------
+    np.ndarray
+        dp/dn, broadcast shape of (n, T); may be <= 0 (gaussian, d = 3).
     """
     n_b, t_b, chi, _, dim = _fixed_k_inputs(n, T, d, K, level, closure)
     coeff = np.ones_like(chi)  # T-coefficient of dp/dn
@@ -180,7 +250,9 @@ def dp_dn_fixed_k(
         coeff = coeff - dim * chi
     if level == "phs":
         coeff = coeff - dim * chi * chi * _entropy_terms(chi, dim, closure)[2]
-    out = n_b + t_b * coeff
+    with np.errstate(over="ignore", invalid="ignore"):
+        out = n_b + t_b * coeff
+    out = _require_finite(np.asarray(out, dtype=float), "dp/dn")
     assert out.shape == n_b.shape, "dp/dn must follow the broadcast shape"
     assert np.all(np.isfinite(out)), "dp/dn must be finite"
     return np.asarray(out, dtype=float)
@@ -195,16 +267,39 @@ def compressibility_fixed_k(
     level: str = "phs",
     closure: str = "py",
 ) -> np.ndarray:
-    """Return n T kappa_T = T / (dp/dn)_{T,K} (inf where dp/dn = 0).
+    """Return n T kappa_T = T / (dp/dn)_{T,K}, NaN where dp/dn is not positive.
 
-    Arguments as in ``pressure_fixed_k``. Negative where dp/dn < 0.
+    By the compressibility relation n T kappa_T = S(0+) >= 0 at fixed K, so a
+    non-positive dp/dn (gaussian level, d = 3, chi > 1/3, T >= n/(3 chi - 1))
+    marks the breakdown of the low-T expansion; those entries are NaN, as are
+    entries with dp/dn <= DPDN_FLOOR_ULPS eps (n + T), i.e. zero within
+    round-off (D-093). The phs level stays positive for chi < 1/2.
+
+    Parameters
+    ----------
+    n, T : ArrayLike
+        Number density and temperature (> 0), broadcast together.
+    d : int
+        Dimension, 1, 2 or 3.
+    K : float
+        Constraint radius (> 0); chi = c_K / (n d) must lie in (0, 1/2).
+    level : str
+        "ideal", "gaussian" or "phs".
+    closure : str
+        PHS closure, "py" or "low_chi" (used by level "phs" only).
+
+    Returns
+    -------
+    np.ndarray
+        n T kappa_T > 0 or NaN, broadcast shape of (n, T).
     """
-    _, t_b, _, _, _ = _fixed_k_inputs(n, T, d, K, level, closure)
+    n_b, t_b, _, _, _ = _fixed_k_inputs(n, T, d, K, level, closure)
     slope = dp_dn_fixed_k(n, T, d=d, K=K, level=level, closure=closure)
-    with np.errstate(divide="ignore"):
-        out = t_b / slope
+    floor = DPDN_FLOOR_ULPS * np.finfo(float).eps * (n_b + t_b)
+    stable = slope > floor
+    out = np.where(stable, t_b / np.where(stable, slope, 1.0), np.nan)
     assert out.shape == slope.shape, "shape must follow dp/dn"
-    assert not np.any(np.isnan(out)), "compressibility must not be NaN"
+    assert np.all(out[stable] > 0.0), "stable entries must be positive"
     return np.asarray(out, dtype=float)
 
 
@@ -215,6 +310,7 @@ def compressibility_fixed_k(
 
 def _modes_per_particle(chi: np.ndarray, d: int, N: Optional[int]) -> np.ndarray:
     """Return M/N = d chi (1 - 1/N), or d chi for N = None (thermodynamic limit)."""
+    assert np.all(chi >= 0.0) and d in SUPPORTED_DIMS, "validated chi and d"
     if N is None:
         return d * chi
     if isinstance(N, bool) or not isinstance(N, (int, np.integer)) or N < 2:
@@ -280,7 +376,24 @@ def manifold_entropy_fixed_chi(
     """Return s_W = (ln W - N ln V)/N in the thermodynamic limit.
 
     ideal: 0; gaussian: -d chi ln(2 pi n); phs: d chi [g(chi) - ln(2 pi n)].
-    chi in [0, 1/2) and n > 0 are broadcast together.
+
+    Parameters
+    ----------
+    chi : ArrayLike
+        Stealthiness in [0, 1/2).
+    d : int
+        Dimension, 1, 2 or 3.
+    n : ArrayLike
+        Number density (> 0), broadcast with ``chi``.
+    level : str
+        "ideal", "gaussian" or "phs".
+    closure : str
+        PHS closure, "py" or "low_chi" (used by level "phs" only).
+
+    Returns
+    -------
+    np.ndarray
+        Per-particle manifold entropy, broadcast shape of (chi, n).
     """
     dim = check_dim(d, SUPPORTED_DIMS)
     _check_level(level, ENTROPY_LEVELS)

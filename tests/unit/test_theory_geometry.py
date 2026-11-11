@@ -20,35 +20,15 @@ import math
 # ----- numerics -----
 import numpy as np
 import pytest
-from scipy import integrate
 
 # ----- project -----
+from theory_oracle import lens_fraction_quad
 from tolerances import ATOL_ALPHA_QUAD, RTOL_ALPHA_BETA
 from xla_cco.theory.geometry import (
     _intersection_fraction_beta,
     intersection_fraction,
     unit_ball_volume,
 )
-
-# ============================================================
-# HELPERS
-# ============================================================
-
-
-def _lens_fraction_quad(x: float, d: int) -> float:
-    """alpha_d(x) as 2 caps of height 1 - x/2, sliced into (d-1)-balls."""
-    assert 0.0 <= x <= 2.0 and d >= 1, "need 0 <= x <= 2 and d >= 1"
-    v_slice = math.pi ** ((d - 1) / 2) / math.gamma((d - 1) / 2 + 1)
-    cap, _ = integrate.quad(
-        lambda t: v_slice * (1.0 - t * t) ** ((d - 1) / 2),
-        x / 2.0,
-        1.0,
-        epsabs=1e-14,
-        epsrel=1e-13,
-    )
-    v_ball = math.pi ** (d / 2) / math.gamma(d / 2 + 1)
-    return 2.0 * cap / v_ball
-
 
 # ============================================================
 # TESTS
@@ -79,7 +59,7 @@ def test_intersection_fraction_closed_forms_match_incomplete_beta(d: int) -> Non
 @pytest.mark.parametrize("d", [1, 2, 3, 4, 5])
 def test_intersection_fraction_matches_lens_quadrature(d: int) -> None:
     x = np.linspace(0.0, 2.0, 41)
-    expected = np.array([_lens_fraction_quad(float(xi), d) for xi in x])
+    expected = np.array([lens_fraction_quad(float(xi), d) for xi in x])
     np.testing.assert_allclose(
         intersection_fraction(x, d), expected, rtol=0.0, atol=ATOL_ALPHA_QUAD
     )

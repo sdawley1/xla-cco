@@ -27,11 +27,16 @@ from scipy import integrate, special
 # ----- project -----
 from tolerances import (
     ATOL_FD_CHI,
+    ATOL_PY_TCOEF_EXTERNAL,
+    ATOL_QUOTED_4DP,
+    ATOL_QUOTED_A2,
+    ATOL_QUOTED_B2,
     ATOL_S_PY_1D,
     C_G_CUBIC,
     C_S_SECOND_ORDER,
     RTOL_LATTICE_COUNT,
     RTOL_PROXY_DIRECT,
+    RTOL_PY_G_EXTERNAL,
     RTOL_PY_G_LIMIT,
     RTOL_QUAD_ORACLE,
     SECOND_ORDER_RATIO_TOL,
@@ -60,6 +65,11 @@ PHS_T_COEFF_D2 = {
     0.457: 0.2507,
     0.488: 0.2993,
 }
+# py closure, d = 2: g(chi) and -d chi^2 h'(chi) from the auditor's independent
+# real-space PY solver (no Hankel transforms) with 5-point differences
+# (scratchpad/phs_audit/oracle_g.py, AUDIT-phs-theory.md, PR #20)
+PY_G_AUDIT_D2 = {0.094: -0.0028155981, 0.291: -0.0288228266, 0.488: -0.0908345288}
+PY_TCOEF_AUDIT_D2 = {0.094: 0.0032556, 0.291: 0.1152153, 0.488: 0.7910968}
 
 
 def _alpha_beta(x: float, d: int) -> float:
@@ -105,7 +115,7 @@ def test_b_coefficient_values() -> None:
     assert b_coefficient(3) == pytest.approx(0.4, rel=1e-15)
     b2 = 1.0 / (4.0 * (2.0 / 3.0 - math.sqrt(3.0) / (2.0 * math.pi)))
     assert b_coefficient(2) == pytest.approx(b2, rel=1e-14)
-    assert b_coefficient(2) == pytest.approx(0.63938, abs=5e-6)
+    assert b_coefficient(2) == pytest.approx(0.63938, abs=ATOL_QUOTED_B2)
 
 
 @pytest.mark.critical
@@ -206,7 +216,7 @@ def test_low_chi_entropy_small_chi_limit(d: int) -> None:
 @pytest.mark.high
 def test_a_coefficient_two_dimensions() -> None:
     """a_2 = int_1^2 q (alpha_2(q)/alpha_2(1))^2 dq = 0.311950 (task: ~0.3118)."""
-    assert _a_coefficient(2) == pytest.approx(0.3119501, abs=1e-7)
+    assert _a_coefficient(2) == pytest.approx(0.3119501, abs=ATOL_QUOTED_A2)
     assert _a_coefficient(1) == pytest.approx(1.0 / 6.0, rel=RTOL_QUAD_ORACLE)
 
 
@@ -254,7 +264,18 @@ def test_entropy_derivatives_match_finite_differences(
 def test_phs_dpdn_t_coefficient_d2_low_chi(chi: float, expected: float) -> None:
     """-d chi^2 h'(chi), d = 2, low_chi: the task's 4-decimal estimates."""
     _, _, hp = pair_entropy_derivs(chi, 2, "low_chi")
-    assert -2.0 * chi * chi * hp == pytest.approx(expected, abs=5e-5)
+    assert -2.0 * chi * chi * hp == pytest.approx(expected, abs=ATOL_QUOTED_4DP)
+
+
+@pytest.mark.critical
+@pytest.mark.parametrize("chi", sorted(PY_G_AUDIT_D2))
+def test_py_pair_entropy_external_pins(chi: float) -> None:
+    """py closure, d = 2: g and -d chi^2 h' vs an independent PY solver."""
+    g, _, hp = pair_entropy_derivs(chi, 2, "py")
+    assert g == pytest.approx(PY_G_AUDIT_D2[chi], rel=RTOL_PY_G_EXTERNAL)
+    assert -2.0 * chi * chi * hp == pytest.approx(
+        PY_TCOEF_AUDIT_D2[chi], abs=ATOL_PY_TCOEF_EXTERNAL
+    )
 
 
 @pytest.mark.high

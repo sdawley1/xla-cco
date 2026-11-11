@@ -26,9 +26,12 @@ import pytest
 from scipy import integrate, special
 
 # ----- project -----
+from theory_oracle import ball_volume, lens_volume_quad
 from tolerances import (
+    ATOL_ALPHA_QUAD,
     ATOL_HANKEL_EM2,
     ATOL_HANKEL_EXACT,
+    ATOL_PY2D_CONTACT_EXTERNAL,
     ATOL_PY_CONTACT_RICHARDSON,
     ATOL_PY_LOW_DENSITY,
     ATOL_PY_R_INDEPENDENCE,
@@ -62,6 +65,11 @@ from xla_cco.theory.hardsphere import (
 # ============================================================
 # HELPERS
 # ============================================================
+
+
+# d = 2 PY contact values g(1+) from the auditor's independent real-space
+# solver (scratchpad/phs_audit/oracle_py.py, PR #20), quoted with +-3e-8.
+PY2D_CONTACT_AUDIT = {0.1: 1.179091505, 0.2: 1.41727043, 0.3: 1.74536186}
 
 
 def _node(sol: PYSolution, x: float) -> int:
@@ -279,6 +287,16 @@ def test_contact_value_2d_matches_finer_extrapolation(eta: float) -> None:
 
 
 @pytest.mark.critical
+@pytest.mark.parametrize("eta, external", sorted(PY2D_CONTACT_AUDIT.items()))
+def test_contact_value_2d_external_pins(eta: float, external: float) -> None:
+    """d = 2 PY contact vs an independent real-space PY solver (no Hankel
+    transforms; dr = 0.02, 0.01, 0.005 extrapolated; audit of PR #20)."""
+    assert contact_value(eta, 2) == pytest.approx(
+        external, abs=ATOL_PY2D_CONTACT_EXTERNAL
+    )
+
+
+@pytest.mark.critical
 def test_contact_value_analytic_forms() -> None:
     """d = 1: 1/(1 - eta) (Tonks); d = 3: (1 + eta/2)/(1 - eta)^2 (PY, WT)."""
     assert contact_value(0.5, 1) == pytest.approx(2.0, rel=1e-15)
@@ -326,13 +344,23 @@ def test_wertheim_thiele_compressibility_and_contact(eta: float) -> None:
 
 
 @pytest.mark.high
-def test_g2_low_density_formula() -> None:
-    r = np.array([0.0, 0.5, 1.0, 1.5, 2.0, 3.0])
-    for d in (1, 2, 3):
-        expected = np.where(
-            r >= 1.0, 1.0 + 2**d * 0.1 * intersection_fraction(r, d), 0.0
-        )
-        np.testing.assert_allclose(g2_low_density(r, 0.1, d), expected, rtol=1e-15)
+@pytest.mark.parametrize("d", [1, 2, 3, 4])
+def test_g2_low_density_matches_mayer_overlap(d: int) -> None:
+    """First virial term: g2 = e^(-u)[1 + rho int f(r13) f(r23) dr3].
+
+    For hard spheres of diameter 1, f = -1 inside distance 1, so the integral
+    is the overlap volume of two unit balls r apart (lens quadrature), and
+    rho = 2^d eta / v1(d); nothing here uses alpha_d from the module.
+    """
+    eta = 0.1
+    rho = 2**d * eta / ball_volume(d)
+    r = np.array([0.0, 0.5, 0.999, 1.0, 1.2, 1.5, 1.9, 2.0, 3.0])
+    expected = np.array(
+        [0.0 if x < 1.0 else 1.0 + rho * lens_volume_quad(min(x, 2.0), d) for x in r]
+    )
+    np.testing.assert_allclose(
+        g2_low_density(r, eta, d), expected, rtol=0.0, atol=ATOL_ALPHA_QUAD
+    )
 
 
 # ============================================================

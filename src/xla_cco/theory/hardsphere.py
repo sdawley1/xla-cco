@@ -88,7 +88,11 @@ MIN_NODES_PER_UNIT: int = 8  # coarsest accepted spacing dr = 1/8
 PICARD_MIX: float = 0.5  # damping of plain Picard steps
 NG_DEPTH: int = 3  # Ng acceleration uses the last three iterates
 NEWTON_MAX: int = 50  # bound on the Bessel-zero Newton refinement
-RICHARDSON_COARSE: int = 2048  # coarse n_grid of the d = 2 contact extrapolation
+RICHARDSON_COARSE: int = 2048  # coarse n_grid of the Richardson pair (dr = 1/102)
+RICHARDSON_FINE: int = 4096  # fine n_grid of the Richardson pair (dr = 1/205)
+# PY tolerance of the Richardson pair; contact_value and phs share these cached
+# solves (the roundoff floor of the residual is ~1e-14).
+RICHARDSON_TOL: float = 1e-13
 TONKS_MAX_R: float = 1.0e4  # bounds the neighbour sum of g2_exact_1d
 
 # ============================================================
@@ -183,7 +187,7 @@ def _bessel_zeros(nu: float, count: int) -> np.ndarray:
     return np.asarray(x, dtype=float)
 
 
-@functools.lru_cache(maxsize=6)
+@functools.lru_cache(maxsize=4)  # <= 4 x 134 MB at n_grid = 4096
 def _radial_grid(d: int, r_max: float, n_grid: int) -> _RadialGrid:
     """Build (and cache) the nodes and matrices for one (d, r_max, n_grid)."""
     assert d in SUPPORTED_DIMS and n_grid >= 2, "bad grid request"
@@ -242,13 +246,32 @@ def _core_weights(grid: _RadialGrid) -> np.ndarray:
     w = np.where(np.arange(grid.r.size) < grid.m, 1.0, 0.0)
     w[grid.m] = 0.5
     assert w.sum() == grid.m + 0.5, "core weights miscounted"
+    assert abs(grid.r[grid.m] - 1.0) < 1e-12, "node m must be r = 1"
     return w
 
 
 def _oz_map(
     grid: _RadialGrid, rho: float, core: np.ndarray, gam: np.ndarray
 ) -> Optional[np.ndarray]:
-    """One OZ + PY step gamma -> gamma'; None if 1 - rho c^ <= 0 somewhere."""
+    """One OZ + PY step gamma -> gamma'.
+
+    Parameters
+    ----------
+    grid : _RadialGrid
+        Nodes and transform matrices.
+    rho : float
+        Number density (>= 0).
+    core : np.ndarray
+        Core weights (``_core_weights``): c = -core (1 + gam).
+    gam : np.ndarray
+        Current indirect function gamma = h - c on the r-grid.
+
+    Returns
+    -------
+    Optional[np.ndarray]
+        gamma' = F^-1[rho c^2 / (1 - rho c^)], or None if 1 - rho c^ <= 0
+        somewhere or the result is not finite.
+    """
     assert gam.shape == core.shape, "gamma must live on the r-grid"
     assert rho >= 0.0, "density must be >= 0"
     ck = _forward(grid, -core * (1.0 + gam))
@@ -278,11 +301,28 @@ def _ng_step(ins: List[np.ndarray], outs: List[np.ndarray]) -> Optional[np.ndarr
 def _iterate(
     grid: _RadialGrid, rho: float, tol: float, max_iter: int
 ) -> Tuple[np.ndarray, bool, int, float]:
-    """Iterate gamma to a fixed point; return (gamma, converged, iters, residual).
+    """Iterate gamma to the OZ + PY fixed point (Ng-accelerated Picard).
 
     A trial gamma whose c^ makes 1 - rho c^ <= 0 (possible for an Ng
     extrapolation at high eta) is pulled halfway back to the last valid
     iterate and the Ng history is cleared.
+
+    Parameters
+    ----------
+    grid : _RadialGrid
+        Nodes and transform matrices.
+    rho : float
+        Number density (>= 0, finite).
+    tol : float
+        Convergence threshold on max |gamma_out - gamma_in|.
+    max_iter : int
+        Iteration bound (every OZ step, accepted or not, counts).
+
+    Returns
+    -------
+    Tuple[np.ndarray, bool, int, float]
+        gamma (converged output, else last input), converged flag, number
+        of iterations and last residual (inf if no valid step).
     """
     assert tol > 0.0 and max_iter >= 1, "need tol > 0 and max_iter >= 1"
     assert rho >= 0.0 and math.isfinite(rho), "density must be finite and >= 0"
@@ -386,7 +426,22 @@ def solve_py(
 def _solve_py_cached(
     eta: float, d: int, r_max: float, n_grid: int, tol: float, max_iter: int
 ) -> PYSolution:
-    """Solve and package one PY problem (arguments already validated)."""
+    """Solve and package one PY problem.
+
+    Parameters
+    ----------
+    eta : float
+        Packing fraction (already validated and rounded by ``solve_py``).
+    d : int
+        Dimension, 1, 2 or 3.
+    r_max, n_grid, tol, max_iter
+        As in ``solve_py`` (validated).
+
+    Returns
+    -------
+    PYSolution
+        Read-only arrays g (g(1+) at r = 1) and c (c(1-) at r = 1).
+    """
     grid = _radial_grid(d, r_max, n_grid)
     gam, converged, iters, residual = _iterate(
         grid, _number_density(eta, d), tol, max_iter
@@ -408,7 +463,24 @@ def _solve_py_cached(
 
 
 def g2_low_density(r: ArrayLike, eta: float, d: int) -> np.ndarray:
-    """Return Theta(r - 1)[1 + 2^d eta alpha_d(r)] (exact to O(eta); g(1) = g(1+))."""
+    """Return the hard-sphere g2 to first order in eta (diameter 1).
+
+    g2 = Theta(r - 1) [1 + 2^d eta alpha_d(r)], with g(1) = g(1+).
+
+    Parameters
+    ----------
+    r : ArrayLike
+        Distances (>= 0, finite).
+    eta : float
+        Packing fraction in [0, 1].
+    d : int
+        Dimension (>= 1).
+
+    Returns
+    -------
+    np.ndarray
+        g2, same shape as ``r``.
+    """
     dim = check_dim(d)
     ra = check_nonnegative(r, "r")
     val = _check_eta(eta, 1.0)
@@ -450,6 +522,7 @@ def g2_exact_1d(r: ArrayLike, eta: float) -> np.ndarray:
         total += np.where(pos, term, 0.0)
     total = np.where(ra == 1.0, lam, total)  # contact: the j = 1 term at y = 0+
     assert np.all(total >= 0.0), "g2 must be non-negative"
+    assert np.all(total[ra < 1.0] == 0.0), "g2 must vanish inside the core"
     return np.asarray(total / val, dtype=float)
 
 
@@ -467,28 +540,55 @@ def c_py_3d(r: ArrayLike, eta: float) -> np.ndarray:
     b = -6.0 * val * (1.0 + val / 2.0) ** 2 / (1.0 - val) ** 4
     out = np.where(ra <= 1.0, -(a + b * ra + 0.5 * val * a * ra**3), 0.0)
     assert out.shape == ra.shape, "shape must be preserved"
+    assert np.all(out <= 0.0), "PY hard-sphere c is non-positive"
     return np.asarray(out, dtype=float)
+
+
+def _richardson_pair(eta: float, d: int) -> Tuple[PYSolution, PYSolution]:
+    """Return the converged (coarse, fine) PY solutions used for extrapolation.
+
+    Grids: default r_max, n_grid = RICHARDSON_COARSE and RICHARDSON_FINE
+    (dr = 1/102 and 1/205), tol = RICHARDSON_TOL; cached through ``solve_py``.
+
+    Raises
+    ------
+    RuntimeError
+        If either iteration does not converge.
+    """
+    coarse = solve_py(eta, d, n_grid=RICHARDSON_COARSE, tol=RICHARDSON_TOL)
+    fine = solve_py(eta, d, n_grid=RICHARDSON_FINE, tol=RICHARDSON_TOL)
+    if not (fine.converged and coarse.converged):
+        raise RuntimeError(f"PY iteration did not converge at eta = {eta}, d = {d}")
+    assert float(coarse.r[1]) > float(fine.r[1]) > 0.0, "coarse must be coarser"
+    return coarse, fine
+
+
+def _richardson(coarse: float, fine: float, h_coarse: float, h_fine: float) -> float:
+    """Return the dr^2 Richardson extrapolation of two grid values."""
+    assert h_coarse > h_fine > 0.0, "need h_coarse > h_fine > 0"
+    out = fine + (fine - coarse) * h_fine**2 / (h_coarse**2 - h_fine**2)
+    assert math.isfinite(out), "extrapolation must be finite"
+    return out
 
 
 def _contact_richardson(eta: float, d: int) -> float:
     """Return g(1+) from the solver, Richardson-extrapolated in dr^2."""
-    fine = solve_py(eta, d)
-    coarse = solve_py(eta, d, n_grid=RICHARDSON_COARSE)
-    if not (fine.converged and coarse.converged):
-        raise RuntimeError(f"PY iteration did not converge at eta = {eta}, d = {d}")
+    coarse, fine = _richardson_pair(eta, d)
     h_f, h_c = float(fine.r[1]), float(coarse.r[1])
     g_f = float(fine.g[int(round(1.0 / h_f))])
     g_c = float(coarse.g[int(round(1.0 / h_c))])
-    assert h_c > h_f > 0.0, "coarse grid must be coarser"
-    return g_f + (g_f - g_c) * h_f**2 / (h_c**2 - h_f**2)
+    assert g_f > 0.0 and g_c > 0.0, "contact values must be positive"
+    assert abs(fine.r[int(round(1.0 / h_f))] - 1.0) < 1e-12, "contact node at r = 1"
+    return _richardson(g_c, g_f, h_c, h_f)
 
 
 def contact_value(eta: float, d: int) -> float:
     """Return the PY contact value g(1+) at packing fraction eta in [0, 0.6].
 
     d = 1: 1 / (1 - eta) (exact); d = 3: (1 + eta/2) / (1 - eta)^2 (PY);
-    d = 2: numerical, Richardson extrapolation of the default grid and of
-    n_grid = 2048 (error ~1e-7 at eta <= 0.3).
+    d = 2: numerical, Richardson extrapolation of n_grid = 2048 and 4096
+    (``_richardson_pair``); error <= 3e-8 at eta <= 0.3 against an independent
+    real-space PY solver (audit of PR #20).
     """
     dim = check_dim(d, SUPPORTED_DIMS)
     val = _check_eta(eta, ETA_MAX)

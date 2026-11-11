@@ -64,6 +64,8 @@ Statuses:
 | D-087 | fixed | `tests/property/test_energy_props.py` (D-011 regression) | The D-011 demonstration (the old tolerance fails on the pinned input) depends on CPU rounding; on the GPU the old tolerance passes. |
 | D-091 | fixed | `theory/hardsphere.py` (`solve_py`) | PY cache key rounds eta to 12 decimal places, a relative perturbation up to ~1e-9 at small eta that shows up as noise in g(chi)/chi^2 and its derivatives. |
 | D-092 | fixed | `theory/geometry.py` (`_intersection_fraction_beta`) | alpha_d via I_{1 - x^2/4}((d+1)/2, 1/2) loses absolute accuracy ~eps/x at small x (1 - x^2/4 rounds); used in production for d >= 4. |
+| D-093 | fixed | `theory/eos.py` (`compressibility_fixed_k`) | Where dp/dn <= 0 (gaussian level, d = 3, chi > 1/3, high T) n T kappa_T came back as round-off-sized +-1e16 or negative values with no signal; the docstring promised inf. |
+| D-094 | fixed | `theory/eos.py` (`_fixed_k_inputs`), `theory/phs.py` (`c_k`) | Underflow of chi or c_K, or overflow of c_K or of the pressure (n^2/2), raised AssertionError (unchecked under python -O) instead of ValueError. |
 
 ## D-006 — `unit_ball_volume` is not bit-equal to the C++ hard-coded constants
 - **Found:** 2026-11-05, by the T4 auditor's preview parity
@@ -470,7 +472,7 @@ Statuses:
 ## D-091 — PY cache key rounds eta to 12 decimal places
 - **Found:** 2026-11-11, while building the PHS theory layer (feat/phs-theory), before its first commit
 - **Status:** fixed
-- **Where:** src/xla_cco/theory/hardsphere.py (`solve_py`, `ETA_CACHE_DIGITS`)
+- **Where:** src/xla_cco/theory/hardsphere.py (`solve_py`, pre-fix constant `ETA_CACHE_DIGITS`; after the fix `ETA_CACHE_SIG` and `_eta_cache_key`)
 - **Symptom:** `solve_py` solved at `round(eta, 12)`: an absolute rounding of up to 5e-13, i.e. a relative perturbation of up to ~6e-10 at eta ~ 1e-3. g(chi) ~ eta^2, so the Chebyshev interpolant of g(chi)/chi^2 (built from solves at small chi) carried ~1e-9 relative noise, which differentiation amplifies to ~1e-6 in h'(chi) (measured: h' of the d = 3 interpolant changed by 2e-6 between 16 and 32 nodes, independent of the PY tolerance)
 - **Repro:** `solve_py(8.0004e-4 + 3e-13, 1).eta` -> `0.00080004`, relative error 3.7e-10
 - **Impact:** none released (found before the first commit of the module); numbers would have carried the ~1e-9 relative noise
@@ -486,3 +488,23 @@ Statuses:
 - **Impact:** none released; d <= 3 use the closed forms, d >= 4 (not used by the PY/PHS layer) would carry ~1e-16/x absolute error
 - **Regression test:** tests/unit/test_theory_geometry.py::test_regression_D092_beta_form_accurate_at_small_separation (failed at x = 1e-5, 1e-7, 1e-9 before the fix); property generalization with the repro pinned: tests/property/test_theory_props.py::test_alpha_closed_form_matches_incomplete_beta
 - **Fix:** for x^2/4 < 1/2 use the complement 1 - I_{x^2/4}(1/2, (d+1)/2), where the argument x^2/4 is formed without cancellation
+
+## D-093 — `compressibility_fixed_k` silent where dp/dn <= 0
+- **Found:** 2026-11-11, independent audit of PR #20 (Finding 2)
+- **Status:** fixed
+- **Where:** src/xla_cco/theory/eos.py (`compressibility_fixed_k`)
+- **Symptom:** n T kappa_T = T / (dp/dn) was returned as is. At the gaussian level in d = 3 with chi > 1/3, dp/dn = n + T (1 - 3 chi) vanishes at T_c = n / (3 chi - 1): there round-off gave dp/dn = -8.7e-19 and kappa = -2.06e16 (the docstring promised inf), and above T_c the result was negative (-5.71 at 2 T_c) with no warning. The compressibility relation makes n T kappa_T = S(0+) >= 0, so these values are meaningless (breakdown of the low-T expansion)
+- **Repro:** `chi = 0.45; n = c_k(1, 3) / (3 * chi); compressibility_fixed_k(n, n / (3 * chi - 1), d=3, level="gaussian")` -> -2.06e16
+- **Impact:** a phase-diagram sweep would plot spurious huge or negative compressibilities instead of masking the unstable region; the phs level (dp/dn >= n + 0.18 T, audit probes) and d <= 2 gaussian are unaffected
+- **Regression test:** tests/unit/test_theory_eos.py::test_regression_D093_compressibility_nan_where_unstable
+- **Fix:** entries with dp/dn <= 16 eps (n + T) (`DPDN_FLOOR_ULPS`, zero within round-off) or negative are NaN; docstring documents it. Property generalization with the repro pinned: tests/property/test_theory_props.py::test_compressibility_positive_or_nan (regression test failed on the repro before the fix: -2.06e16, -5.71)
+
+## D-094 — Range errors raised AssertionError instead of ValueError
+- **Found:** 2026-11-11, independent audit of PR #20 (Finding 3)
+- **Status:** fixed
+- **Where:** src/xla_cco/theory/eos.py (`_fixed_k_inputs`), src/xla_cco/theory/phs.py (`c_k`)
+- **Symptom:** chi = c_K / (n d) underflowing to 0 tripped `assert np.all(chi > 0)`, and c_K = v1 K^d / (2 (2 pi)^d) underflowing to 0 (or overflowing to inf) tripped `assert out > 0`; both are AssertionError, not the documented ValueError, and vanish under `python -O` (then a NaN or inf pressure follows)
+- **Repro:** `pressure_fixed_k(1e300, 1.0, d=3, K=1e-100)` -> AssertionError; `c_k(1e-200, 3)` -> AssertionError; found by Hypothesis while generalizing the fix: `pressure_fixed_k(1.8961503816218355e154, 1.0, d=1, level="ideal")` (n^2/2 overflows) -> AssertionError "pressure must be finite"
+- **Impact:** error contract only; no wrong number is returned with assertions on
+- **Regression test:** tests/unit/test_theory_eos.py::test_regression_D094_out_of_range_inputs_raise_value_error; property generalization with both repros pinned: tests/property/test_theory_props.py::test_extreme_inputs_finite_or_value_error
+- **Fix:** `_fixed_k_inputs` raises ValueError when chi underflows to 0; `c_k` raises ValueError when c_K is 0 or not finite (catching the float OverflowError of K**d). The regression test failed with AssertionError before the fix. Pressure and dp/dn that overflow raise ValueError (`_require_finite`); overflow warnings are suppressed where the result is checked
