@@ -313,3 +313,128 @@ MD_PARITY_KS_THIN: int = 2
 # samples is rho (1 - rho^B)^2 / (B (1 - rho^2)) = 0.022, so the 20 means per seed
 # are nearly independent and the SE is underestimated by ~ 2 %.
 MD_PARITY_BLOCK: int = 10
+
+# ----- theory (xla_cco.theory: PHS manifold entropy and equations of state) -----
+# alpha_d closed forms vs the regularized incomplete beta: both are a few ulp of O(1)
+# intermediates; the cancellation near x = 2 is absolute (~1e-16), so the same
+# number serves as rtol and atol with > 100x headroom.
+RTOL_ALPHA_BETA: float = 1e-13
+# alpha_d vs scipy quad of the two-cap lens (epsabs 1e-14, epsrel 1e-13 requested;
+# the (1 - t^2)^((d-1)/2) endpoint singularity costs quad ~1 digit).
+ATOL_ALPHA_QUAD: float = 1e-12
+# Bessel zeros (McMahon guess + Newton) vs closed forms / scipy jn_zeros: Newton
+# stops at a relative step < 1e-15, so a few ulp.
+RTOL_BESSEL_ZEROS: float = 1e-14
+# Radial transforms that are exact up to roundoff: the closed-form kernels vs the
+# generic x^-nu J_nu(x) (x <= 3000: measured 2.5e-14), and the Gaussian pair in d = 1,
+# 3 (even trapezoid integrand: spectral) and the d = 2 Fourier-Bessel inverse
+# (exact for support in [0, R]); sums of 4096 O(1) terms, measured <= 7e-15.
+ATOL_HANKEL_EXACT: float = 1e-13
+# d = 2 forward Gaussian: after the first Euler-Maclaurin term the next one,
+# (dr^4/720) F'''(0) with F''' ~ 3 pi k^2 f(0), reaches ~0.13 dr^2 = 3e-6 at
+# k_max = pi/dr (dr = 1/205); measured 4.3e-6.
+ATOL_HANKEL_EM2: float = 1e-5
+# Step function with the half value at the jump node: trapezoid error
+# ~ (dr^2/12) |d/dr (r^(d-1) Omega_d(k r))| at r = 1 <~ Omega_d(0) dr^2 (1 + k^2)/12
+# (Omega_3(0) = 4 pi); measured max ratio 2.0 (d = 3) to dr^2 (1 + k^2), k <= 20.
+C_STEP_TRANSFORM: float = 4.0
+# PY d = 1 vs the exact hard-rod g2 and c (second order on smooth nodes):
+# |error| <= C dr^2; measured C = 2.0 (c) and 0.75 (g) at eta = 0.5, the largest
+# eta tested (C grows with eta: 0.008 at 0.1, 0.19 at 0.3).
+C_PY_GRID_1D: float = 4.0
+# Nodes r = 0 (c) and r = 2 (g) in d = 1: both factors of the OZ integrand jump
+# there, and the trapezoid rule (product of half values instead of the mean of the
+# one-sided products) is first order, error ~ rho dr g(1+)^2 / 4 per coinciding
+# point; measured max 1.01 dr at eta = 0.5.
+C_PY_COINCIDENT_NODE: float = 2.0
+# PY d = 3 vs Wertheim-Thiele, c on [0.2, 1] and the contact value: the error is
+# O(dr^2) and scales as a^2 (a = -c(0); gamma errors enter through rho c^2);
+# measured |err| / (a^2 dr^2) = 0.30, 0.33, 0.25 at eta = 0.1, 0.3, 0.45 (worst at
+# r = 0.2, the tail of the O(dr / r) spread of the r = 0 coincident node).
+C_PY_GRID_3D: float = 1.0
+# O(eta) limit at eta = 1e-4: (g - 1)/eta - 2^d alpha_d = c2 eta + O(dr^2) with the
+# second-order coefficient c2 <= 4 at contact (d = 3: (1 + eta/2)/(1 - eta)^2 =
+# 1 + 2.5 eta + 4 eta^2); measured 1.2e-4 (d=1), 2.1e-4 (d=2), 4.2e-4 (d=3).
+ATOL_PY_LOW_DENSITY: float = 1e-3
+# Second-order convergence: successive contact differences at dr = 1/100, 1/200,
+# 1/400 have ratio 4 + O(dr^2); measured 3.997, 4.003, 3.998 (d = 1, 2, 3).
+PY_CONVERGENCE_RATIO: float = 0.1
+# r_max = 10 vs 20 at the same spacing (r < 7): only the outer truncation differs,
+# where g - 1 ~ 1e-10 at r ~ 10 (eta = 0.3); measured 1.7e-13, 1.8e-11, 3.2e-9.
+ATOL_PY_R_INDEPENDENCE: float = 1e-8
+# |g - 1| for r > 15 at eta = 0.3: the oscillatory decay of h, measured 7e-11 (d=3).
+ATOL_PY_TAIL: float = 1e-8
+# Richardson (dr = 1/102, 1/205) contact value vs analytic (d = 1, 3) and vs a finer
+# Richardson pair (d = 2) at eta <= 0.32 (the PHS range in d = 2): the remaining
+# O(dr^4) term, measured <= 3.9e-8 (d = 3, eta = 0.3) and 1.2e-8 (d = 2).
+ATOL_PY_CONTACT_RICHARDSON: float = 2e-7
+# Tonks S(0) sum rule by the trapezoid rule on [1, 80], dx = 1e-4: kinks of g at the
+# integers cost ~dx^2 lam^2 per kink (lam <= 2.3), tail |g - 1| at x = 80 is
+# < 1e-12; so ~1e-7 at most; also used for |g(80) - 1|.
+ATOL_TONKS_SUM_RULE: float = 1e-6
+# scipy quad of smooth closed-form integrands with epsabs = epsrel = 1e-13 requested.
+RTOL_QUAD_ORACLE: float = 1e-12
+# Half-space lattice count M / V vs c_K: d = 1 exact up to 2 pi/(K L) = 3e-5; the
+# lattice-point discrepancy of a ball is O(R^(2/3)) in d = 2 (R = K L / 2 pi = 318:
+# ~3e-4 relative) and O(R^(3/2)) in d = 3 (R = 32: ~3e-3 relative).
+RTOL_LATTICE_COUNT: float = 1e-2
+# PHS py S(q) in d = 1 vs the exact Tonks g2 off the nodes: grid error <= 0.75 dr^2
+# (C_PY_GRID_1D measurement, ~2e-5 at chi = 0.45) plus linear interpolation
+# dr^2/8 max|g''| (~1e-6); measured 9.5e-6 at chi = 0.45. Also bounds S(1+) vs
+# contact_value (node r = 1, plus the d = 2 Richardson error 1e-7, d = 3 a^2 dr^2).
+ATOL_S_PY_1D: float = 3e-5
+# |S_py - S_low| <= C chi^2: b(d)^2 times the O(eta^2) coefficient of g_PY (at
+# contact 1 in d = 1, 4 b(3)^2 = 0.64 in d = 3); measured max_q diff/chi^2 = 1.02,
+# 0.83, 0.64 (d = 1, 2, 3) at chi = 0.02, rising by O(chi) (1.04 at chi = 0.04).
+C_S_SECOND_ORDER: float = 1.5
+# Second-order scaling: max diff at 2 chi over chi is 4 (1 + O(chi)); measured
+# 4.04, 4.03, 4.02 at chi = 0.01; the d = 1 r = 2 node adds O(chi dr) ~ 1 %.
+SECOND_ORDER_RATIO_TOL: float = 0.5
+# low_chi: g/chi^2 + a = (d/3) chi int_1^2 q^(d-1) u^3 dq + O(chi^2) with
+# u = alpha/alpha(1) <= 1; measured coefficient 0.083, 0.146, 0.200 (d = 1, 2, 3).
+C_G_CUBIC: float = 0.5
+# py: g/chi^2 at chi = 1e-4 vs -a: the O(chi) term (PY's O(eta^2) part differs from
+# the low_chi cubic, <= 0.8 chi relative = 8e-5) plus the Richardson-extrapolated
+# grid error (~1e-7); measured 7.5e-5, 2.0e-5, 3.6e-5 relative (d = 1, 2, 3).
+RTOL_PY_G_LIMIT: float = 2e-4
+# Chebyshev interpolant (20 nodes) of g/chi^2 vs direct PY solves: after D-091 the
+# only error is solver roundoff (PY tol 1e-13); measured <= 9e-14 relative.
+RTOL_PROXY_DIRECT: float = 1e-11
+# Central differences in chi with step 1e-4: truncation (h^2/6)|f'''| <~ 1e-7 for
+# |f'''| <= 60 (py d = 3 near chi = 0.5); roundoff: quad error 1e-13 / 2e-4 = 5e-10
+# (low_chi), polynomial evaluation ~1e-15 / 1e-4 (py).
+ATOL_FD_CHI: float = 1e-6
+# EOS vs its closed forms (same terms, different association, e.g. ln(2 pi T) -
+# ln(2 pi n) vs ln(T/n)): a few ulp of the largest term, which never exceeds ~100x
+# the result for the inputs used (n, T <= 3).
+RTOL_EOS_FORMULA: float = 1e-12
+# Central difference of p in n with step 1e-4 n, in units of (n + T): truncation
+# (h^2/6)|p'''| with p''' ~ 2 c_K T / n^3 + T c_K chi^3 h'''/n^3 -> <~ 1e-8; roundoff
+# eps |p| / h ~ 1e-16 n^2 / (1e-4 n) = 1e-12 n.
+ATOL_FD_PRESSURE: float = 1e-7
+# p - n^2/2 at T = 1e-12: T (c_K |ln 2 pi T| + n + c_K |ln 2 pi n| + c_K (1 + |h|))
+# <~ 1e-12 (0.04 * 26 + 3 + 0.1) ~ 5e-12 for n <= 3, d = 2.
+ATOL_T0_PRESSURE: float = 1e-10
+# Quoted literals: half a unit in the last quoted decimal (the value is only known
+# to that rounding). 4 decimals: the task's -d chi^2 h' estimates (0.0029, ...).
+ATOL_QUOTED_4DP: float = 5e-5
+# b(2) quoted as 0.63938 (5 decimals; true 0.6393826).
+ATOL_QUOTED_B2: float = 5e-6
+# a_2 quoted as 0.3119501 (7 decimals; mpmath 0.3119500998, audit of PR #20).
+ATOL_QUOTED_A2: float = 5e-8
+# z_fixed_chi rpa at T = 1e-12 vs harmonic: (M/N) T/(n + T) <= 1.5e-12 relative to
+# Z >= 1, plus a few ulp.
+RTOL_Z_COLD: float = 1e-11
+# b(d) vs 1/(2^d alpha_d(1)) with alpha_d(1) from the lens quadrature: abs error of
+# the quadrature <= ATOL_ALPHA_QUAD = 1e-12 divided by alpha_d(1) >= 0.117 (d <= 8).
+RTOL_B_QUAD: float = 1e-10
+# d = 2 PY contact vs the auditor's independent real-space solver (Richardson over
+# dr = 0.02, 0.01, 0.005), quoted with +-3e-8; our (dr = 1/102, 1/205) Richardson
+# residual is ~1e-8 (finer-pair test); measured diffs 7e-10, 5.5e-9, 2.0e-8.
+ATOL_PY2D_CONTACT_EXTERNAL: float = 5e-8
+# py g(chi), d = 2, vs the auditor's solver at dr = 0.01 / 0.005 (not extrapolated):
+# that oracle's own O(dr^2) error is ~1e-7 relative; measured 1.4e-7, 7e-8, 1.1e-7.
+RTOL_PY_G_EXTERNAL: float = 3e-7
+# py -d chi^2 h', d = 2, vs the auditor's 5-point differences (quoted to 7 decimals,
+# +-5e-8; two FD steps agreed to all digits): measured diffs 3.0e-8, 3.2e-8, 2.2e-8.
+ATOL_PY_TCOEF_EXTERNAL: float = 1e-7
