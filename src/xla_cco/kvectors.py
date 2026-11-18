@@ -141,7 +141,7 @@ def unit_ball_volume(dim: int) -> float:
 
     d <= 4 uses the C++ hard-coded constants; d >= 5 uses
     ``pi^(d/2) / Gamma(d/2 + 1)`` (``math.gamma`` may differ from ``gsl_sf_gamma``
-    by an ulp; d >= 5 parity is untested, no goldens exist).
+    by an ulp; d >= 5 is untested against C++).
     """
     assert dim >= 1, "dim must be >= 1"
     if dim in _CPP_UNIT_BALL:

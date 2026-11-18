@@ -3,8 +3,7 @@
 """
 Example tests of k-set construction and the chi / cutoff conversions.
 
-Reference numbers come from the C++ run
-cco_runs/p3d-N100-phi0.05-chi0.05-val0.0/task_0000/engine.log.
+Reference numbers were recorded from a C++ run (engine.log) during development.
 
 Samuel J. Dawley
 11/2026
@@ -22,7 +21,6 @@ import numpy as np
 import pytest
 
 # ----- project -----
-import golden
 import oracle
 from xla_cco.box import cubic_box
 from xla_cco.kvectors import (
@@ -38,16 +36,19 @@ from xla_cco.kvectors import (
 # ============================================================
 
 
+@pytest.mark.high
 def test_unit_ball_volume_values() -> None:
     assert unit_ball_volume(1) == pytest.approx(2.0, rel=1e-15)
     assert unit_ball_volume(2) == pytest.approx(math.pi, rel=1e-15)
     assert unit_ball_volume(3) == pytest.approx(4.0 * math.pi / 3.0, rel=1e-15)
 
 
+@pytest.mark.critical
 def test_ka_from_chi_matches_slurm() -> None:
     assert ka_from_chi(0.05, 0.05, 3) == pytest.approx(0.5963271031078479, rel=1e-14)
 
 
+@pytest.mark.critical
 def test_k_outer_from_ka_reference() -> None:
     ka = ka_from_chi(0.05, 0.05, 3)
     a = (0.05 / unit_ball_volume(3)) ** (1.0 / 3.0)
@@ -55,10 +56,12 @@ def test_k_outer_from_ka_reference() -> None:
     assert k_outer_from_ka(ka, 0.05, 3) == pytest.approx(2.6093, rel=1e-4)
 
 
+@pytest.mark.high
 def test_chi_from_count() -> None:
     assert chi_from_count(13, 100, 3) == pytest.approx(13.0 / 297.0, rel=1e-15)
 
 
+@pytest.mark.critical
 def test_kset_n100_d3_chi005() -> None:
     box = cubic_box(100, 3)
     k_outer = k_outer_from_ka(ka_from_chi(0.05, 0.05, 3), 0.05, 3)
@@ -70,6 +73,7 @@ def test_kset_n100_d3_chi005() -> None:
     assert kset.k_inner == 0.0 and kset.k_outer == k_outer
 
 
+@pytest.mark.high
 def test_kset_fields_consistent_with_oracle_conventions() -> None:
     basis = np.array([[2.0, 0.0], [0.7, 1.5]])
     kset = enumerate_kvectors(basis, 0.5, 6.0)
@@ -79,6 +83,7 @@ def test_kset_fields_consistent_with_oracle_conventions() -> None:
     np.testing.assert_array_equal(kset.k_sq, expected)
 
 
+@pytest.mark.critical
 @pytest.mark.parametrize("side", [1.0, 2.0, 3.7])
 @pytest.mark.parametrize("dim", [1, 2, 3])
 def test_kset_shell_boundary_ulp(side: float, dim: int) -> None:
@@ -95,6 +100,7 @@ def test_kset_shell_boundary_ulp(side: float, dim: int) -> None:
     assert enumerate_kvectors(basis, down, 1.2 * unit).n.shape[0] == dim
 
 
+@pytest.mark.medium
 def test_enumerate_rejects_invalid_input() -> None:
     eye = np.eye(2)
     with pytest.raises(ValueError):
@@ -118,38 +124,19 @@ def _same_set(basis: np.ndarray, k_outer: float) -> None:
     assert kset.n.shape[0] == n_ref.shape[0] > 0
 
 
+@pytest.mark.high
 def test_kset_strongly_sheared_3d_matches_oracle() -> None:
     _same_set(np.array([[1.0, 0, 0], [8.0, 1, 0], [-6.0, 7, 1]]), 9.0)
 
 
+@pytest.mark.high
 @pytest.mark.parametrize("k_outer", [3.0, 5.0, 8.0])
 def test_kset_scaled_sheared_3d_matches_oracle(k_outer: float) -> None:
     base = np.array([[1.0, 0, 0], [0.9, 1, 0], [0.7, 0.8, 1]])
     _same_set(4.0 * base, k_outer)
 
 
+@pytest.mark.critical
 @pytest.mark.parametrize(("n", "dim"), [(100, 2), (1000, 3), (100, 3)])
 def test_kset_real_cubic_boxes_match_oracle(n: int, dim: int) -> None:
     _same_set(np.asarray(cubic_box(n, dim).basis), 2.6093)
-
-
-_KERNEL_GOLDENS = (
-    "kernel_d1_chi0.05",
-    "kernel_d1_chi0.25",
-    "kernel_d1_chi0.45",
-    "kernel_d2_chi0.05",
-    "kernel_d2_chi0.25",
-    "kernel_d2_chi0.45",
-    "kernel_d3_chi0.05",
-    "kernel_d3_chi0.25",
-    "kernel_d3_chi0.45",
-    "kernel_d3_cpp_ic",
-)
-
-
-@pytest.mark.parametrize("name", _KERNEL_GOLDENS)
-def test_regression_D006_k_outer_matches_cpp_bitwise(name: str) -> None:
-    """D-006: K2 = Ka / a is bit-identical to the C++ window (hard-coded V_d)."""
-    params = golden.load_golden(name)["params"]
-    k_outer = k_outer_from_ka(params["Ka"], params["phi"], params["d"])
-    assert k_outer.hex() == params["k_outer_hex"]

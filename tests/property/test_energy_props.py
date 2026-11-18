@@ -17,6 +17,7 @@ import dataclasses
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -79,6 +80,7 @@ def systems(draw: st.DrawFn) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]
 # ============================================================
 
 
+@pytest.mark.critical
 @FAST
 @given(systems())
 def test_energy_matches_oracle(case: tuple) -> None:
@@ -88,6 +90,8 @@ def test_energy_matches_oracle(case: tuple) -> None:
     np.testing.assert_allclose(got, ref, rtol=RTOL_KERNEL_E, atol=1e-12)
 
 
+@pytest.mark.high
+@pytest.mark.slow
 @FAST
 @given(systems(), chunk_sizes())
 def test_value_and_grad_matches_autodiff(case: tuple, chunk: int | None) -> None:
@@ -149,6 +153,7 @@ def _check_gradient_fd(s: np.ndarray, n: np.ndarray, w: np.ndarray, vol: float) 
     np.testing.assert_allclose(np.asarray(grad), fd, rtol=0.0, atol=atol)
 
 
+@pytest.mark.critical
 @FAST
 @given(systems())
 def test_gradient_matches_central_difference(case: tuple) -> None:
@@ -162,6 +167,7 @@ def _coincident_case() -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
     return s, rng.integers(1, 4, size=(16, 1)), np.full(16, 2.0), 0.5
 
 
+@pytest.mark.medium
 def test_regression_D008_fd_tolerance_scales_with_energy() -> None:
     s, n, w, vol = _coincident_case()
     h = 1e-6
@@ -174,6 +180,7 @@ def test_regression_D008_fd_tolerance_scales_with_energy() -> None:
     _check_gradient_fd(s, n, w, vol)
 
 
+@pytest.mark.critical
 @FAST
 @given(boxes(), st.integers(0, 2**31), st.sampled_from((2, 7, 16)))
 def test_forces_match_cpp_closed_form(
@@ -195,6 +202,7 @@ def test_forces_match_cpp_closed_form(
     )
 
 
+@pytest.mark.high
 @FAST
 @given(systems(), st.integers(0, 2**31))
 def test_translation_invariant(case: tuple, seed: int) -> None:
@@ -209,6 +217,7 @@ def test_translation_invariant(case: tuple, seed: int) -> None:
     )
 
 
+@pytest.mark.high
 @FAST
 @given(systems(), st.integers(0, 2**31))
 def test_permutation_invariant(case: tuple, seed: int) -> None:
@@ -220,6 +229,7 @@ def test_permutation_invariant(case: tuple, seed: int) -> None:
     )
 
 
+@pytest.mark.high
 @FAST
 @given(systems(), st.integers(0, 2**31))
 def test_periodic_image_invariant(case: tuple, seed: int) -> None:
@@ -251,26 +261,34 @@ def _check_grad_sum(s: np.ndarray, n: np.ndarray, w: np.ndarray, vol: float) -> 
     np.testing.assert_allclose(np.asarray(grad).sum(axis=0), 0.0, atol=atol)
 
 
+@pytest.mark.high
 @FAST
 @given(systems())
 def test_gradient_sums_to_zero(case: tuple) -> None:
     _check_grad_sum(*case)
 
 
+@pytest.mark.medium
 def test_regression_D011_grad_sum_tolerance_scales_with_gradient_magnitude() -> None:
+    """D-011 repro: the old tolerance fails, the fixed one holds. The repro is a
+    statement about CPU rounding, so it runs on the CPU device (D-087)."""
     rng = np.random.default_rng(34)
     s = np.full((16, 1), 0.40625)
     n = rng.integers(-4, 5, size=(13, 1))
     n[n == 0] = 1
     w = rng.uniform(0.5, 2.0, 13)
-    _, grad = _energy(n, w, 1.0).value_and_grad(jnp.asarray(s))
-    total = float(np.abs(np.asarray(grad).sum()))
-    old_atol = 1e-11 * max(1.0, float(np.abs(grad).max()) * 16)
-    assert total > old_atol, "old tolerance no longer reproduces D-011"
-    assert total <= _grad_sum_atol(n, w, 1.0, 16)
-    _check_grad_sum(s, n, w, 1.0)
+    cpu = jax.devices("cpu")[0]
+    with jax.default_device(cpu):
+        _, grad = _energy(n, w, 1.0).value_and_grad(jnp.asarray(s))
+        assert grad.devices() == {cpu}, "the D-011 repro is pinned to the CPU"
+        total = float(np.abs(np.asarray(grad).sum()))
+        old_atol = 1e-11 * max(1.0, float(np.abs(grad).max()) * 16)
+        assert total > old_atol, "old tolerance no longer reproduces D-011"
+        assert total <= _grad_sum_atol(n, w, 1.0, 16)
+        _check_grad_sum(s, n, w, 1.0)
 
 
+@pytest.mark.high
 @FAST
 @given(systems())
 def test_nonnegative(case: tuple) -> None:
@@ -278,6 +296,7 @@ def test_nonnegative(case: tuple) -> None:
     assert float(_energy(n, w, vol)(jnp.asarray(s))) >= 0.0
 
 
+@pytest.mark.high
 @FAST
 @given(fractional_configs(n_grid=(1, 2, 7, 16)), st.floats(0.5, 50.0))
 def test_single_vector_energy_bounds(s: np.ndarray, vol: float) -> None:
@@ -286,6 +305,7 @@ def test_single_vector_energy_bounds(s: np.ndarray, vol: float) -> None:
     assert 0.0 <= val <= s.shape[0] ** 2 / vol * (1 + 1e-12)
 
 
+@pytest.mark.high
 @FAST
 @given(systems(), st.integers(0, 20))
 def test_window_additivity(case: tuple, cut: int) -> None:
@@ -299,6 +319,8 @@ def test_window_additivity(case: tuple, cut: int) -> None:
     np.testing.assert_allclose(whole, parts, rtol=1e-12, atol=1e-12)
 
 
+@pytest.mark.high
+@pytest.mark.slow
 @FAST
 @given(systems(), st.sampled_from((1, 64, 128)))
 def test_padding_rows_inert(case: tuple, pad_to: int) -> None:
@@ -317,6 +339,8 @@ def test_padding_rows_inert(case: tuple, pad_to: int) -> None:
     )
 
 
+@pytest.mark.high
+@pytest.mark.slow
 @FAST
 @given(systems(), st.sampled_from((1, 3, 5, 8, 13)))
 def test_chunked_equals_unchunked(case: tuple, chunk: int) -> None:
@@ -335,6 +359,7 @@ def test_chunked_equals_unchunked(case: tuple, chunk: int) -> None:
     np.testing.assert_allclose(np.asarray(im1), np.asarray(im0), atol=1e-12)
 
 
+@pytest.mark.high
 @FAST
 @given(systems())
 def test_collective_density_matches_oracle(case: tuple) -> None:
@@ -346,6 +371,8 @@ def test_collective_density_matches_oracle(case: tuple) -> None:
     )
 
 
+@pytest.mark.high
+@pytest.mark.slow
 @settings(deadline=None)
 @given(
     st.integers(0, 2**31),

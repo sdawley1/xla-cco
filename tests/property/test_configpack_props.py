@@ -68,6 +68,7 @@ def _roundtrip(cfgs: List[PackedConfig], sel: Any = None) -> List[PackedConfig]:
 # ============================================================
 
 
+@pytest.mark.critical
 @given(st.lists(packed_configs(), min_size=1, max_size=5))
 def test_round_trip_bytes_identical(cfgs: List[PackedConfig]) -> None:
     """write -> read -> write gives identical bytes in both files."""
@@ -79,6 +80,7 @@ def test_round_trip_bytes_identical(cfgs: List[PackedConfig]) -> None:
             assert Path(str(a) + ext).read_bytes() == Path(str(b) + ext).read_bytes()
 
 
+@pytest.mark.high
 @given(st.lists(packed_configs(), min_size=1, max_size=5))
 def test_round_trip_preserves_fields(cfgs: List[PackedConfig]) -> None:
     got = _roundtrip(cfgs)
@@ -90,6 +92,7 @@ def test_round_trip_preserves_fields(cfgs: List[PackedConfig]) -> None:
         assert a.names == b.names
 
 
+@pytest.mark.high
 @given(
     st.lists(packed_configs(), min_size=1, max_size=5),
     st.data(),
@@ -104,6 +107,7 @@ def test_subset_order_and_duplicates(cfgs: List[PackedConfig], data: Any) -> Non
         assert g.names == cfgs[i].names
 
 
+@pytest.mark.high
 @given(
     st.integers(1, 3),
     st.floats(0.1, 10.0),
@@ -135,6 +139,7 @@ def test_stack_fractional_normalizes(
     np.testing.assert_allclose(ub, np.eye(d), rtol=1e-12)
 
 
+@pytest.mark.medium
 @given(st.data())
 def test_wrong_length_names_raise(data: Any) -> None:
     """Names not all 4 bytes long raise, even if the total is a multiple of 4."""

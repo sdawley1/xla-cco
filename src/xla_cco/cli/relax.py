@@ -49,6 +49,7 @@ from typing import Any, Dict, List, Sequence, Tuple, Union
 
 # ----- numerics -----
 import jax
+import jax.numpy as jnp
 import numpy as np
 
 # ----- project -----
@@ -85,6 +86,7 @@ UNIT_VOLUME_ATOL: float = 1e-12
 G2_CUTOFF_FRACTION: float = 0.2  # C++ main.cpp: 0.2 * L
 SK_K_DIR_MAX: float = 5.0  # C++ main.cpp: IsotropicStructureFactor(..., 5, 400)
 SK_K_MAX: float = 400.0
+GPU_PLATFORMS: Tuple[str, ...] = ("gpu", "cuda")  # jax Device.platform of a GPU
 STATUS_NAMES: Dict[int, str] = {
     getattr(result_mod, name): name
     for name in dir(result_mod)
@@ -117,6 +119,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--k1a", type=float, default=0.0, help="K1 * a (default 0)")
     # ----- files -----
     p.add_argument("--load", type=Path, required=True, help="input pack prefix")
+    p.add_argument(
+        "--input-basis",
+        choices=("auto", "unit", "scaled"),
+        default="auto",
+        help="input cell convention: unit = unit-volume basis (C++ input mode); "
+        "scaled = basis already multiplied by N^(1/d), as this CLI writes its "
+        "outputs; auto = accept either (default)",
+    )
     p.add_argument("--save", type=Path, required=True, help="output prefix")
     # ----- minimizer -----
     p.add_argument("--method", choices=("lbfgs", "descent"), default="lbfgs")
@@ -191,19 +201,32 @@ def validate_args(args: argparse.Namespace) -> None:
 
 
 def select_device(device: str) -> str:
-    """Select the JAX platform explicitly and return its name.
+    """Select the JAX device explicitly and return its platform name.
 
-    ``gpu`` calls ``require_gpu`` (raises RuntimeError with the cause);
-    ``cpu`` pins the platform to cpu. Never falls back silently.
+    ``gpu`` calls ``require_gpu`` (raises RuntimeError with the cause) and
+    makes the first GPU the default device; ``cpu`` pins the platform list
+    to cpu (effective before the backend starts) and makes the CPU the
+    default device, which also holds after a GPU backend was initialized in
+    the same process (D-085). The platform of a freshly placed array is
+    checked, so the selection never falls back silently.
     """
     assert device in ("gpu", "cpu"), "device must be gpu or cpu"
     if device == "gpu":
         require_gpu()
+        targets = [d for d in jax.devices() if d.platform in GPU_PLATFORMS]
     else:
         jax.config.update("jax_platforms", "cpu")  # type: ignore[no-untyped-call]
-    platform = str(jax.devices()[0].platform)
-    if (device == "cpu") != (platform == "cpu"):
-        raise RuntimeError(f"requested --device {device} but JAX uses {platform}")
+        targets = list(jax.devices("cpu"))
+    if not targets:
+        raise RuntimeError(f"requested --device {device} but JAX has no such "
+                           f"device: {jax.devices()}")  # fmt: skip
+    jax.config.update("jax_default_device", targets[0])  # type: ignore[no-untyped-call]
+    used = {str(d.platform) for d in jnp.zeros(()).devices()}
+    wanted = GPU_PLATFORMS if device == "gpu" else ("cpu",)
+    if len(used) != 1 or not used <= set(wanted):
+        raise RuntimeError(f"requested --device {device} but JAX uses {used}")
+    platform = used.pop()
+    assert platform in wanted, "checked above"
     return platform
 
 
@@ -213,17 +236,24 @@ def select_device(device: str) -> str:
 
 
 def load_input(
-    prefix: Path, dim: int
+    prefix: Path, dim: int, input_basis: str = "auto"
 ) -> Tuple[List[PackedConfig], np.ndarray, np.ndarray]:
-    """Read a pack; return (configs, (B, N, d) fractional, unit basis).
+    """Read a pack; return (unit-basis configs, (B, N, d) fractional, unit basis).
+
+    ``input_basis`` selects the accepted cell convention: "unit" (|det| = 1,
+    C++ input mode), "scaled" (|det| = N, i.e. basis times N^(1/d), the
+    convention of this CLI's outputs) or "auto" (either). Scaled bases are
+    divided by N^(1/d), so the returned configs always hold unit bases.
 
     Raises
     ------
     ValueError
-        On a dimension mismatch, mixed N/d, or a basis that is not unit volume.
+        On a dimension mismatch, mixed N/d, or a cell volume that matches
+        neither accepted convention.
     TypeError
         On non-float64 positions.
     """
+    assert input_basis in ("auto", "unit", "scaled"), "unknown input_basis"
     configs = read_configpack(prefix)
     if len(configs) == 0:
         raise ValueError(f"no configurations in {prefix}")
@@ -232,15 +262,26 @@ def load_input(
         raise ValueError(f"--dim {dim} does not match pack dimension {d_pack}")
     s0, _ = stack_fractional(configs)
     s0 = np.asarray(wrap_fractional_batch(jax.numpy.asarray(s0)))
+    n = int(s0.shape[1])
+    side = float(n) ** (1.0 / dim)
+    unit_configs = []
     for i, c in enumerate(configs):
         det = abs(float(np.linalg.det(np.asarray(c.basis))))
-        if abs(det - 1.0) > UNIT_VOLUME_ATOL:
+        is_unit = abs(det - 1.0) <= UNIT_VOLUME_ATOL
+        is_scaled = abs(det / n - 1.0) <= UNIT_VOLUME_ATOL * max(1.0, float(n))
+        if is_unit and input_basis in ("auto", "unit"):
+            unit_configs.append(c)
+        elif is_scaled and input_basis in ("auto", "scaled"):
+            basis = np.asarray(c.basis, dtype=np.float64) / side
+            unit_configs.append(dataclasses.replace(c, basis=basis))
+        else:
             raise ValueError(
-                f"config {i}: input basis has |det| = {det!r}, not unit volume; "
-                "C++ input mode multiplies the basis by N^(1/d), so the pack "
-                "must hold a unit-volume basis (cell volume 1)"
+                f"config {i}: input basis has |det| = {det!r}; with "
+                f"--input-basis {input_basis} the cell volume must be 1 (unit "
+                f"basis; C++ input mode multiplies it by N^(1/d)) or N = {n} "
+                "(basis already scaled by N^(1/d), as this CLI writes outputs)"
             )
-    return configs, s0, np.asarray(configs[0].basis, dtype=np.float64)
+    return unit_configs, s0, np.asarray(unit_configs[0].basis, dtype=np.float64)
 
 
 def build_physics(
@@ -449,7 +490,7 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
     validate_args(args)
     t0 = time.perf_counter()
     platform = select_device(args.device)
-    configs, s0, unit_basis = load_input(args.load, args.dim)
+    configs, s0, unit_basis = load_input(args.load, args.dim, args.input_basis)
     n = int(s0.shape[1])
     box, energy, info = build_physics(unit_basis, n, args)
     settings = make_settings(args)

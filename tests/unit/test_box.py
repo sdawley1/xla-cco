@@ -25,6 +25,7 @@ from xla_cco.box import Box, cubic_box, wrap_fractional
 # ============================================================
 
 
+@pytest.mark.critical
 def test_cubic_box_side_and_volume() -> None:
     box = cubic_box(100, 3)
     side = 100.0 ** (1.0 / 3.0)
@@ -34,10 +35,12 @@ def test_cubic_box_side_and_volume() -> None:
     assert box.basis.dtype == jnp.float64
 
 
+@pytest.mark.high
 def test_cubic_box_1d_is_length_n() -> None:
     np.testing.assert_allclose(np.asarray(cubic_box(7, 1).basis), [[7.0]], rtol=1e-15)
 
 
+@pytest.mark.critical
 def test_known_sheared_box_reciprocal_and_maps() -> None:
     basis = np.array([[2.0, 0.0], [1.0, 1.0]])
     box = Box(jnp.asarray(basis))
@@ -51,6 +54,7 @@ def test_known_sheared_box_reciprocal_and_maps() -> None:
     np.testing.assert_allclose(float(box.volume), 2.0)
 
 
+@pytest.mark.medium
 def test_box_methods_work_under_jit_and_vmap() -> None:
     box = cubic_box(8, 2)
     s = jnp.array([[0.1, 0.2], [0.3, 0.4]])
@@ -61,6 +65,7 @@ def test_box_methods_work_under_jit_and_vmap() -> None:
     assert jax.jit(lambda b: b.reciprocal())(box).shape == (2, 2)
 
 
+@pytest.mark.high
 def test_wrap_fractional_pinned_values() -> None:
     below_one = 1.0 - 2.0**-53
     out = np.asarray(
@@ -72,6 +77,7 @@ def test_wrap_fractional_pinned_values() -> None:
     assert out[0, 2] == below_one  # s - floor(s) rounds to 1.0; clamped below 1
 
 
+@pytest.mark.medium
 @pytest.mark.parametrize(
     "method", ["to_cartesian", "to_fractional", "cartesian_forces"]
 )
@@ -82,11 +88,13 @@ def test_box_methods_reject_float32(method: str) -> None:
         getattr(box, method)(x32)
 
 
+@pytest.mark.medium
 def test_wrap_fractional_rejects_float32() -> None:
     with pytest.raises(TypeError, match="float64"):
         wrap_fractional(jnp.zeros((4, 3), dtype=jnp.float32))
 
 
+@pytest.mark.medium
 def test_box_rejects_float32_basis() -> None:
     with pytest.raises(TypeError, match="basis"):
         Box(basis=jnp.eye(3, dtype=jnp.float32))

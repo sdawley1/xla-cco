@@ -31,6 +31,7 @@ from xla_cco.io.trajstore import TrajectoryWriter, open_trajectory
 # ============================================================
 
 
+@pytest.mark.high
 @settings(deadline=None)
 @given(
     st.sampled_from((1, 4)),
@@ -58,6 +59,7 @@ def test_round_trip_chunks(
         assert meta["chi"] == 0.1 and meta["n_frames"] == sum(sizes)
 
 
+@pytest.mark.medium
 def test_reader_detects_truncation(tmp_path: Path) -> None:
     w = TrajectoryWriter(tmp_path / "t", 2, 2)
     w.append(np.zeros((3, 2, 2)))
@@ -68,6 +70,7 @@ def test_reader_detects_truncation(tmp_path: Path) -> None:
         open_trajectory(tmp_path / "t")
 
 
+@pytest.mark.medium
 def test_writer_rejects_bad_input(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         TrajectoryWriter(tmp_path / "missing" / "t", 2, 2)
@@ -80,6 +83,7 @@ def test_writer_rejects_bad_input(tmp_path: Path) -> None:
         w.close({}, {"n_frames": 1})
 
 
+@pytest.mark.medium
 def test_reader_missing_files(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         open_trajectory(tmp_path / "nope")

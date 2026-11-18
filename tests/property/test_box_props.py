@@ -15,6 +15,7 @@ Samuel J. Dawley
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
 from hypothesis.extra import numpy as hnp
@@ -28,6 +29,7 @@ from xla_cco.box import Box, wrap_fractional
 # ============================================================
 
 
+@pytest.mark.critical
 @settings(deadline=None)
 @given(boxes())
 def test_reciprocal_duality(basis: np.ndarray) -> None:
@@ -36,6 +38,7 @@ def test_reciprocal_duality(basis: np.ndarray) -> None:
     np.testing.assert_allclose(basis @ recip.T, 2.0 * np.pi * np.eye(d), atol=1e-12)
 
 
+@pytest.mark.high
 @settings(deadline=None)
 @given(boxes(), st.data())
 def test_frac_cart_round_trip(basis: np.ndarray, data: st.DataObject) -> None:
@@ -45,6 +48,7 @@ def test_frac_cart_round_trip(basis: np.ndarray, data: st.DataObject) -> None:
     np.testing.assert_allclose(back, s, atol=1e-12)
 
 
+@pytest.mark.high
 @settings(deadline=None)
 @given(
     hnp.arrays(
@@ -66,6 +70,7 @@ def test_wrap_idempotent_in_unit_interval(s: np.ndarray) -> None:
     np.testing.assert_allclose(shift, np.round(shift), atol=1e-12)
 
 
+@pytest.mark.critical
 @settings(deadline=None)
 @given(
     boxes(),

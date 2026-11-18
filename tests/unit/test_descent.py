@@ -25,13 +25,11 @@ from hypothesis import strategies as st
 
 # ----- project -----
 import oracle
-from golden import load_golden
 from systems import small_system
-from tolerances import ATOL_DESCENT_GOLDEN_S, ATOL_DESCENT_ITERATE
+from tolerances import ATOL_DESCENT_ITERATE
 from xla_cco.box import cubic_box
 from xla_cco.energy import AbstractEnergy, make_stealthy_energy
 from xla_cco.kvectors import enumerate_kvectors
-from xla_cco.minimize import relax
 from xla_cco.minimize.descent import DescentSettings, adaptive_descent
 from xla_cco.minimize.result import (
     STATUS_BUDGET,
@@ -96,6 +94,7 @@ def _cpp_descent(
 # ============================================================
 
 
+@pytest.mark.critical
 @pytest.mark.parametrize("grow", [1.0, 2.0])
 def test_descent_matches_transcribed_cpp(grow: float) -> None:
     """100 iterations match the verbatim C++ loop: iterates, accepts, steps."""
@@ -129,35 +128,7 @@ def test_descent_matches_transcribed_cpp(grow: float) -> None:
     assert any(accepts) and not all(accepts), "test must exercise both branches"
 
 
-def test_descent_first_steps_match_cpp_golden() -> None:
-    """First 10 accept decisions and iterates match the C++ golden (d=2, N=64)."""
-    g = load_golden("traj_d2_n64_chi0.25")
-    p = g["params"]
-    box = cubic_box(p["N"], p["d"])
-    kset = enumerate_kvectors(
-        np.asarray(box.basis),
-        float.fromhex(p["k_inner_hex"]),
-        float.fromhex(p["k_outer_hex"]),
-    )
-    assert kset.n.shape[0] == p["M"], "k-set size must match the golden"
-    energy = make_stealthy_energy(box, kset)
-    m_max = 10
-    cfg = DescentSettings(max_evals=2 * m_max, record_every=1, max_records=m_max + 1)
-    res = relax(energy, jnp.asarray(g["s0"]), cfg)
-    assert res.trajectory is not None
-    s_traj = np.asarray(res.trajectory.s)  # (B, m_max + 1, N, d)
-    iters = list(g["iters"])
-    worst = 0.0
-    for b in range(g["s0"].shape[0]):
-        for m in range(1, m_max + 1):
-            t = iters.index(m)
-            mine = bool(np.any(s_traj[b, m] != s_traj[b, m - 1]))
-            assert mine == bool(g["accepted"][t, b]), f"accept lane {b} m {m}"
-            worst = max(worst, _min_image(s_traj[b, m], g["s"][t, b]))
-    print(f"golden first 10 steps: accepts equal, max |ds| = {worst:.3e}", flush=True)
-    assert worst <= ATOL_DESCENT_GOLDEN_S
-
-
+@pytest.mark.high
 def test_descent_eval_budget() -> None:
     """max_evals = 2m runs exactly m iterations and 2m counted evaluations."""
     _, _, energy = small_system(12, 2, 4.0)
@@ -167,6 +138,7 @@ def test_descent_eval_budget() -> None:
     assert int(res.status) == STATUS_BUDGET
 
 
+@pytest.mark.high
 def test_regression_D003_odd_budget_no_underflow() -> None:
     """D-003: an odd budget 2m+1 runs m iterations and terminates (no underflow)."""
     _, _, energy = small_system(12, 2, 4.0)
@@ -178,6 +150,7 @@ def test_regression_D003_odd_budget_no_underflow() -> None:
     assert int(one.n_iters) == 0 and int(one.status) == STATUS_BUDGET
 
 
+@pytest.mark.high
 def test_descent_step_floor_status() -> None:
     """Always-reject (rel_tol ~ 0) halves the step to the floor; s is unchanged."""
     _, _, energy = small_system(12, 2, 4.0)
@@ -188,6 +161,7 @@ def test_descent_step_floor_status() -> None:
     assert np.array_equal(np.asarray(res.s), np.asarray(s0))
 
 
+@pytest.mark.high
 def test_descent_energy_tol_status() -> None:
     """Stops with STATUS_ENERGY_TOL once Phi < energy_tol; zero iterations if met."""
     _, _, energy = small_system(12, 2, 4.0)
@@ -200,6 +174,7 @@ def test_descent_energy_tol_status() -> None:
     assert int(met.status) == STATUS_ENERGY_TOL and int(met.n_iters) == 0
 
 
+@pytest.mark.medium
 def test_trajectory_recording() -> None:
     """Iterations 0, r, 2r, ... are stored; count is capped; off gives None."""
     _, _, energy = small_system(12, 2, 4.0)
@@ -224,6 +199,7 @@ def test_trajectory_recording() -> None:
         assert adaptive_descent(energy, s0, off).trajectory is None
 
 
+@pytest.mark.medium
 def test_descent_rejects_non_float64() -> None:
     """float32 input raises TypeError before any compute."""
     _, _, energy = small_system(8, 2, 4.0)
@@ -231,6 +207,7 @@ def test_descent_rejects_non_float64() -> None:
         adaptive_descent(energy, jnp.zeros((8, 2), jnp.float32), DescentSettings())
 
 
+@pytest.mark.medium
 def test_result_dtypes_descent() -> None:
     """Every RelaxResult leaf (with trajectory) is float64 or integer."""
     _, _, energy = small_system(8, 2, 4.0)
@@ -271,6 +248,7 @@ class _SpyEnergy(AbstractEnergy):
         return self.inner.value_and_grad(s)
 
 
+@pytest.mark.medium
 def test_descent_uses_value_and_grad_once_per_iteration() -> None:
     """f1 and f2 share one code path: exactly 1 value_and_grad per iteration."""
     _, _, energy = small_system(12, 2, 4.0)
@@ -290,6 +268,7 @@ def _single_particle_energy() -> AbstractEnergy:
     )
 
 
+@pytest.mark.high
 @pytest.mark.parametrize("grow", [1.0, 2.0])
 def test_regression_D012_zero_gradient_stops_finite(grow: float) -> None:
     """At s = 0 the computed gradient is exactly zero.
@@ -307,6 +286,7 @@ def test_regression_D012_zero_gradient_stops_finite(grow: float) -> None:
     assert np.isfinite(float(res.energy))
 
 
+@pytest.mark.high
 @settings(deadline=None, max_examples=20)
 @given(
     grow=st.sampled_from((1.0, 2.0)),

@@ -125,6 +125,17 @@ class AbstractEnergy(eqx.Module):
         out = jax.value_and_grad(self.__call__)(s)
         return cast(Tuple[Float[Array, ""], Positions], out)
 
+    def hessian(self, s: Positions) -> Float[Array, "nd nd"]:
+        """Return d^2E/ds^2 as an (n d, n d) matrix (row-major flattening of s).
+
+        The default is ``jax.hessian`` of ``__call__``; subclasses may override
+        it with a closed form (its memory grows with the size of every
+        intermediate times n d).
+        """
+        n, d = s.shape
+        hess = jax.hessian(lambda y: self(y.reshape(n, d)))(s.reshape(-1))
+        return cast(Float[Array, "nd nd"], hess)
+
 
 class StealthyEnergy(AbstractEnergy):
     """Stealthy energy over a padded k-set.
@@ -187,6 +198,23 @@ class StealthyEnergy(AbstractEnergy):
         dPhi/ds_j = (2/V) sum_k w_k (Im rho_k cos th_kj - Re rho_k sin th_kj)
         2 pi n_k, th_kj = 2 pi n_k . s_j; this equals -B F_j for the C++ force.
         """
+        assert s.ndim == 2, "s must have shape (n, d)"
+        assert s.shape[1] == self.n_vectors.shape[1], "dimension mismatch"
+        value, grad, _, _ = self.value_grad_density(s)
+        return value, grad
+
+    def value_grad_density(
+        self, s: Positions
+    ) -> Tuple[Float[Array, ""], Positions, Float[Array, " m"], Float[Array, " m"]]:
+        """Return (Phi, dPhi/ds, Re rho, Im rho) from one shared chunked pass.
+
+        Phi and the gradient equal ``value_and_grad`` (on both the trig and the
+        phase-table paths); re/im equal ``collective_density(s, n_vectors,
+        chunk_size)`` including padding rows (MD reuses them for winding).
+        ``value_and_grad`` is this pass with re/im dropped, so the two agree
+        bitwise. On the phase-table path re/im are the table rho the gradient
+        used, equal to ``collective_density`` up to table rounding.
+        """
         require_float64(s, "s")
         assert s.ndim == 2, "s must have shape (n, d)"
         assert s.shape[1] == self.n_vectors.shape[1], "dimension mismatch"
@@ -194,12 +222,16 @@ class StealthyEnergy(AbstractEnergy):
             return self._value_and_grad_tables(s, self.n_max)
         re, im = collective_density(s, self.n_vectors, self.chunk_size)
         value = jnp.sum(self.weights * (re * re + im * im)) / self.volume
-        return value, self._gradient(s, re, im)
+        return value, self._gradient(s, re, im), re, im
 
     def _value_and_grad_tables(
         self, s: Positions, n_max: int
-    ) -> Tuple[Float[Array, ""], Positions]:
-        """Phase-table fast path: one block (unchunked) or two scans (chunked)."""
+    ) -> Tuple[Float[Array, ""], Positions, Float[Array, " m"], Float[Array, " m"]]:
+        """Phase-table fast path: one block (unchunked) or two scans (chunked).
+
+        Returns (Phi, dPhi/ds, Re rho, Im rho), rho being the table density the
+        gradient used (padding chunk rows beyond m dropped).
+        """
         m = self.n_vectors.shape[0]
         size = m if self.chunk_size is None else min(self.chunk_size, m)
         n_chunks = -(-m // size)
@@ -218,7 +250,8 @@ class StealthyEnergy(AbstractEnergy):
             ph = _phase_block(table, n_blk[0])
             rho = jnp.sum(ph, axis=1)  # complex sum: fuses far better than re/im
             value = jnp.sum(w_blk[0] * (rho.real**2 + rho.imag**2)) / self.volume
-            return value, pref * (coef_of(ph, w_blk[0], rho).T @ n_blk[0])
+            grad = pref * (coef_of(ph, w_blk[0], rho).T @ n_blk[0])
+            return value, grad, rho.real, rho.imag
 
         def rho_body(_: None, n_c: Array) -> Tuple[None, Array]:
             return None, jnp.sum(_phase_block(table, n_c), axis=1)
@@ -234,7 +267,36 @@ class StealthyEnergy(AbstractEnergy):
 
         init = jnp.zeros_like(s)
         acc, _ = jax.lax.scan(grad_body, init, (n_blk, w_blk, rho_blk))
-        return value, pref * acc
+        return value, pref * acc, re_blk.reshape(-1)[:m], im_blk.reshape(-1)[:m]
+
+    def hessian(self, s: Positions) -> Float[Array, "nd nd"]:
+        """Closed-form Hessian, flattened row-major to (n d, n d).
+
+        d^2 Phi / ds_ja ds_lb = (2 (2 pi)^2 / V) sum_k w_k n_ka n_kb
+        [cos th_kj cos th_kl + sin th_kj sin th_kl
+         - delta_jl (Re rho_k cos th_kj + Im rho_k sin th_kj)],
+        i.e. two (n, m) x (m, n) products per (a, b) pair: O(n^2 m d^2) work
+        and O(n m + n^2 d^2) memory, unlike autodiff (O(n^2 m d) memory).
+        """
+        require_float64(s, "s")
+        assert s.ndim == 2, "s must have shape (n, d)"
+        assert s.shape[1] == self.n_vectors.shape[1], "dimension mismatch"
+        n, d = s.shape
+        theta = _TWO_PI * (s @ self.n_vectors.T)  # (n, m)
+        cos, sin = jnp.cos(theta), jnp.sin(theta)
+        re, im = jnp.sum(cos, axis=0), jnp.sum(sin, axis=0)
+        pref = 2.0 * _TWO_PI**2 / self.volume
+        diag_core = re * cos + im * sin  # (n, m)
+        blocks = []
+        for a in range(d):
+            row = []
+            for b in range(d):
+                wab = self.weights * self.n_vectors[:, a] * self.n_vectors[:, b]
+                pair = (cos * wab) @ cos.T + (sin * wab) @ sin.T  # (n, n)
+                row.append(pref * (pair - jnp.diag(diag_core @ wab)))
+            blocks.append(jnp.stack(row, axis=-1))  # (n, n, d_b)
+        hess4 = jnp.stack(blocks, axis=1)  # (n, d_a, n, d_b)
+        return hess4.reshape(n * d, n * d)
 
     def _gradient(
         self, s: Positions, re: Float[Array, "m"], im: Float[Array, "m"]
@@ -325,7 +387,7 @@ def make_stealthy_energy(
     the CLI settings on an A100 and found tables 1.03x faster at chi = 0.35
     (M = 101) and 1.08x slower at chi = 0.45 (M = 128), an ambiguous result
     that defaults to trig (benchmarks/RESULTS.md, ruling R32). Both kernels
-    agree to 1e-9 in ensemble statistics (docs/parity.md).
+    agree to 1e-9 in ensemble statistics (checked during development).
 
     Raises
     ------

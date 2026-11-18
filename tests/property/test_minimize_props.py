@@ -17,6 +17,7 @@ Samuel J. Dawley
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
@@ -42,6 +43,7 @@ EVALS = st.sampled_from([40, 120])
 # ============================================================
 
 
+@pytest.mark.high
 @settings(deadline=None)
 @given(shape=SHAPES, seed=SEEDS, step=STEPS)
 @example(shape=(8, 2), seed=0, step=3e-2)
@@ -62,6 +64,7 @@ def test_descent_accepted_energy_monotone(
     assert np.all(np.isfinite(np.asarray(res.s)))
 
 
+@pytest.mark.high
 @settings(deadline=None)
 @given(shape=SHAPES, seed=SEEDS, evals=EVALS, step=STEPS)
 @example(shape=(8, 2), seed=1, evals=40, step=3e-2)
@@ -82,6 +85,7 @@ def test_relax_vmap_equals_loop_descent(
         np.testing.assert_allclose(out.energy[i], one.energy, rtol=RTOL_VMAP_E)
 
 
+@pytest.mark.high
 @settings(deadline=None)
 @given(shape=st.sampled_from([(8, 2), (12, 2)]), seed=SEEDS)
 @example(shape=(8, 2), seed=3)

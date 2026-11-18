@@ -2,7 +2,6 @@
 pdfs/
 .hypothesis/
 .venv/
-parity_reports/
 __pycache__/
 .coverage
 .mutmut-cache
@@ -14,7 +13,8 @@ slurm/*.out
 .coverage.*
 slurm-*.out
 
-# Experiment data (generated; never tracked)
-experiments/initial_conditions/
-experiments/trajectories/
-experiments/figures/
+# Experiment scripts, data and write-ups (local only; never tracked)
+experiments/
+
+# CLI quickstart outputs
+out/

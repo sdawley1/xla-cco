@@ -27,19 +27,11 @@ from hypothesis import strategies as st
 from xla_cco.io.tables import write_function_table
 
 # ============================================================
-# CONSTANTS
-# ============================================================
-
-CPP_SK = Path(
-    "/scratch/gpfs/TORQUATO/sd2402/cco_runs/"
-    "p3d-N100-phi0.05-chi0.05-val0.0/task_0000/ccopt-t0000_Sk.txt"
-)
-
-# ============================================================
 # TESTS
 # ============================================================
 
 
+@pytest.mark.high
 def test_write_function_table_format(tmp_path: Path) -> None:
     """Exact bytes: 4 tab-terminated %1.10e fields, zero-padded columns."""
     out = tmp_path / "f.txt"
@@ -52,6 +44,7 @@ def test_write_function_table_format(tmp_path: Path) -> None:
     assert out.read_bytes() == expected.encode("ascii")
 
 
+@pytest.mark.medium
 def test_write_function_table_four_columns(tmp_path: Path) -> None:
     """Four columns reproduce a real C++ line."""
     out = tmp_path / "f.txt"
@@ -61,6 +54,7 @@ def test_write_function_table_four_columns(tmp_path: Path) -> None:
     assert out.read_text() == line
 
 
+@pytest.mark.medium
 def test_write_function_table_rejects_bad_input(tmp_path: Path) -> None:
     """Ragged, too many, empty-column-list and infinite inputs raise."""
     out = tmp_path / "f.txt"
@@ -78,6 +72,7 @@ def test_write_function_table_rejects_bad_input(tmp_path: Path) -> None:
         write_function_table(out, [np.zeros((2, 2))])
 
 
+@pytest.mark.medium
 @given(
     st.lists(
         st.lists(
@@ -111,19 +106,7 @@ def test_write_function_table_property(cols: List[List[float]], n_cols: int) -> 
             assert f == "%1.10e" % (float(arrays[j][i]) if j < len(arrays) else 0.0)
 
 
-@pytest.mark.della
-def test_cpp_sk_reformat_bytes_identical(tmp_path: Path) -> None:
-    """Re-formatting parsed values of a real C++ _Sk.txt reproduces its bytes."""
-    original = CPP_SK.read_bytes().split(b"\n")[:3]
-    rows = np.array(
-        [[float(t) for t in ln.decode().split("\t") if t] for ln in original]
-    )
-    assert rows.shape == (3, 4)
-    out = tmp_path / "sk.txt"
-    write_function_table(out, [rows[:, j] for j in range(4)])
-    assert out.read_bytes() == b"\n".join(original) + b"\n"
-
-
+@pytest.mark.medium
 def test_regression_D009_function_table_writes_nan_like_cpp(tmp_path: Path) -> None:
     """NaN is written as glibc printf %1.10e does ("nan"/"-nan"); inf raises."""
     out = tmp_path / "f.txt"

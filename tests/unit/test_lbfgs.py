@@ -102,6 +102,7 @@ def _poisson(n: int, d: int, chi: float, seed: int = 0) -> Tuple[AbstractEnergy,
 # ============================================================
 
 
+@pytest.mark.high
 def test_lbfgs_spd_quadratic() -> None:
     """L-BFGS converges on a strictly convex quadratic (default 3 passes)."""
     energy = _quadratic()
@@ -111,6 +112,7 @@ def test_lbfgs_spd_quadratic() -> None:
     assert np.max(np.abs(np.asarray(res.s) - np.asarray(energy.c))) < 1e-8
 
 
+@pytest.mark.high
 def test_lbfgs_rescale_passes() -> None:
     """Three passes run with history reset: equal to three chained single passes."""
     energy, s0 = _poisson(16, 2, 0.25)
@@ -132,6 +134,7 @@ def test_lbfgs_rescale_passes() -> None:
     assert float(full.energy) > 1e-6  # short budget: far from roundoff chaos
 
 
+@pytest.mark.medium
 def test_lbfgs_eval_count_is_exact() -> None:
     """n_evals equals the number of energy.value_and_grad calls actually made."""
     counter = _Counter()
@@ -143,6 +146,7 @@ def test_lbfgs_eval_count_is_exact() -> None:
     assert counter.n == int(res.n_evals) > 3
 
 
+@pytest.mark.critical
 def test_lbfgs_reaches_ground_state() -> None:
     """Poisson d=2, N=64, chi=0.25 reaches Phi < 1e-20."""
     energy, s0 = _poisson(64, 2, 0.25)
@@ -152,6 +156,7 @@ def test_lbfgs_reaches_ground_state() -> None:
     assert float(energy(res.s)) < 1e-20  # re-evaluated at the wrapped output
 
 
+@pytest.mark.high
 def test_lbfgs_energy_and_grad_tol_end_the_run() -> None:
     """energy_tol / grad_tol stop all passes with their own status codes."""
     energy, s0 = _poisson(16, 2, 0.25)
@@ -161,6 +166,7 @@ def test_lbfgs_energy_and_grad_tol_end_the_run() -> None:
     assert int(res.status) == STATUS_GRAD_TOL and float(res.grad_norm) < 1e-3
 
 
+@pytest.mark.high
 def test_lbfgs_stagnation_and_linesearch_status() -> None:
     """Stagnation and line-search failure are reported, not shown as converged."""
     # at the exact minimum the line search succeeds without decrease -> stagnation
@@ -182,6 +188,7 @@ def test_lbfgs_stagnation_and_linesearch_status() -> None:
     assert int(short.status) == STATUS_BUDGET
 
 
+@pytest.mark.medium
 def test_result_dtypes_lbfgs() -> None:
     """Every RelaxResult leaf (with trajectory) is float64 or integer."""
     energy, s0 = _poisson(8, 2, 0.25)
@@ -193,6 +200,7 @@ def test_result_dtypes_lbfgs() -> None:
         assert leaf.dtype == np.float64 or np.issubdtype(leaf.dtype, np.integer)
 
 
+@pytest.mark.medium
 def test_lbfgs_trajectory_records_step_and_iteration() -> None:
     """Records iteration 0, r, 2r...; the step is the accepted line-search length."""
     energy, s0 = _poisson(16, 2, 0.25)
@@ -205,6 +213,7 @@ def test_lbfgs_trajectory_records_step_and_iteration() -> None:
     assert bool(jnp.all(jnp.diff(traj.energy) <= 0.0))
 
 
+@pytest.mark.medium
 def test_lbfgs_trajectory_records_wrapped_positions() -> None:
     """Records are wrapped into [0, 1) even when the iterate drifts outside."""
     energy, s0 = _poisson(16, 2, 0.25)
@@ -215,6 +224,7 @@ def test_lbfgs_trajectory_records_wrapped_positions() -> None:
     assert rec.min() >= 0.0 and rec.max() < 1.0
 
 
+@pytest.mark.medium
 def test_lbfgs_rejects_non_float64() -> None:
     """float32 input raises TypeError before any compute."""
     energy, _ = _poisson(8, 2, 0.25)
@@ -222,6 +232,7 @@ def test_lbfgs_rejects_non_float64() -> None:
         lbfgs(energy, jnp.zeros((8, 2), jnp.float32), LBFGSSettings())
 
 
+@pytest.mark.high
 def test_stagnation_counter_resets_on_progress() -> None:
     """Steady strict progress for > patience iterations is not STAGNATED."""
     n = 6
@@ -247,6 +258,7 @@ def test_stagnation_counter_resets_on_progress() -> None:
     assert int(res.status) in (STATUS_STAGNATED, STATUS_LINESEARCH_FAIL, STATUS_BUDGET)
 
 
+@pytest.mark.medium
 @settings(deadline=None)
 @given(st.lists(st.sampled_from([0.0, 1.0, 2.0, 3.0]), min_size=2, max_size=30))
 @example([3.0, 2.0, 2.0, 1.0, 1.0, 1.0, 0.0])
